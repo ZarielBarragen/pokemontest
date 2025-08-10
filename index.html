@@ -1,62 +1,76 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Poke Test</title>
+  <title>Poké Test Zone</title>
 
+  <!-- Your site styles (Game Boy UI etc.) -->
+  <link rel="stylesheet" href="./styles.css" />
+
+  <!-- Optional font used by the name tags; if you already import in CSS, you can remove these -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-
-  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <main class="main">
+
+  <!-- Authentication overlay -->
+  <section id="auth" class="overlay">
+    <form id="authForm" class="authBox">
+      <h2 id="authTitle">Sign up</h2>
+
+      <label for="authUser">Username</label>
+      <input id="authUser" name="username" autocomplete="username" spellcheck="false" />
+
+      <label for="authPass">Password</label>
+      <input id="authPass" name="password" type="password" autocomplete="current-password" />
+
+      <button id="authSubmit" type="submit" class="button8">Create account</button>
+      <div id="authErr" class="err"></div>
+    </form>
+
+    <!-- IMPORTANT: toggle is OUTSIDE the form and not a submit -->
+    <button id="authToggle" type="button" class="link8">
+      Have an account? Log in
+    </button>
+  </section>
+
+  <!-- Character select overlay -->
+  <section id="select" class="overlay hidden">
+    <h2>Select your character</h2>
+    <div id="charGrid" class="grid"></div>
+    <p class="hint">Hover for a blip • Click to choose</p>
+  </section>
+
+  <!-- Lobbies overlay -->
+  <section id="lobbies" class="overlay hidden">
+    <header class="row">
+      <h2>Lobbies</h2>
+      <div class="spacer"></div>
+      <button id="backToSelectBtn" class="button8">Back</button>
+    </header>
+
+    <div class="row">
+      <input id="newLobbyName" placeholder="Lobby name (optional)" />
+      <button id="createLobbyBtn" class="button8">Create lobby</button>
+      <button id="refreshLobbiesBtn" class="button8 ghost">Refresh</button>
+    </div>
+
+    <div id="lobbyList" class="grid"></div>
+    <p id="lobbyHint" class="hint">No lobbies yet. Create one!</p>
+  </section>
+
+  <!-- Game screen -->
+  <main class="screenWrap">
     <canvas id="game" width="960" height="640"></canvas>
   </main>
 
-  <!-- Auth -->
-  <div id="auth" class="auth-overlay">
-    <form id="authForm" autocomplete="off" class="card" style="max-width:420px;width:min(92vw,420px);">
-      <h2 id="authTitle">Sign up</h2>
-      <label>Username</label>
-      <input id="authUser" type="text" minlength="3" maxlength="16" required placeholder="e.g. spooky_sable" />
-      <label>Password</label>
-      <input id="authPass" type="password" minlength="6" required placeholder="••••••••" />
-      <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;">
-        <button id="authSubmit" type="submit" class="button8">Create account</button>
-        <button id="authToggle" type="button" class="button8">Already have an account? Log in</button>
-      </div>
-      <p id="authErr" class="auth-error"></p>
-    </form>
-  </div>
+  <noscript>
+    <p style="padding:1rem;color:#fff;background:#900">This app needs JavaScript enabled.</p>
+  </noscript>
 
-  <!-- Character select -->
-  <div id="select" class="hidden">
-    <div style="display:grid;gap:14px;place-items:center">
-      <h1>Pick your character</h1>
-      <div id="charGrid"></div>
-      <p>WASD / Arrows to move • E to hop • Esc to reselect</p>
-    </div>
-  </div>
-
-  <!-- Lobbies overlay -->
-  <div id="lobbies" class="hidden">
-    <div style="display:grid;gap:14px;place-items:center;max-width:min(1000px,92vw);width:100%;">
-      <h1>Join a lobby</h1>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
-        <input id="newLobbyName" class="card" style="padding:10px 12px;min-width:240px;" placeholder="Lobby name (optional)" />
-        <button id="createLobbyBtn" class="button8">Create lobby</button>
-        <button id="refreshLobbiesBtn" class="button8">Refresh</button>
-        <button id="backToSelectBtn" class="button8">Back</button>
-      </div>
-      <div id="lobbyList" style="display:grid;gap:12px;width:100%;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));"></div>
-      <p id="lobbyHint" style="opacity:.85;font-size:12px;text-align:center">No lobbies yet—create one!</p>
-    </div>
-  </div>
-
-  <script type="module" src="./net.js"></script>
+  <!-- App entry (imports net.js inside) -->
   <script type="module" src="./main.js"></script>
 </body>
 </html>
