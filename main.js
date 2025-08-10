@@ -166,7 +166,7 @@ const CHARACTERS = {
   }
 };
 
-// ------- Auth overlay wiring (unchanged) -------
+// ------- Auth overlay wiring -------
 const authEl   = document.getElementById("auth");
 const formEl   = document.getElementById("authForm");
 const userEl   = document.getElementById("authUser");
@@ -435,7 +435,7 @@ function generateMap(w, h){
       const x0 = 1 + Math.floor(Math.random()*(w-2));
       const len = 4 + Math.floor(Math.random()*(w-4));
       for (let x=x0; x<Math.min(w-1, x0+len); x++){
-        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yb][x] = true;
+        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true; // ✅ fixed yB
       }
     }
   }
