@@ -1,0 +1,152 @@
+/* ===== 8-bit Pokémon Vibe ===== */
+:root{
+  /* Game Boy-ish greens with a modern twist */
+  --bg-0:#0b1f12;     /* darkest */
+  --bg-1:#163a21;     /* dark */
+  --panel:#224f2c;    /* mid */
+  --panel-2:#2c6a3a;  /* mid+ */
+  --light:#9bbc0f;    /* GB light */
+  --mid:#8bac0f;      /* GB mid */
+  --accent:#ffcc00;   /* UI highlight */
+  --accent-2:#ff5d5d; /* danger/hover */
+  --text:#e9ffd6;
+
+  /* FX */
+  --scanline:rgba(0,0,0,.08);
+  --vignette:rgba(0,0,0,.25);
+  --shadow:rgba(0,0,0,.6);
+
+  --pad:14px;
+  --radius:0; /* keep it pixel-straight */
+}
+
+* { box-sizing:border-box; }
+html, body { height:100%; }
+body{
+  margin:0; color:var(--text);
+  font-family:"Press Start 2P","VT323",monospace;
+  letter-spacing:.5px;
+  background:
+    /* big soft vignette */
+    radial-gradient(120% 100% at 50% 50%, transparent 60%, var(--vignette) 100%),
+    /* checker/dither */
+    repeating-linear-gradient(45deg, var(--bg-0) 0 6px, var(--bg-1) 6px 12px);
+}
+
+/* Optional CRT scanlines—always on. Remove .crt if you don’t want it */
+body::after{
+  content:"";
+  position:fixed; inset:0; pointer-events:none;
+  background:
+    repeating-linear-gradient(to bottom, var(--scanline) 0 2px, transparent 2px 4px);
+  mix-blend-mode:multiply;
+}
+
+/* Layout wrapper (if you have one) */
+.main {
+  display:grid; place-items:center; min-height:100dvh;
+  padding:var(--pad);
+}
+
+/* ==== Canvas frame (your #game canvas) ==== */
+#game{
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: linear-gradient(180deg, #0e2717, #0c2114);
+  outline: none;
+  /* pixel bezel using stepped box-shadows */
+  box-shadow:
+    0 0 0 4px #04140b,
+    0 0 0 8px #113720,
+    0 0 0 12px #1a4a2b,
+    0 12px 0 12px rgba(0,0,0,.45);
+  border-radius: var(--radius);
+}
+
+/* ==== Character Select Overlay (#select) ==== */
+#select{
+  position:fixed; inset:0; z-index:10;
+  display:flex; align-items:center; justify-content:center;
+  padding:calc(var(--pad) * 1.2);
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.5), rgba(0,0,0,.65)),
+    radial-gradient(120% 100% at 50% 0%, transparent 30%, rgba(0,0,0,.4) 100%),
+    repeating-linear-gradient(45deg, rgba(255,255,255,.035) 0 6px, transparent 6px 12px);
+  backdrop-filter: blur(1px);
+}
+#select.hidden{ display:none; }
+
+/* Title & hint text inside the overlay (if present) */
+#select h1, #select p{
+  margin:0 0 16px; text-align:center;
+  text-shadow:0 2px 0 #0a2d1a, 0 0 10px rgba(155,188,15,.35);
+}
+
+/* ==== Character grid ==== */
+#charGrid{
+  display:grid; gap:14px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  width:min(1100px, 95vw);
+}
+
+/* ==== Character card buttons ==== */
+.card{
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+  cursor:pointer; border:none; background:transparent; color:var(--text);
+  padding:18px 14px; text-align:center;
+  text-transform:uppercase; letter-spacing:.6px;
+  transition: transform .06s ease-out, filter .06s ease-out;
+  /* pixel frame */
+  box-shadow:
+    0 0 0 3px #04140b,
+    0 0 0 6px #153f26,
+    0 6px 0 6px rgba(0,0,0,.45);
+  background:
+    linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+}
+.card img{
+  width:120px; height:120px; object-fit:contain; image-rendering:pixelated;
+  filter: drop-shadow(0 3px 0 rgba(0,0,0,.35));
+}
+.card span{
+  font-size:12px; line-height:1.2;
+  padding:6px 8px;
+  background:#0f2c19;
+  box-shadow: inset 0 0 0 2px #071b10;
+}
+.card:focus-visible{ outline:2px solid var(--accent); outline-offset:3px; }
+.card:hover{ transform: translateY(-2px); filter: saturate(1.2); }
+.card:active{ transform: translateY(1px); }
+
+/* Tiny helper badges (optional) */
+.badge{
+  display:inline-block; padding:4px 6px; font-size:10px;
+  background: var(--accent); color:#1b1500;
+  box-shadow:0 2px 0 #caa400, 0 0 0 2px #1b1500 inset;
+}
+
+/* ==== Little UI button style if you add more controls ==== */
+.button8{
+  display:inline-block; padding:10px 12px; color:#1b1500; background:var(--accent);
+  text-decoration:none; cursor:pointer; user-select:none;
+  box-shadow:
+    0 0 0 3px #6a5300 inset,
+    0 4px 0 0 #caa400,
+    0 8px 0 0 rgba(0,0,0,.35);
+}
+.button8:active{ transform: translateY(2px); box-shadow:
+  0 0 0 3px #6a5300 inset,
+  0 2px 0 0 #caa400,
+  0 4px 0 0 rgba(0,0,0,.35);
+}
+
+/* ==== Scrollbar (desktop) ==== */
+::-webkit-scrollbar{ height:10px; width:10px; }
+::-webkit-scrollbar-track{ background:#0e2a19; }
+::-webkit-scrollbar-thumb{ background:#1c4b2d; border:2px solid #0e2a19; }
+
+/* ==== Responsive niceties ==== */
+@media (max-width: 720px){
+  #charGrid{ grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); }
+  .card img{ width:100px; height:100px; }
+}

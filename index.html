@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PMD – Character Select</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas id="game" width="480" height="320"></canvas>
+
+  <!-- Character Select (built dynamically) -->
+  <div id="select" class="overlay">
+    <div class="panel">
+      <h1 class="title">Select Your Character</h1>
+      <div id="charGrid" class="grid"></div>
+      <p class="note">Move: WASD/Arrows • G = grid • B = bbox • Esc = reselect</p>
+    </div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
