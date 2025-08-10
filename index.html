@@ -5,20 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Poke Test</title>
 
-  <!-- Pixel UI font -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
-  <!-- Your stylesheet (contains the 8-bit/GB look) -->
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="main">
-    <!-- Big centered canvas -->
     <canvas id="game" width="960" height="640"></canvas>
   </main>
 
-  <!-- Auth overlay -->
+  <!-- Auth -->
   <div id="auth" class="auth-overlay">
     <form id="authForm" autocomplete="off" class="card" style="max-width:420px;width:min(92vw,420px);">
       <h2 id="authTitle">Sign up</h2>
@@ -34,7 +31,7 @@
     </form>
   </div>
 
-  <!-- Character select overlay (populated by main.js) -->
+  <!-- Character select -->
   <div id="select" class="hidden">
     <div style="display:grid;gap:14px;place-items:center">
       <h1>Pick your character</h1>
@@ -43,7 +40,21 @@
     </div>
   </div>
 
-  <!-- Scripts as ES modules -->
+  <!-- Lobbies overlay -->
+  <div id="lobbies" class="hidden">
+    <div style="display:grid;gap:14px;place-items:center;max-width:min(1000px,92vw);width:100%;">
+      <h1>Join a lobby</h1>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+        <input id="newLobbyName" class="card" style="padding:10px 12px;min-width:240px;" placeholder="Lobby name (optional)" />
+        <button id="createLobbyBtn" class="button8">Create lobby</button>
+        <button id="refreshLobbiesBtn" class="button8">Refresh</button>
+        <button id="backToSelectBtn" class="button8">Back</button>
+      </div>
+      <div id="lobbyList" style="display:grid;gap:12px;width:100%;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));"></div>
+      <p id="lobbyHint" style="opacity:.85;font-size:12px;text-align:center">No lobbies yet—create one!</p>
+    </div>
+  </div>
+
   <script type="module" src="./net.js"></script>
   <script type="module" src="./main.js"></script>
 </body>

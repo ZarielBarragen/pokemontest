@@ -1,37 +1,172 @@
-// main.js — game, textures, SFX, auth/login (session-only), realtime multiplayer
+// main.js — character select → lobby list → join/create → shared map play
 
-// ========== Online: imports + setup ==========
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
 
-let localUsername = null;   // from Firebase profile displayName
-let selectedKey = null;     // character key chosen on select
+let localUsername = null;
+let selectedKey = null;
+let lobbyUnsub = null;
 
-// Create an auth overlay if it doesn't exist
-function ensureAuthOverlay(){
-  if (document.getElementById("auth")) return;
-  const wrap = document.createElement("div");
-  wrap.id = "auth";
-  wrap.className = "auth-overlay";
-  wrap.innerHTML = `
-    <form id="authForm" autocomplete="off" class="card" style="max-width:420px; width:min(92vw,420px);">
-      <h2 id="authTitle">Sign up</h2>
-      <label>Username</label>
-      <input id="authUser" type="text" minlength="3" maxlength="16" required placeholder="e.g. spooky_sable"/>
-      <label>Password</label>
-      <input id="authPass" type="password" minlength="6" required placeholder="••••••••"/>
-      <div style="display:flex; gap:10px; justify-content:center; margin-top:12px;">
-        <button id="authSubmit" type="submit" class="button8">Create account</button>
-        <button id="authToggle" type="button" class="button8" style="background:#9bbc0f;color:#0c1200;">Already have an account? Log in</button>
-      </div>
-      <p id="authErr" class="auth-error" style="min-height:1.5em;text-align:center;color:#ff8a8a;"></p>
-    </form>
-  `;
-  document.body.appendChild(wrap);
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+const overlaySelect  = document.getElementById("select");
+const gridEl         = document.getElementById("charGrid");
+const overlayLobbies = document.getElementById("lobbies");
+const lobbyListEl    = document.getElementById("lobbyList");
+const lobbyHintEl    = document.getElementById("lobbyHint");
+const newLobbyNameEl = document.getElementById("newLobbyName");
+const createLobbyBtn = document.getElementById("createLobbyBtn");
+const refreshBtn     = document.getElementById("refreshLobbiesBtn");
+const backBtn        = document.getElementById("backToSelectBtn");
+
+// ------- Settings -------
+const TILE = 48;
+const MAP_SCALE = 3;
+const SPEED = TILE * 2.6;
+const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12;
+const IDLE_INTERVAL = 5;
+const HOP_HEIGHT = Math.round(TILE * 0.55);
+const BASELINE_NUDGE_Y = 0;
+
+const GAP_W       = Math.round(TILE * 0.38);
+const EDGE_DARK   = "#06161b";
+const EDGE_DARKER = "#031013";
+const EDGE_LIP    = "rgba(255,255,255,0.08)";
+
+const TEX = { floor: null, wall: null };
+loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{});
+loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
+
+const CANVAS_W = 960, CANVAS_H = 640;
+canvas.width  = CANVAS_W;
+canvas.height = CANVAS_H;
+
+const keys = new Set();
+
+const state = {
+  x:0, y:0, dir:"down",
+  moving:false, prevMoving:false,
+  frameTime:0, frameStep:0, frameOrder: makePingPong(4),
+  anim:"stand", idleAccum:0,
+  scale:3,
+  walkImg:null, idleImg:null, hopImg:null,
+  animMeta:{walk:null, idle:null, hop:null},
+  hopping:false,
+  hop:{sx:0,sy:0,tx:0,ty:0,t:0,dur:0,z:0},
+  map:null, cam:{x:0,y:0},
+  ready:false,
+  showGrid:false, showBoxes:false
+};
+
+// ------- SFX -------
+function makeAudioPool(url, poolSize = 6){
+  const pool = Array.from({length: poolSize}, () => new Audio(url));
+  return {
+    play(vol = 1, rate = 1){
+      const a = pool.find(ch => ch.paused) || pool[0].cloneNode(true);
+      a.volume = vol; a.playbackRate = rate;
+      try{ a.currentTime = 0; }catch{}
+      a.play().catch(()=>{});
+    }
+  };
 }
-ensureAuthOverlay();
+const sfx = {
+  hover:  makeAudioPool("assets/sfx/blipHover.wav"),
+  select: makeAudioPool("assets/sfx/blipSelect.wav"),
+  jump:   makeAudioPool("assets/sfx/jump.wav"),
+};
 
-// Auth wiring
+// ------- Characters -------
+function makeRowDirGrid() {
+  return {
+    down:{row:0,start:0}, downRight:{row:1,start:0}, right:{row:2,start:0}, upRight:{row:3,start:0},
+    up:{row:4,start:0},   upLeft:{row:5,start:0},    left:{row:6,start:0},   downLeft:{row:7,start:0},
+  };
+}
+const CHARACTERS = {
+  sableye:{ name:"Sableye", base:"assets/Sableye/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:8, rows:4, framesPerDir:4, dirGrid:{
+      down:{row:0,start:0}, downRight:{row:0,start:4}, right:{row:1,start:0}, upRight:{row:1,start:4},
+      up:{row:2,start:0}, upLeft:{row:2,start:4}, left:{row:3,start:0}, downLeft:{row:3,start:4},
+    }},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  ditto:{ name:"Ditto", base:"assets/Ditto/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:5, rows:8, framesPerDir:5, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  hisuianZoroark:{ name:"Hisuian Zoroark", base:"assets/Hisuian Zoroark/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  hypno:{ name:"Hypno", base:"assets/Hypno/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  mimikyu:{ name:"Mimikyu", base:"assets/Mimikyu/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  quagsire:{ name:"Quagsire", base:"assets/Quagsire/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  smeargle:{ name:"Smeargle", base:"assets/Smeargle/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  corviknight:{ name:"Corviknight", base:"assets/Corviknight/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  cacturne:{ name:"Cacturne", base:"assets/Cacturne/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  decidueye:{ name:"Decidueye", base:"assets/Decidueye/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  blaziken:{ name:"Blaziken", base:"assets/Blaziken/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  snorlax:{ name:"Snorlax", base:"assets/Snorlax/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  chandelure:{ name:"Chandelure", base:"assets/Chandelure/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  emoleon:{ name:"Emoleon", base:"assets/Emoleon/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  jolteon:{ name:"Jolteon", base:"assets/Jolteon/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  }
+};
+
+// ------- Auth overlay wiring (unchanged) -------
 const authEl   = document.getElementById("auth");
 const formEl   = document.getElementById("authForm");
 const userEl   = document.getElementById("authUser");
@@ -54,18 +189,13 @@ formEl.addEventListener("submit", async (e)=>{
   const u = userEl.value.trim().toLowerCase();
   const p = passEl.value;
   if (!/^[a-z0-9_]{3,16}$/.test(u)) { errEl.textContent = "3–16 chars a–z, 0–9, _"; return; }
-  try{
-    if (authMode === "signup") await net.signUp(u, p);
-    else await net.logIn(u, p);
-  } catch (err){
-    errEl.textContent = (err.code || "Auth error").replace("auth/", "");
-  }
+  try{ if (authMode === "signup") await net.signUp(u, p); else await net.logIn(u, p); }
+  catch (err){ errEl.textContent = (err.code || "Auth error").replace("auth/",""); }
 });
 
-// Quick sign-out button (top-right)
 const logoutBtn = document.createElement("button");
 logoutBtn.textContent = "Sign out";
-logoutBtn.className = "button8";
+logoutBtn.className = "button8 signout";
 logoutBtn.style.position = "fixed";
 logoutBtn.style.top = "12px";
 logoutBtn.style.right = "12px";
@@ -79,27 +209,139 @@ net.onAuth(user=>{
     localUsername = user.displayName || (user.email ? user.email.split("@")[0] : "player");
     authEl.classList.add("hidden");
     logoutBtn.style.display = "inline-block";
-    overlay.classList.remove("hidden");   // show character select
+    overlaySelect.classList.remove("hidden");   // go to character select
   } else {
     logoutBtn.style.display = "none";
     authEl.classList.remove("hidden");
-    overlay.classList.add("hidden");
+    overlaySelect.classList.add("hidden");
+    overlayLobbies.classList.add("hidden");
   }
 });
 
-// ========== Small helpers ==========
-function makeRowDirGrid() {
-  return {
-    down:      { row: 0, start: 0 },
-    downRight: { row: 1, start: 0 },
-    right:     { row: 2, start: 0 },
-    upRight:   { row: 3, start: 0 },
-    up:        { row: 4, start: 0 },
-    upLeft:    { row: 5, start: 0 },
-    left:      { row: 6, start: 0 },
-    downLeft:  { row: 7, start: 0 },
-  };
+// ------- Character select -------
+function buildSelectUI(){
+  gridEl.innerHTML = "";
+  Object.entries(CHARACTERS).forEach(([key, c])=>{
+    const btn = document.createElement("button");
+    btn.className = "card"; btn.dataset.key = key;
+
+    const img = document.createElement("img");
+    img.src = c.base + c.portrait; img.alt = c.name;
+
+    const span = document.createElement("span");
+    span.textContent = c.name;
+
+    btn.append(img, span);
+
+    const hoverBlip = () => sfx.hover.play(0.35, 1 + (Math.random()*0.06 - 0.03));
+    btn.addEventListener("mouseenter", hoverBlip);
+    btn.addEventListener("focus", hoverBlip);
+
+    btn.onclick = () => {
+      selectedKey = key;
+      sfx.select.play(0.5);
+      overlaySelect.classList.add("hidden");
+      showLobbies();
+    };
+
+    gridEl.appendChild(btn);
+  });
 }
+buildSelectUI();
+
+// ------- Lobbies UI -------
+function renderLobbyList(list){
+  lobbyListEl.innerHTML = "";
+  lobbyHintEl.style.display = list.length ? "none" : "block";
+
+  list.forEach(lob=>{
+    const wrap = document.createElement("button");
+    wrap.className = "card";
+    wrap.style.textAlign = "left";
+    wrap.style.alignItems = "flex-start";
+
+    wrap.innerHTML = `
+      <div style="display:grid;gap:6px;">
+        <div><strong>${lob.name}</strong></div>
+        <div style="font-size:11px;opacity:.9">Players: ${lob.playersCount}</div>
+        <div style="font-size:11px;opacity:.8">Map: ${lob.w || "?"}×${lob.h || "?"}</div>
+      </div>
+    `;
+    wrap.onclick = () => joinLobbyFlow(lob.id);
+    lobbyListEl.appendChild(wrap);
+  });
+}
+
+function showLobbies(){
+  overlayLobbies.classList.remove("hidden");
+  if (lobbyUnsub) try{ lobbyUnsub(); }catch{}
+  lobbyUnsub = net.subscribeLobbies(renderLobbyList);
+}
+backBtn.onclick = ()=>{
+  overlayLobbies.classList.add("hidden");
+  overlaySelect.classList.remove("hidden");
+};
+refreshBtn.onclick = ()=>{
+  if (lobbyUnsub) { try{ lobbyUnsub(); }catch{} lobbyUnsub = null; }
+  lobbyUnsub = net.subscribeLobbies(renderLobbyList);
+};
+createLobbyBtn.onclick = async ()=>{
+  try{
+    const cfg = CHARACTERS[selectedKey];
+    if (!cfg) return;
+
+    // generate and store a new map for this lobby
+    const visW = Math.floor(canvas.width / TILE);
+    const visH = Math.floor(canvas.height / TILE);
+    const map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
+
+    const name = (newLobbyNameEl.value || "").trim();
+    const lobbyId = await net.createLobby(name, map);
+    await net.joinLobby(lobbyId);
+    await startWithCharacter(cfg, map); // use the generated map
+    overlayLobbies.classList.add("hidden");
+  } catch(e){
+    console.error(e);
+    alert("Failed to create lobby. Check console.");
+  }
+};
+
+async function joinLobbyFlow(lobbyId){
+  try{
+    const cfg = CHARACTERS[selectedKey];
+    if (!cfg) return;
+    const lobby = await net.getLobby(lobbyId);
+    await net.joinLobby(lobbyId);
+    await startWithCharacter(cfg, lobby.map); // use shared map
+    overlayLobbies.classList.add("hidden");
+  } catch(e){
+    console.error(e);
+    alert("Failed to join lobby.");
+  }
+}
+
+// ------- Input -------
+window.addEventListener("keydown", e=>{
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+  if (e.key === "Escape"){
+    // Leave current lobby and go back to character select
+    remote.clear();
+    net.leaveLobby().catch(()=>{});
+    state.ready = false;
+    overlayLobbies.classList.add("hidden");
+    overlaySelect.classList.remove("hidden");
+    return;
+  }
+  if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
+  if (e.key.toLowerCase() === "b") state.showBoxes = !state.showBoxes;
+  if (e.key.toLowerCase() === "e") tryStartHop();
+  keys.add(e.key);
+});
+window.addEventListener("keyup", e=> keys.delete(e.key));
+
+// ------- Remote players cache -------
+const remote = new Map();
+const charCache = new Map();
 function makePingPong(n){
   const f = [...Array(n).keys()];
   const b = [...Array(Math.max(n-2,0)).keys()].reverse().map(i => i+1);
@@ -108,242 +350,56 @@ function makePingPong(n){
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
 
-// ========== SFX ==========
-function makeAudioPool(url, poolSize = 6){
-  const pool = Array.from({length: poolSize}, () => new Audio(url));
-  return {
-    play(vol = 1, rate = 1){
-      const a = pool.find(ch => ch.paused) || pool[0].cloneNode(true);
-      a.volume = vol; a.playbackRate = rate;
-      try { a.currentTime = 0; } catch {}
-      a.play().catch(()=>{});
+// Load assets for a character key
+async function loadCharacterAssets(key){
+  if (charCache.has(key)) return charCache.get(key);
+  const cfg = CHARACTERS[key]; if (!cfg) return null;
+  const [walk, idle, hop] = await Promise.all([
+    loadImage(cfg.base + cfg.walk.sheet),
+    loadImage(cfg.base + cfg.idle.sheet),
+    loadImage(cfg.base + cfg.hop.sheet).catch(()=>null)
+  ]);
+  const assets = {
+    cfg, walk, idle, hop,
+    meta: {
+      walk: sliceSheet(walk, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir),
+      idle: sliceSheet(idle, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir),
+      hop:  hop ? sliceSheet(hop,  cfg.hop.cols,  cfg.hop.rows,  cfg.hop.dirGrid,  cfg.hop.framesPerDir) : {}
     }
   };
+  charCache.set(key, assets);
+  return assets;
 }
-const sfx = {
-  hover:  makeAudioPool("assets/sfx/blipHover.wav"),
-  select: makeAudioPool("assets/sfx/blipSelect.wav"),
-  jump:   makeAudioPool("assets/sfx/jump.wav"),
-};
 
-// ========== Characters ==========
-const CHARACTERS = {
-  sableye: {
-    name: "Sableye",
-    base: "assets/Sableye/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: {
-      sheet: "walk.png", cols: 8, rows: 4, framesPerDir: 4,
-      dirGrid: {
-        down:      { row: 0, start: 0 },
-        downRight: { row: 0, start: 4 },
-        right:     { row: 1, start: 0 },
-        upRight:   { row: 1, start: 4 },
-        up:        { row: 2, start: 0 },
-        upLeft:    { row: 2, start: 4 },
-        left:      { row: 3, start: 0 },
-        downLeft:  { row: 3, start: 4 },
-      }
+// Subscribe to players inside the current lobby
+function startNetListeners(){
+  const unsub = net.subscribePlayers({
+    onAdd: async (uid, data)=>{
+      const assets = await loadCharacterAssets(data.character);
+      if (!assets) return;
+      remote.set(uid, {
+        username: data.username, character: data.character,
+        x:data.x, y:data.y, dir:data.dir, anim:data.anim || "stand",
+        scale: assets.cfg.scale ?? 3,
+        frameTime: 0, frameStep: 0,
+        assets
+      });
     },
-    idle: { sheet: "Idle-Anim.png", cols: 2, rows: 8, framesPerDir: 2, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
+    onChange: (uid, data)=>{
+      const r = remote.get(uid); if (!r) return;
+      r.x = data.x ?? r.x; r.y = data.y ?? r.y;
+      r.dir = data.dir ?? r.dir; r.anim = data.anim ?? r.anim;
+      if (data.character && data.character !== r.character){
+        loadCharacterAssets(data.character).then(a=>{ r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3; });
+      }
+      r.username = data.username ?? r.username;
+    },
+    onRemove: (uid)=> remote.delete(uid)
+  });
+  return unsub;
+}
 
-  ditto: {
-    name: "Ditto",
-    base: "assets/Ditto/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 5, rows: 8, framesPerDir: 5, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 2, rows: 8, framesPerDir: 2, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  hisuianZoroark: {
-    name: "Hisuian Zoroark",
-    base: "assets/Hisuian Zoroark/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  hypno: {
-    name: "Hypno",
-    base: "assets/Hypno/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 8, rows: 8, framesPerDir: 8, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  mimikyu: {
-    name: "Mimikyu",
-    base: "assets/Mimikyu/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  quagsire: {
-    name: "Quagsire",
-    base: "assets/Quagsire/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 7, rows: 8, framesPerDir: 7, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  smeargle: {
-    name: "Smeargle",
-    base: "assets/Smeargle/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 2, rows: 8, framesPerDir: 2, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  corviknight: {
-    name: "Corviknight",
-    base: "assets/Corviknight/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 6, rows: 8, framesPerDir: 6, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  cacturne: {
-    name: "Cacturne",
-    base: "assets/Cacturne/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 6, rows: 8, framesPerDir: 6, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  decidueye: {
-    name: "Decidueye",
-    base: "assets/Decidueye/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  blaziken: {
-    name: "Blaziken",
-    base: "assets/Blaziken/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 2, rows: 8, framesPerDir: 2, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  snorlax: {
-    name: "Snorlax",
-    base: "assets/Snorlax/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 6, rows: 8, framesPerDir: 6, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  // NEW
-  chandelure: {
-    name: "Chandelure",
-    base: "assets/Chandelure/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 8, rows: 8, framesPerDir: 8, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 8, rows: 8, framesPerDir: 8, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  emoleon: {
-    name: "Empoleon",
-    base: "assets/Empoleon/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  },
-
-  jolteon: {
-    name: "Jolteon",
-    base: "assets/Jolteon/",
-    portrait: "portrait.png",
-    scale: 3,
-    walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
-    idle: { sheet: "Idle-Anim.png", cols: 2, rows: 8, framesPerDir: 2, dirGrid: makeRowDirGrid() },
-    hop:  { sheet: "Hop-Anim.png",  cols:10, rows: 8, framesPerDir:10, dirGrid: makeRowDirGrid() }
-  }
-};
-
-// ========== Game settings ==========
-const TILE = 48;                 // larger tiles
-const MAP_SCALE = 3;
-const SPEED = TILE * 2.6;        // ~2.6 tiles/sec
-const WALK_FPS = 10;
-const IDLE_FPS = 6;
-const HOP_FPS  = 12;
-const IDLE_INTERVAL = 5;
-const HOP_HEIGHT = Math.round(TILE * 0.55);
-const BASELINE_NUDGE_Y = 0;
-
-// Gap visuals
-const GAP_W       = Math.round(TILE * 0.38);
-const EDGE_DARK   = "#06161b";
-const EDGE_DARKER = "#031013";
-const EDGE_LIP    = "rgba(255,255,255,0.08)";
-
-// ========== Textures ==========
-const TEX = { floor: null, wall: null };
-loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{});
-loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
-
-// ========== Canvas & state ==========
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
-ctx.imageSmoothingEnabled = false;
-
-const CANVAS_W = 960;
-const CANVAS_H = 640;
-canvas.width  = CANVAS_W;
-canvas.height = CANVAS_H;
-
-const keys = new Set();
-const overlay = document.getElementById("select");
-const gridEl = document.getElementById("charGrid");
-
-const state = {
-  x: 0, y: 0, dir: "down",
-  moving: false, prevMoving: false,
-  frameTime: 0, frameStep: 0, frameOrder: makePingPong(4),
-  anim: "stand", idleAccum: 0,
-  scale: 3,
-  walkImg: null, idleImg: null, hopImg: null,
-  animMeta: { walk: null, idle: null, hop: null },
-  hopping: false,
-  hop: { sx:0, sy:0, tx:0, ty:0, t:0, dur:0, z:0 },
-  map: null, cam: { x: 0, y: 0 },
-  showGrid: false, showBoxes: false,
-  ready: false
-};
-
-// ========== Random map ==========
+// ------- Map generation / movement -------
 function generateMap(w, h){
   const walls = Array.from({length:h}, (_,y)=>
     Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1)));
@@ -379,7 +435,7 @@ function generateMap(w, h){
       const x0 = 1 + Math.floor(Math.random()*(w-2));
       const len = 4 + Math.floor(Math.random()*(w-4));
       for (let x=x0; x<Math.min(w-1, x0+len); x++){
-        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true;
+        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yb][x] = true;
       }
     }
   }
@@ -393,10 +449,7 @@ function generateMap(w, h){
 
   return { w, h, walls, edgesV, edgesH, spawn:{x:sx, y:sy} };
 }
-
-function canWalk(tx,ty, map){
-  return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx];
-}
+function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
 function tileCenter(tx,ty){ return {x: tx*TILE + TILE/2, y: ty*TILE + TILE/2}; }
 function updateCamera(){
   const mapPxW = state.map.w * TILE;
@@ -423,111 +476,21 @@ function isOverGapWorld(x, y){
   return false;
 }
 
-// ========== Character select UI ==========
-function buildSelectUI(){
-  gridEl.innerHTML = "";
-  Object.entries(CHARACTERS).forEach(([key, c]) => {
-    const btn = document.createElement("button");
-    btn.className = "card"; btn.dataset.key = key;
-
-    const img = document.createElement("img");
-    img.src = c.base + c.portrait; img.alt = c.name;
-
-    const span = document.createElement("span");
-    span.textContent = c.name;
-
-    btn.append(img, span);
-
-    const hoverBlip = () => sfx.hover.play(0.35, 1 + (Math.random()*0.06 - 0.03));
-    btn.addEventListener("mouseenter", hoverBlip);
-    btn.addEventListener("focus", hoverBlip);
-
-    btn.onclick = () => { selectedKey = key; sfx.select.play(0.5); startWithCharacter(c); };
-
-    gridEl.appendChild(btn);
-  });
-}
-buildSelectUI();
-
-// Reselect with Esc
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    overlay.classList.remove("hidden");
-    state.ready = false;
-  }
-});
-
-// Keys
-window.addEventListener("keydown", e => {
-  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
-  if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
-  if (e.key.toLowerCase() === "b") state.showBoxes = !state.showBoxes;
-  if (e.key.toLowerCase() === "e") tryStartHop();
-  keys.add(e.key);
-});
-window.addEventListener("keyup", e => keys.delete(e.key));
-
-// ========== Online: remote players cache/listeners ==========
-const remote = new Map();      // uid -> { username, character, x,y,dir,anim,assets,... }
-const charCache = new Map();   // character key -> { cfg, walk,idle,hop, meta:{...} }
-
-async function loadCharacterAssets(key){
-  if (charCache.has(key)) return charCache.get(key);
-  const cfg = CHARACTERS[key];
-  if (!cfg) return null;
-  const [walk, idle, hop] = await Promise.all([
-    loadImage(cfg.base + cfg.walk.sheet),
-    loadImage(cfg.base + cfg.idle.sheet),
-    loadImage(cfg.base + cfg.hop.sheet).catch(()=>null)
-  ]);
-  const assets = {
-    cfg, walk, idle, hop,
-    meta: {
-      walk: sliceSheet(walk, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir),
-      idle: sliceSheet(idle, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir),
-      hop:  hop ? sliceSheet(hop,  cfg.hop.cols,  cfg.hop.rows,  cfg.hop.dirGrid,  cfg.hop.framesPerDir) : {}
-    }
-  };
-  charCache.set(key, assets);
-  return assets;
-}
-function startNetListeners(){
-  net.subscribePlayers({
-    onAdd: async (uid, data)=>{
-      const assets = await loadCharacterAssets(data.character);
-      if (!assets) return;
-      remote.set(uid, {
-        username: data.username, character: data.character,
-        x:data.x, y:data.y, dir:data.dir, anim:data.anim || "stand",
-        scale: assets.cfg.scale ?? 3,
-        frameTime: 0, frameStep: 0,
-        assets
-      });
-    },
-    onChange: (uid, data)=>{
-      const r = remote.get(uid); if (!r) return;
-      r.x = data.x ?? r.x; r.y = data.y ?? r.y;
-      r.dir = data.dir ?? r.dir; r.anim = data.anim ?? r.anim;
-      if (data.character && data.character !== r.character){
-        loadCharacterAssets(data.character).then(a=>{ r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3; });
-      }
-      r.username = data.username ?? r.username;
-    },
-    onRemove: (uid)=> remote.delete(uid)
-  });
-}
-
-// ========== Boot selected character ==========
-async function startWithCharacter(cfg){
+// ------- Boot character inside a lobby map -------
+async function startWithCharacter(cfg, map){
   state.ready = false;
-  state.animMeta = { walk: {}, idle: {}, hop: {} };
+  state.animMeta = { walk:{}, idle:{}, hop:{} };
   state.scale = cfg.scale ?? 3;
 
-  const visW = Math.floor(canvas.width / TILE);
-  const visH = Math.floor(canvas.height / TILE);
-  state.map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
+  // Use shared map (from lobby), or generate if missing
+  if (!map){
+    const visW = Math.floor(canvas.width / TILE);
+    const visH = Math.floor(canvas.height / TILE);
+    map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
+  }
+  state.map = map;
 
-  try {
+  try{
     const [walkRes, idleRes, hopRes] = await Promise.allSettled([
       loadImage(cfg.base + cfg.walk.sheet),
       loadImage(cfg.base + cfg.idle.sheet),
@@ -541,30 +504,22 @@ async function startWithCharacter(cfg){
     state.idleImg = idleRes.value;
     state.hopImg  = (hopRes.status === "fulfilled") ? hopRes.value : null;
 
-    state.animMeta.walk = sliceSheet(
-      state.walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir
-    );
-    state.animMeta.idle = sliceSheet(
-      state.idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir
-    );
-    state.animMeta.hop  = state.hopImg
-      ? sliceSheet(state.hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir)
-      : {};
+    state.animMeta.walk = sliceSheet(state.walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir);
+    state.animMeta.idle = sliceSheet(state.idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir);
+    state.animMeta.hop  = state.hopImg ? sliceSheet(state.hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {};
 
-    const c = tileCenter(state.map.spawn.x, state.map.spawn.y);
-    state.x = c.x; state.y = c.y;
-    state.dir = "down";
-    state.anim = "stand";
-    state.hopping = false;
-
+    // spawn near lobby spawn (slight random pixel offset for uniqueness)
+    const spawn = tileCenter(map.spawn.x, map.spawn.y);
+    state.x = spawn.x + (Math.random()*8 - 4);
+    state.y = spawn.y + (Math.random()*8 - 4);
+    state.dir = "down"; state.anim = "stand"; state.hopping = false;
     state.frameOrder = makePingPong(cfg.walk.framesPerDir);
     state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
 
     updateCamera();
-    overlay.classList.add("hidden");
     state.ready = true;
 
-    // Spawn online + start listeners
+    // Spawn online + subscribe to lobby players
     try {
       await net.spawnLocal({
         username: localUsername || "player",
@@ -578,18 +533,83 @@ async function startWithCharacter(cfg){
     }
   } catch (err){
     console.error(err);
-    alert(`Failed to load ${cfg.name}. Check file paths or run with a local server.`);
+    alert(`Failed to load ${cfg.name}. Check assets/ paths or server.`);
   }
 }
 
-// ========== Hop control ==========
+// ------- Input & animation -------
 const DIR_VECS = {
   down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
   up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1],
 };
+function getInputVec(){
+  const up = keys.has("w") || keys.has("ArrowUp");
+  const down = keys.has("s") || keys.has("ArrowDown");
+  const left = keys.has("a") || keys.has("ArrowLeft");
+  const right = keys.has("d") || keys.has("ArrowRight");
+  let vx=0, vy=0;
+  if (up) vy -= 1; if (down) vy += 1;
+  if (left) vx -= 1; if (right) vx += 1;
+  if (vx && vy){ const inv = 1/Math.sqrt(2); vx *= inv; vy *= inv; }
+  return {vx, vy};
+}
+function vecToDir(vx, vy){
+  if (!vx && !vy) return state.dir;
+  if (vx>0 && vy===0) return "right";
+  if (vx<0 && vy===0) return "left";
+  if (vy>0 && vx===0) return "down";
+  if (vy<0 && vx===0) return "up";
+  if (vx>0 && vy>0)   return "downRight";
+  if (vx<0 && vy>0)   return "downLeft";
+  if (vx<0 && vy<0)   return "upLeft";
+  if (vx>0 && vy<0)   return "upRight";
+  return state.dir;
+}
+
+function tryMove(dt, vx, vy){
+  const map = state.map; if (!map) return;
+  const stepX = vx * SPEED * dt;
+  const stepY = vy * SPEED * dt;
+
+  if (stepX){
+    const oldX = state.x;
+    let newX = clamp(oldX + stepX, TILE*0.5, map.w*TILE - TILE*0.5);
+    const ty = Math.floor(state.y / TILE);
+    const tx0 = Math.floor(oldX / TILE);
+    const tx1 = Math.floor(newX / TILE);
+
+    if (tx1 !== tx0){
+      if (!canWalk(tx1, ty, map)){
+        newX = oldX;
+      } else {
+        const xB = stepX > 0 ? tx0+1 : tx0;
+        if (!state.hopping && map.edgesV[ty][xB]) newX = oldX;
+      }
+    }
+    state.x = newX;
+  }
+
+  if (stepY){
+    const oldY = state.y;
+    let newY = clamp(oldY + stepY, TILE*0.5, map.h*TILE - TILE*0.5);
+    const tx = Math.floor(state.x / TILE);
+    const ty0 = Math.floor(oldY / TILE);
+    const ty1 = Math.floor(newY / TILE);
+
+    if (ty1 !== ty0){
+      if (!canWalk(tx, ty1, map)){
+        newY = oldY;
+      } else {
+        const yB = stepY > 0 ? ty0+1 : ty0;
+        if (!state.hopping && map.edgesH[yB][tx]) newY = oldY;
+      }
+    }
+    state.y = newY;
+  }
+}
+
 function tryStartHop(){
   if (!state.ready || state.hopping) return;
-
   const cfg = CHARACTERS[selectedKey];
   const strip = state.animMeta.hop?.[state.dir];
   if (!cfg?.hop || !state.hopImg || !strip || strip.length === 0) return;
@@ -600,8 +620,7 @@ function tryStartHop(){
 
   const tx0 = Math.floor(state.x / TILE);
   const ty0 = Math.floor(state.y / TILE);
-  let tx = tx0 + dx;
-  let ty = ty0 + dy;
+  let tx = tx0 + dx, ty = ty0 + dy;
   if (!canWalk(tx,ty,state.map)){ tx = tx0; ty = ty0; }
 
   const start = {x: state.x, y: state.y};
@@ -612,13 +631,11 @@ function tryStartHop(){
 
   state.anim = "hop";
   state.frameOrder = [...Array(cfg.hop.framesPerDir).keys()];
-  state.frameStep = 0;
-  state.frameTime = 0;
+  state.frameStep = 0; state.frameTime = 0;
   state.hop = { sx:start.x, sy:start.y, tx:end.x, ty:end.y, t:0, dur: cfg.hop.framesPerDir / HOP_FPS, z:0 };
   state.idleAccum = 0;
 }
 
-// ========== Sheet slicer (auto-trim + feet anchor) ==========
 function sliceSheet(img, cols, rows, dirGrid, framesPerDir){
   const CELL_W = Math.floor(img.width / cols);
   const CELL_H = Math.floor(img.height / rows);
@@ -663,130 +680,60 @@ function analyzeBitmap(sheet, sx, sy, sw, sh){
   return { sx:sx+minX, sy:sy+minY, sw:cropW, sh:cropH, ox:anchorX-minX, oy:anchorY-minY };
 }
 
-// ========== Input & direction ==========
-function getInputVec(){
-  const up = keys.has("w") || keys.has("ArrowUp");
-  const down = keys.has("s") || keys.has("ArrowDown");
-  const left = keys.has("a") || keys.has("ArrowLeft");
-  const right = keys.has("d") || keys.has("ArrowRight");
-  let vx=0, vy=0;
-  if (up) vy -= 1; if (down) vy += 1;
-  if (left) vx -= 1; if (right) vx += 1;
-  if (vx && vy){ const inv = 1/Math.sqrt(2); vx *= inv; vy *= inv; }
-  return {vx, vy};
-}
-function vecToDir(vx, vy){
-  if (!vx && !vy) return state.dir;
-  if (vx>0 && vy===0) return "right";
-  if (vx<0 && vy===0) return "left";
-  if (vy>0 && vx===0) return "down";
-  if (vy<0 && vx===0) return "up";
-  if (vx>0 && vy>0)   return "downRight";
-  if (vx<0 && vy>0)   return "downLeft";
-  if (vx<0 && vy<0)   return "upLeft";
-  if (vx>0 && vy<0)   return "upRight";
-  return state.dir;
-}
-
-// ========== Movement with collision ==========
-function tryMove(dt, vx, vy){
-  const map = state.map; if (!map) return;
-  const stepX = vx * SPEED * dt;
-  const stepY = vy * SPEED * dt;
-
-  if (stepX){
-    const oldX = state.x;
-    let newX = clamp(oldX + stepX, TILE*0.5, map.w*TILE - TILE*0.5);
-    const ty = Math.floor(state.y / TILE);
-    const tx0 = Math.floor(oldX / TILE);
-    const tx1 = Math.floor(newX / TILE);
-
-    if (tx1 !== tx0){
-      if (!canWalk(tx1, ty, map)){
-        newX = oldX;
-      } else {
-        const xB = stepX > 0 ? tx0+1 : tx0;
-        if (!state.hopping && map.edgesV[ty][xB]) newX = oldX;
-      }
-    }
-    state.x = newX;
+function currentFrame(){
+  let meta, strip, idx;
+  if (state.anim === "walk"){
+    meta = state.animMeta.walk; strip = meta?.[state.dir];
+    idx = state.frameOrder[state.frameStep % state.frameOrder.length] % strip.length; return strip[idx];
   }
-
-  if (stepY){
-    const oldY = state.y;
-    let newY = clamp(oldY + stepY, TILE*0.5, map.h*TILE - TILE*0.5);
-    const tx = Math.floor(state.x / TILE);
-    const ty0 = Math.floor(oldY / TILE);
-    const ty1 = Math.floor(newY / TILE);
-
-    if (ty1 !== ty0){
-      if (!canWalk(tx, ty1, map)){
-        newY = oldY;
-      } else {
-        const yB = stepY > 0 ? ty0+1 : ty0;
-        if (!state.hopping && map.edgesH[yB][tx]) newY = oldY;
-      }
-    }
-    state.y = newY;
+  if (state.anim === "idle"){
+    meta = state.animMeta.idle; strip = meta?.[state.dir];
+    idx = state.frameOrder[state.frameStep % state.frameOrder.length] % strip.length; return strip[idx];
   }
+  if (state.anim === "hop"){
+    meta = state.animMeta.hop; strip = meta?.[state.dir];
+    idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
+  }
+  meta = state.animMeta.idle; strip = meta?.[state.dir]; return strip ? strip[0] : null;
 }
 
-// ========== Update & draw ==========
-const BG_FLOOR = "#08242b";
-const BG_WALL  = "#12333c";
-
+// ------- Update / Draw -------
 function update(dt){
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
 
-  if (!state.hopping) {
+  if (!state.hopping){
     state.dir = vecToDir(vx, vy);
 
     if (state.moving){
       tryMove(dt, vx, vy);
       const wFrames = CHARACTERS[selectedKey].walk.framesPerDir;
       if (state.anim !== "walk"){
-        state.anim = "walk";
-        state.frameOrder = makePingPong(wFrames);
+        state.anim = "walk"; state.frameOrder = makePingPong(wFrames);
         state.frameStep = 0; state.frameTime = 0;
       }
       state.idleAccum = 0;
       state.frameTime += dt;
       const tpf = 1 / WALK_FPS;
-      while (state.frameTime >= tpf){
-        state.frameTime -= tpf;
-        state.frameStep = (state.frameStep + 1) % state.frameOrder.length;
-      }
+      while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep = (state.frameStep + 1) % state.frameOrder.length; }
     } else {
       const iFrames = CHARACTERS[selectedKey].idle.framesPerDir;
 
       if (state.prevMoving && !state.moving){
-        state.anim = "stand";
-        state.frameStep = 0; state.frameTime = 0;
-        state.idleAccum = 0;
+        state.anim = "stand"; state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
       }
-
       if (state.anim !== "idle") state.idleAccum += dt;
-
       if (state.anim !== "idle" && state.idleAccum >= IDLE_INTERVAL){
-        state.anim = "idle";
-        state.frameOrder = makePingPong(iFrames);
-        state.frameStep = 0; state.frameTime = 0;
+        state.anim = "idle"; state.frameOrder = makePingPong(iFrames); state.frameStep = 0; state.frameTime = 0;
       }
-
       if (state.anim === "idle"){
         state.frameTime += dt;
         const tpf = 1 / IDLE_FPS;
         while (state.frameTime >= tpf){
-          state.frameTime -= tpf;
-          state.frameStep += 1;
+          state.frameTime -= tpf; state.frameStep += 1;
           if (state.frameStep >= state.frameOrder.length){
-            state.anim = "stand";
-            state.frameStep = 0;
-            state.idleAccum -= IDLE_INTERVAL;
-            if (state.idleAccum < 0) state.idleAccum = 0;
-            break;
+            state.anim = "stand"; state.frameStep = 0; state.idleAccum -= IDLE_INTERVAL; if (state.idleAccum < 0) state.idleAccum = 0; break;
           }
         }
       }
@@ -795,74 +742,33 @@ function update(dt){
   } else {
     const cfg = CHARACTERS[selectedKey];
     state.hop.t = Math.min(1, state.hop.t + dt / state.hop.dur);
-
-    const p = state.hop.t;
-    const e = 0.5 - 0.5 * Math.cos(Math.PI * p);
-
+    const p = state.hop.t, e = 0.5 - 0.5 * Math.cos(Math.PI * p);
     state.x = lerp(state.hop.sx, state.hop.tx, e);
     state.y = lerp(state.hop.sy, state.hop.ty, e);
-
     state.hop.z = Math.sin(Math.PI * p) * (HOP_HEIGHT * state.scale);
-
     state.frameTime += dt;
     const tpf = 1 / HOP_FPS;
-    while (state.frameTime >= tpf){
-      state.frameTime -= tpf;
-      state.frameStep += 1;
-    }
-
+    while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep += 1; }
     if (state.hop.t >= 1){
-      state.hopping = false;
-      state.anim = state.moving ? "walk" : "stand";
-      state.frameStep = 0; state.frameTime = 0;
-      state.idleAccum = 0;
-      updateCamera();
+      state.hopping = false; state.anim = state.moving ? "walk" : "stand";
+      state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0; updateCamera();
     }
   }
 
-  // Broadcast current state (throttled inside net)
   if (selectedKey && state.ready){
-    net.updateState({
-      x: state.x, y: state.y, dir: state.dir, anim: state.anim, character: selectedKey
-    });
+    net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey });
   }
 }
 
-function currentFrame(){
-  let meta, strip, idx;
-
-  if (state.anim === "walk"){
-    meta = state.animMeta.walk;
-    strip = meta?.[state.dir];
-    idx = state.frameOrder[state.frameStep % state.frameOrder.length] % strip.length;
-    return strip[idx];
-  }
-  if (state.anim === "idle"){
-    meta = state.animMeta.idle;
-    strip = meta?.[state.dir];
-    idx = state.frameOrder[state.frameStep % state.frameOrder.length] % strip.length;
-    return strip[idx];
-  }
-  if (state.anim === "hop"){
-    meta = state.animMeta.hop;
-    strip = meta?.[state.dir];
-    idx = Math.min(state.frameStep, strip.length - 1);
-    return strip[idx];
-  }
-  meta = state.animMeta.idle;
-  strip = meta?.[state.dir];
-  return strip ? strip[0] : null;
-}
+const BG_FLOOR = "#08242b", BG_WALL  = "#12333c";
 
 function drawMap(){
   const m = state.map; if (!m) return;
-
   const xs = Math.max(0, Math.floor(state.cam.x / TILE));
   const ys = Math.max(0, Math.floor(state.cam.y / TILE));
   const xe = Math.min(m.w-1, Math.ceil((state.cam.x + canvas.width ) / TILE));
   const ye = Math.min(m.h-1, Math.ceil((state.cam.y + canvas.height) / TILE));
 
-  // floor
   if (TEX.floor){
     for (let y=ys; y<=ye; y++){
       for (let x=xs; x<=xe; x++){
@@ -870,44 +776,32 @@ function drawMap(){
           x*TILE - state.cam.x, y*TILE - state.cam.y, TILE, TILE);
       }
     }
-  } else {
-    ctx.fillStyle = BG_FLOOR;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-  }
+  } else { ctx.fillStyle = BG_FLOOR; ctx.fillRect(0,0,canvas.width,canvas.height); }
 
-  // walls
   for (let y=ys; y<=ye; y++){
     for (let x=xs; x<=xe; x++){
       if (!m.walls[y][x]) continue;
-      const dx = x*TILE - state.cam.x;
-      const dy = y*TILE - state.cam.y;
+      const dx = x*TILE - state.cam.x, dy = y*TILE - state.cam.y;
       if (TEX.wall){
         ctx.drawImage(TEX.wall, 0,0, TEX.wall.width, TEX.wall.height, dx, dy, TILE, TILE);
-      } else {
-        ctx.fillStyle = BG_WALL;
-        ctx.fillRect(dx, dy, TILE, TILE);
-      }
+      } else { ctx.fillStyle = BG_WALL; ctx.fillRect(dx, dy, TILE, TILE); }
     }
   }
 
-  // trenches (vertical)
   for (let y=ys; y<=ye; y++){
     for (let xb=Math.max(1,xs); xb<=Math.min(m.w-1, xe); xb++){
       if (!m.edgesV[y][xb]) continue;
-      const cx = xb*TILE - state.cam.x;
-      const y0 = y*TILE - state.cam.y;
+      const cx = xb*TILE - state.cam.x, y0 = y*TILE - state.cam.y;
       ctx.fillStyle = EDGE_DARK;   ctx.fillRect(Math.floor(cx - GAP_W/2), y0, GAP_W, TILE);
       ctx.fillStyle = EDGE_DARKER; ctx.fillRect(Math.floor(cx - GAP_W/6), y0, Math.ceil(GAP_W/3), TILE);
       ctx.fillStyle = EDGE_LIP;    ctx.fillRect(Math.floor(cx - GAP_W/2) - 1, y0, 1, TILE);
                                    ctx.fillRect(Math.floor(cx + GAP_W/2),     y0, 1, TILE);
     }
   }
-  // trenches (horizontal)
   for (let yb=Math.max(1,ys); yb<=Math.min(m.h-1,ye); yb++){
     for (let x=xs; x<=xe; x++){
       if (!m.edgesH[yb][x]) continue;
-      const cy = yb*TILE - state.cam.y;
-      const x0 = x*TILE - state.cam.x;
+      const cy = yb*TILE - state.cam.y, x0 = x*TILE - state.cam.x;
       ctx.fillStyle = EDGE_DARK;   ctx.fillRect(x0, Math.floor(cy - GAP_W/2), TILE, GAP_W);
       ctx.fillStyle = EDGE_DARKER; ctx.fillRect(x0, Math.floor(cy - GAP_W/6), TILE, Math.ceil(GAP_W/3));
       ctx.fillStyle = EDGE_LIP;    ctx.fillRect(x0, Math.floor(cy - GAP_W/2) - 1, TILE, 1);
@@ -916,14 +810,11 @@ function drawMap(){
   }
 }
 
-// ---- Name tag placed above sprite head (frame/top-aware) ----
 function drawNameTagAbove(name, frame, wx, wy, z, scale){
   if (!frame) return;
-  // world Y of the sprite's top edge for this frame:
   const topWorldY = wy - frame.oy * scale - (z || 0);
   const sx = Math.round(wx - state.cam.x);
-  const sy = Math.round(topWorldY - state.cam.y) - 8; // margin above head
-
+  const sy = Math.round(topWorldY - state.cam.y) - 8;
   ctx.font = '12px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.lineWidth = 3;
@@ -936,7 +827,7 @@ function drawNameTagAbove(name, frame, wx, wy, z, scale){
 function draw(){
   drawMap();
 
-  // --- remote players first
+  // Remote players
   for (const r of remote.values()){
     const assets = r.assets; if (!assets) continue;
     const meta = r.anim === "walk" ? assets.meta.walk
@@ -953,25 +844,22 @@ function draw(){
     const idx = order[r.frameStep % order.length] % strip.length;
     if (r.frameTime >= 1/10){ r.frameTime = 0; r.frameStep = (r.frameStep+1)%order.length; }
 
-    const f = strip[idx];
-    const scale = r.scale;
+    const f = strip[idx], scale = r.scale;
     const dw = f.sw * scale, dh = f.sh * scale;
     const dx = Math.round(r.x - f.ox * scale - state.cam.x);
     const dy = Math.round(r.y - f.oy * scale - state.cam.y);
     const src = r.anim === "walk" ? assets.walk : (r.anim === "hop" && assets.hop ? assets.hop : assets.idle);
     ctx.drawImage(src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
-    // Name tag above head (no hop z simulated for remotes)
     drawNameTagAbove(r.username || "player", f, r.x, r.y, 0, r.scale);
   }
 
-  // --- local player
+  // Local
   const f = currentFrame();
   if (state.ready && f){
     const scale = state.scale;
-    const dw = f.sw * scale, dh = f.sh * scale;
     const z = state.hopping ? state.hop.z : 0;
-
+    const dw = f.sw * scale, dh = f.sh * scale;
     const dx = Math.round(state.x - f.ox * scale - state.cam.x);
     const dy = Math.round(state.y - f.oy * scale - state.cam.y - z);
 
@@ -981,18 +869,14 @@ function draw(){
     const shh     = Math.max(3, Math.floor( 5 * scale * squash));
     ctx.globalAlpha = overGap ? 0.08 : 0.25;
     ctx.beginPath();
-    ctx.ellipse(Math.round(state.x - state.cam.x), Math.round(state.y - state.cam.y - 1),
-                shw, shh, 0, 0, Math.PI*2);
+    ctx.ellipse(Math.round(state.x - state.cam.x), Math.round(state.y - state.cam.y - 1), shw, shh, 0, 0, Math.PI*2);
     ctx.fillStyle = "#000";
     ctx.fill();
     ctx.globalAlpha = 1;
 
-    const src =
-      state.anim === "hop"  ? state.hopImg  :
-      state.anim === "walk" ? state.walkImg : state.idleImg;
+    const src = state.anim === "hop" ? state.hopImg : (state.moving ? state.walkImg : state.idleImg);
     ctx.drawImage(src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
-    // Name tag above head (accounts for hop height z)
     drawNameTagAbove(localUsername || "you", f, state.x, state.y, z, state.scale);
 
     if (state.showBoxes){
@@ -1004,21 +888,18 @@ function draw(){
   }
 
   if (state.showGrid){
-    const src =
-      state.anim === "hop"  ? state.hopImg  :
-      state.anim === "walk" ? state.walkImg : state.idleImg;
+    const src = state.anim === "hop" ? state.hopImg : (state.moving ? state.walkImg : state.idleImg);
     if (src){
       const maxW = Math.min(canvas.width, src.width);
       const scale = maxW / src.width;
       ctx.globalAlpha = .9;
-      ctx.drawImage(src, 0,0, src.width, src.height,
-                    0,0, src.width*scale, src.height*scale);
+      ctx.drawImage(src, 0,0, src.width, src.height, 0,0, src.width*scale, src.height*scale);
       ctx.globalAlpha = 1;
     }
   }
 }
 
-// ========== Loop ==========
+// ------- Loop -------
 let last = 0;
 function loop(ts){
   const dt = Math.min(0.033, (ts - last)/1000);
@@ -1029,9 +910,9 @@ function loop(ts){
 }
 requestAnimationFrame(loop);
 
-// ========== Resource loader ==========
+// ------- Utils -------
 function loadImage(src){
-  return new Promise((res, rej) => {
+  return new Promise((res, rej)=>{
     const im = new Image();
     im.onload = () => res(im);
     im.onerror = rej;
