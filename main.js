@@ -154,7 +154,7 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  emoleon:{ name:"Empoleon", base:"assets/Empoleon/", portrait:"portrait.png", scale:3,
+  emoleon:{ name:"Emoleon", base:"assets/Emoleon/", portrait:"portrait.png", scale:3,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
@@ -299,16 +299,9 @@ createLobbyBtn.onclick = async ()=>{
     const visH = Math.floor(canvas.height / TILE);
     const map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
 
-    console.log("[Lobby] creating…");
     const lobbyId = await net.createLobby((newLobbyNameEl.value||"").trim(), map);
-    console.log("[Lobby] created:", lobbyId);
-
     await net.joinLobby(lobbyId);
-    console.log("[Lobby] joined:", lobbyId);
-
     await startWithCharacter(cfg, map);
-    console.log("[Lobby] game started");
-
     overlayLobbies.classList.add("hidden");
   } catch(e){
     console.error("Create lobby failed:", e);
@@ -393,13 +386,22 @@ function startNetListeners(){
         x:data.x, y:data.y, dir:data.dir, anim:data.anim || "stand",
         scale: assets.cfg.scale ?? 3,
         frameTime: 0, frameStep: 0,
+        idlePlaying: data.anim === "idle",   // 🔸 track one-shot idle
         assets
       });
     },
     onChange: (uid, data)=>{
       const r = remote.get(uid); if (!r) return;
       r.x = data.x ?? r.x; r.y = data.y ?? r.y;
-      r.dir = data.dir ?? r.dir; r.anim = data.anim ?? r.anim;
+      r.dir = data.dir ?? r.dir;
+
+      // 🔸 Edge-detect idle so it plays once per trigger
+      if (typeof data.anim === "string" && data.anim !== r.anim){
+        r.anim = data.anim;
+        if (r.anim === "idle"){ r.idlePlaying = true; r.frameTime = 0; r.frameStep = 0; }
+        else { r.idlePlaying = false; r.frameTime = 0; r.frameStep = 0; }
+      }
+
       if (data.character && data.character !== r.character){
         loadCharacterAssets(data.character).then(a=>{ r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3; });
       }
@@ -422,7 +424,7 @@ function generateMap(w, h){
     const rx = 1 + Math.floor(Math.random()*(w-rw-2));
     const ry = 1 + Math.floor(Math.random()*(h-rh-2));
     for (let y=ry; y<ry+rh; y++){
-      for (let x=rx; x<rx+rw; x++){
+      for (let x=rx; x<w && x<rx+rw; x++){
         walls[y][x] = true;
       }
     }
@@ -748,6 +750,7 @@ function update(dt){
     }
     updateCamera();
   } else {
+    // 🔧 Camera now follows while hopping
     const cfg = CHARACTERS[selectedKey];
     state.hop.t = Math.min(1, state.hop.t + dt / state.hop.dur);
     const p = state.hop.t, e = 0.5 - 0.5 * Math.cos(Math.PI * p);
@@ -757,9 +760,10 @@ function update(dt){
     state.frameTime += dt;
     const tpf = 1 / HOP_FPS;
     while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep += 1; }
+    updateCamera(); // <- follow during hop
     if (state.hop.t >= 1){
       state.hopping = false; state.anim = state.moving ? "walk" : "stand";
-      state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0; updateCamera();
+      state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
     }
   }
 
@@ -846,19 +850,31 @@ function draw(){
 
     r.frameTime += 1/60;
 
-    // ✅ FIX: Build order with helper (no iterator.reverse) and guard length
+    // Build order once-per-anim type
     const frames = r.anim === "walk" ? assets.cfg.walk.framesPerDir
                  : r.anim === "hop"  ? (assets.cfg.hop?.framesPerDir || 1)
                  : assets.cfg.idle.framesPerDir;
-
     const order = makePingPong(Math.max(frames, 1));
-    const idx = order.length
-      ? order[r.frameStep % order.length] % strip.length
-      : 0;
 
-    if (r.frameTime >= 1/10){
-      r.frameTime = 0;
-      if (order.length) r.frameStep = (r.frameStep+1) % order.length;
+    // 🔸 For remote IDLE: play only once per trigger, then hold first frame
+    let idx = 0;
+    const shouldAdvance =
+      (r.anim === "walk") ||
+      (r.anim === "hop")  ||
+      (r.anim === "idle" && r.idlePlaying);
+
+    if (shouldAdvance && order.length){
+      idx = order[r.frameStep % order.length] % strip.length;
+      if (r.frameTime >= 1/10){
+        r.frameTime = 0;
+        r.frameStep = (r.frameStep + 1) % order.length;
+        if (r.anim === "idle" && r.idlePlaying && r.frameStep === 0){
+          r.idlePlaying = false; // finished one cycle
+        }
+      }
+    } else {
+      // hold a still idle/stand frame
+      idx = 0;
     }
 
     const f = strip[idx], scale = r.scale;
