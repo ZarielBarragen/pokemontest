@@ -286,30 +286,27 @@ refreshBtn.onclick = ()=>{
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 };
 
-// ---- Create lobby (more robust + visible progress) ----
+// ---- Create lobby (progress + timeout surfaced) ----
 createLobbyBtn.onclick = async ()=>{
   const btnLabel = createLobbyBtn.textContent;
   createLobbyBtn.disabled = true;
   createLobbyBtn.textContent = "Creating…";
   try{
-    // must have a character
     const cfg = CHARACTERS[selectedKey];
     if (!cfg) throw new Error("Pick a character first");
 
-    // generate + store a new map in the lobby doc
     const visW = Math.floor(canvas.width / TILE);
     const visH = Math.floor(canvas.height / TILE);
     const map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
 
-    const name = (newLobbyNameEl.value || "").trim();
     console.log("[Lobby] creating…");
-    const lobbyId = await net.createLobby(name, map);
+    const lobbyId = await net.createLobby((newLobbyNameEl.value||"").trim(), map);
     console.log("[Lobby] created:", lobbyId);
 
     await net.joinLobby(lobbyId);
     console.log("[Lobby] joined:", lobbyId);
 
-    await startWithCharacter(cfg, map); // use the generated map immediately
+    await startWithCharacter(cfg, map);
     console.log("[Lobby] game started");
 
     overlayLobbies.classList.add("hidden");
@@ -328,7 +325,7 @@ async function joinLobbyFlow(lobbyId){
     if (!cfg) { alert("Pick a character first"); return; }
     const lobby = await net.getLobby(lobbyId);
     await net.joinLobby(lobbyId);
-    await startWithCharacter(cfg, lobby.map); // use shared map
+    await startWithCharacter(cfg, lobby.map);
     overlayLobbies.classList.add("hidden");
   } catch(e){
     console.error("Join lobby failed:", e);
@@ -340,7 +337,6 @@ async function joinLobbyFlow(lobbyId){
 window.addEventListener("keydown", e=>{
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
   if (e.key === "Escape"){
-    // Leave current lobby and go back to character select
     remote.clear();
     net.leaveLobby().catch(()=>{});
     state.ready = false;
@@ -366,6 +362,7 @@ function makePingPong(n){
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
 
+// Load assets for a character key
 async function loadCharacterAssets(key){
   if (charCache.has(key)) return charCache.get(key);
   const cfg = CHARACTERS[key]; if (!cfg) return null;
@@ -449,7 +446,7 @@ function generateMap(w, h){
       const x0 = 1 + Math.floor(Math.random()*(w-2));
       const len = 4 + Math.floor(Math.random()*(w-4));
       for (let x=x0; x<Math.min(w-1, x0+len); x++){
-        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true; // fixed yB
+        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true;
       }
     }
   }
@@ -474,7 +471,6 @@ function updateCamera(){
 function isOverGapWorld(x, y){
   const m = state.map; if (!m) return false;
   const ty = Math.floor(y / TILE);
-  const tx = Math.floor(x / TILE);
   const xbCandidates = [Math.round(x / TILE), Math.round(x / TILE) - 1];
   for (const xb of xbCandidates){
     if (ty >= 0 && ty < m.h && xb >= 1 && xb < m.w){
@@ -483,7 +479,8 @@ function isOverGapWorld(x, y){
   }
   const ybCandidates = [Math.round(y / TILE), Math.round(y / TILE) - 1];
   for (const yb of ybCandidates){
-    if (tx >= 0 && tx < m.w && yb >= 1 && yb < m.h){
+    if (yb >= 1 && yb < m.h){
+      const tx = Math.floor(x / TILE);
       if (m.edgesH[yb][tx] && Math.abs(y - yb*TILE) < GAP_W * 0.5) return true;
     }
   }
