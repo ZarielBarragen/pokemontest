@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Poké Test Zone</title>
 
-  <!-- Your site styles (Game Boy UI etc.) -->
+  <!-- Keep using your existing stylesheet -->
   <link rel="stylesheet" href="./styles.css" />
 
-  <!-- Optional font used by the name tags; if you already import in CSS, you can remove these -->
+  <!-- Name tag font (safe to keep; remove if you already import in CSS) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -28,12 +28,12 @@
 
       <button id="authSubmit" type="submit" class="button8">Create account</button>
       <div id="authErr" class="err"></div>
-    </form>
 
-    <!-- IMPORTANT: toggle is OUTSIDE the form and not a submit -->
-    <button id="authToggle" type="button" class="link8">
-      Have an account? Log in
-    </button>
+      <!-- Only change here: make the toggle a non-submit button -->
+      <button id="authToggle" type="button" class="link8">
+        Have an account? Log in
+      </button>
+    </form>
   </section>
 
   <!-- Character select overlay -->
@@ -48,13 +48,13 @@
     <header class="row">
       <h2>Lobbies</h2>
       <div class="spacer"></div>
-      <button id="backToSelectBtn" class="button8">Back</button>
+      <button id="backToSelectBtn" class="button8" type="button">Back</button>
     </header>
 
     <div class="row">
       <input id="newLobbyName" placeholder="Lobby name (optional)" />
-      <button id="createLobbyBtn" class="button8">Create lobby</button>
-      <button id="refreshLobbiesBtn" class="button8 ghost">Refresh</button>
+      <button id="createLobbyBtn" class="button8" type="button">Create lobby</button>
+      <button id="refreshLobbiesBtn" class="button8 ghost" type="button">Refresh</button>
     </div>
 
     <div id="lobbyList" class="grid"></div>
@@ -70,7 +70,7 @@
     <p style="padding:1rem;color:#fff;background:#900">This app needs JavaScript enabled.</p>
   </noscript>
 
-  <!-- App entry (imports net.js inside) -->
+  <!-- App entry -->
   <script type="module" src="./main.js"></script>
 </body>
 </html>
