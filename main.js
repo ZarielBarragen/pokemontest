@@ -1,5 +1,4 @@
 // main.js — character select → lobby list → join/create → shared map play
-
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
 
@@ -154,7 +153,7 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  emoleon:{ name:"Emoleon", base:"assets/Emoleon/", portrait:"portrait.png", scale:3,
+  emoleon:{ name:"Empoleon", base:"assets/Empoleon/", portrait:"portrait.png", scale:3,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
@@ -209,7 +208,7 @@ net.onAuth(user=>{
     localUsername = user.displayName || (user.email ? user.email.split("@")[0] : "player");
     authEl.classList.add("hidden");
     logoutBtn.style.display = "inline-block";
-    overlaySelect.classList.remove("hidden");   // go to character select
+    overlaySelect.classList.remove("hidden");
   } else {
     logoutBtn.style.display = "none";
     authEl.classList.remove("hidden");
@@ -386,7 +385,7 @@ function startNetListeners(){
         x:data.x, y:data.y, dir:data.dir, anim:data.anim || "stand",
         scale: assets.cfg.scale ?? 3,
         frameTime: 0, frameStep: 0,
-        idlePlaying: data.anim === "idle",   // 🔸 track one-shot idle
+        idlePlaying: data.anim === "idle",
         assets
       });
     },
@@ -395,11 +394,11 @@ function startNetListeners(){
       r.x = data.x ?? r.x; r.y = data.y ?? r.y;
       r.dir = data.dir ?? r.dir;
 
-      // 🔸 Edge-detect idle so it plays once per trigger
+      // Edge-detect anim changes
       if (typeof data.anim === "string" && data.anim !== r.anim){
         r.anim = data.anim;
-        if (r.anim === "idle"){ r.idlePlaying = true; r.frameTime = 0; r.frameStep = 0; }
-        else { r.idlePlaying = false; r.frameTime = 0; r.frameStep = 0; }
+        r.frameTime = 0; r.frameStep = 0;
+        r.idlePlaying = (r.anim === "idle");
       }
 
       if (data.character && data.character !== r.character){
@@ -640,7 +639,7 @@ function tryStartHop(){
   sfx.jump.play(0.6, 1 + (Math.random()*0.08 - 0.04));
 
   state.anim = "hop";
-  state.frameOrder = [...Array(cfg.hop.framesPerDir).keys()];
+  state.frameOrder = [...Array(cfg.hop.framesPerDir).keys()]; // linear
   state.frameStep = 0; state.frameTime = 0;
   state.hop = { sx:start.x, sy:start.y, tx:end.x, ty:end.y, t:0, dur: cfg.hop.framesPerDir / HOP_FPS, z:0 };
   state.idleAccum = 0;
@@ -708,7 +707,10 @@ function currentFrame(){
 }
 
 // ------- Update / Draw -------
+let frameDt = 1/60; // shared dt for remote animation pacing
+
 function update(dt){
+  frameDt = dt;
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
@@ -750,8 +752,7 @@ function update(dt){
     }
     updateCamera();
   } else {
-    // 🔧 Camera now follows while hopping
-    const cfg = CHARACTERS[selectedKey];
+    // Camera follows while hopping
     state.hop.t = Math.min(1, state.hop.t + dt / state.hop.dur);
     const p = state.hop.t, e = 0.5 - 0.5 * Math.cos(Math.PI * p);
     state.x = lerp(state.hop.sx, state.hop.tx, e);
@@ -760,7 +761,7 @@ function update(dt){
     state.frameTime += dt;
     const tpf = 1 / HOP_FPS;
     while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep += 1; }
-    updateCamera(); // <- follow during hop
+    updateCamera();
     if (state.hop.t >= 1){
       state.hopping = false; state.anim = state.moving ? "walk" : "stand";
       state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
@@ -848,40 +849,42 @@ function draw(){
     const strip = meta[r.dir] || meta.down || Object.values(meta)[0];
     if (!strip || !strip.length) continue;
 
-    r.frameTime += 1/60;
-
-    // Build order once-per-anim type
+    // Advance remote animation using real dt and per-anim FPS
     const frames = r.anim === "walk" ? assets.cfg.walk.framesPerDir
                  : r.anim === "hop"  ? (assets.cfg.hop?.framesPerDir || 1)
                  : assets.cfg.idle.framesPerDir;
-    const order = makePingPong(Math.max(frames, 1));
+    const fps = r.anim === "walk" ? WALK_FPS : r.anim === "hop" ? HOP_FPS : IDLE_FPS;
+    const order = (r.anim === "hop") ? [...Array(Math.max(frames,1)).keys()] // linear for hops
+                                     : makePingPong(Math.max(frames,1));
 
-    // 🔸 For remote IDLE: play only once per trigger, then hold first frame
-    let idx = 0;
     const shouldAdvance =
       (r.anim === "walk") ||
       (r.anim === "hop")  ||
       (r.anim === "idle" && r.idlePlaying);
 
+    let idx = 0;
     if (shouldAdvance && order.length){
-      idx = order[r.frameStep % order.length] % strip.length;
-      if (r.frameTime >= 1/10){
-        r.frameTime = 0;
+      r.frameTime += frameDt;
+      const tpf = 1 / fps;
+      while (r.frameTime >= tpf){
+        r.frameTime -= tpf;
         r.frameStep = (r.frameStep + 1) % order.length;
         if (r.anim === "idle" && r.idlePlaying && r.frameStep === 0){
-          r.idlePlaying = false; // finished one cycle
+          r.idlePlaying = false; // one-shot finished
         }
       }
+      idx = order[r.frameStep % order.length] % strip.length;
     } else {
-      // hold a still idle/stand frame
-      idx = 0;
+      idx = 0; // hold still on stand/idle-after-one-shot
     }
 
     const f = strip[idx], scale = r.scale;
     const dw = f.sw * scale, dh = f.sh * scale;
     const dx = Math.round(r.x - f.ox * scale - state.cam.x);
     const dy = Math.round(r.y - f.oy * scale - state.cam.y);
-    const src = r.anim === "walk" ? assets.walk : (r.anim === "hop" && assets.hop ? assets.hop : assets.idle);
+    const src = (r.anim === "hop" && assets.hop) ? assets.hop
+              : (r.anim === "walk") ? assets.walk
+              : assets.idle;
     ctx.drawImage(src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
     drawNameTagAbove(r.username || "player", f, r.x, r.y, 0, r.scale);
