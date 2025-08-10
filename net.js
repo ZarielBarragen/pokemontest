@@ -1,4 +1,4 @@
-// net.js — Firebase auth + lobbies + per-lobby players (session-only)
+// net.js — Firebase auth + lobbies + per-lobby players
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged,
@@ -8,10 +8,10 @@ import {
 import {
   getDatabase, ref, set, update, get,
   onValue, push, remove, onChildAdded, onChildChanged, onChildRemoved,
-  serverTimestamp, onDisconnect
+  serverTimestamp, onDisconnect, setLogLevel
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-// ---- Your Firebase config (with databaseURL) ----
+// ---- Your Firebase config ----
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
   authDomain: "poketest-4d108.firebaseapp.com",
@@ -19,18 +19,26 @@ export const firebaseConfig = {
   storageBucket: "poketest-4d108.firebasestorage.app",
   messagingSenderId: "874372031897",
   appId: "1:874372031897:web:bd7bdfe8338d36d086df08",
-  measurementId: "G-HFXK2J605R",
-  databaseURL: "https://poketest-4d108-default-rtdb.firebasedatabase.app"
+  measurementId: "G-HFXK2J605R"
+  // (no databaseURL here on purpose; we pass it explicitly to getDatabase below)
 };
 
 function usernameToEmail(u){ return `${u}@poketest.local`; }
+const withTimeout = (p, ms=8000) =>
+  Promise.race([ p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timed out talking to Realtime Database")), ms)) ]);
 
 export class Net {
   constructor(config = firebaseConfig){
     this.app  = initializeApp(config);
     this.auth = getAuth(this.app);
     setPersistence(this.auth, browserSessionPersistence).catch(()=>{});
-    this.db   = getDatabase(this.app, config.databaseURL);
+
+    // 🔧 Pin to the exact instance (firebaseio.com host)
+    // This avoids rare .lp script failures some hosts/extensions cause on .firebasedatabase.app
+    this.db   = getDatabase(this.app, "https://poketest-4d108-default-rtdb.firebaseio.com");
+
+    // Uncomment while debugging to see detailed DB logs in the console:
+    // setLogLevel("info"); // or "debug" for very noisy
 
     this.uid = null;
     this.lobbyId = null;
@@ -86,12 +94,12 @@ export class Net {
       createdAt: serverTimestamp(),
       map
     };
-    await set(lref, payload);
+    await withTimeout(set(lref, payload), 8000);
     return lref.key;
   }
 
   async getLobby(lobbyId){
-    const snap = await get(ref(this.db, `lobbies/${lobbyId}`));
+    const snap = await withTimeout(get(ref(this.db, `lobbies/${lobbyId}`)), 8000);
     if (!snap.exists()) throw new Error("Lobby not found");
     return { id: lobbyId, ...snap.val() };
   }
@@ -115,10 +123,10 @@ export class Net {
     if (!this.playersRefPath) throw new Error("Not in a lobby");
     const path = `${this.playersRefPath}/${this.uid}`;
     this.playerRef = ref(this.db, path);
-    await set(this.playerRef, {
+    await withTimeout(set(this.playerRef, {
       username, character, x: Math.round(x), y: Math.round(y),
       dir, anim, scale, t: serverTimestamp()
-    });
+    }), 8000);
     onDisconnect(this.playerRef).remove();
   }
 
