@@ -154,7 +154,7 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  emoleon:{ name:"Empoleon", base:"assets/Empoleon/", portrait:"portrait.png", scale:3,
+  emoleon:{ name:"Emoleon", base:"assets/Emoleon/", portrait:"portrait.png", scale:3,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
@@ -286,7 +286,7 @@ refreshBtn.onclick = ()=>{
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 };
 
-// ---- Create lobby (progress + timeout surfaced) ----
+// ---- Create lobby ----
 createLobbyBtn.onclick = async ()=>{
   const btnLabel = createLobbyBtn.textContent;
   createLobbyBtn.disabled = true;
@@ -845,12 +845,21 @@ function draw(){
     if (!strip || !strip.length) continue;
 
     r.frameTime += 1/60;
+
+    // ✅ FIX: Build order with helper (no iterator.reverse) and guard length
     const frames = r.anim === "walk" ? assets.cfg.walk.framesPerDir
                  : r.anim === "hop"  ? (assets.cfg.hop?.framesPerDir || 1)
                  : assets.cfg.idle.framesPerDir;
-    const order = [...Array(Math.max(frames,1)).keys(), ...Array(Math.max(frames-2,0)).keys().reverse().map(i=>i+1)];
-    const idx = order[r.frameStep % order.length] % strip.length;
-    if (r.frameTime >= 1/10){ r.frameTime = 0; r.frameStep = (r.frameStep+1)%order.length; }
+
+    const order = makePingPong(Math.max(frames, 1));
+    const idx = order.length
+      ? order[r.frameStep % order.length] % strip.length
+      : 0;
+
+    if (r.frameTime >= 1/10){
+      r.frameTime = 0;
+      if (order.length) r.frameStep = (r.frameStep+1) % order.length;
+    }
 
     const f = strip[idx], scale = r.scale;
     const dw = f.sw * scale, dh = f.sh * scale;
