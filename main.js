@@ -272,8 +272,8 @@ const CHARACTERS = {
   },
 
   emoleon: {
-    name: "Empoleon",
-    base: "assets/Empoleon/",
+    name: "Emoleon",
+    base: "assets/Emoleon/",
     portrait: "portrait.png",
     scale: 3,
     walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
@@ -916,14 +916,18 @@ function drawMap(){
   }
 }
 
-// Name tag
-function drawNameTag(name, wx, wy){
+// ---- Name tag placed above sprite head (frame/top-aware) ----
+function drawNameTagAbove(name, frame, wx, wy, z, scale){
+  if (!frame) return;
+  // world Y of the sprite's top edge for this frame:
+  const topWorldY = wy - frame.oy * scale - (z || 0);
   const sx = Math.round(wx - state.cam.x);
-  const sy = Math.round(wy - state.cam.y) - 22;
+  const sy = Math.round(topWorldY - state.cam.y) - 8; // margin above head
+
   ctx.font = '12px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(0,0,0,0.6)";
+  ctx.strokeStyle = "rgba(0,0,0,0.65)";
   ctx.strokeText(name, sx, sy);
   ctx.fillStyle = "#ffea7a";
   ctx.fillText(name, sx, sy);
@@ -957,7 +961,8 @@ function draw(){
     const src = r.anim === "walk" ? assets.walk : (r.anim === "hop" && assets.hop ? assets.hop : assets.idle);
     ctx.drawImage(src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
-    drawNameTag(r.username || "player", r.x, r.y - 4);
+    // Name tag above head (no hop z simulated for remotes)
+    drawNameTagAbove(r.username || "player", f, r.x, r.y, 0, r.scale);
   }
 
   // --- local player
@@ -987,7 +992,8 @@ function draw(){
       state.anim === "walk" ? state.walkImg : state.idleImg;
     ctx.drawImage(src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
-    drawNameTag(localUsername || "you", state.x, state.y - 4);
+    // Name tag above head (accounts for hop height z)
+    drawNameTagAbove(localUsername || "you", f, state.x, state.y, z, state.scale);
 
     if (state.showBoxes){
       ctx.fillStyle = "white";
