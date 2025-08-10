@@ -285,38 +285,54 @@ refreshBtn.onclick = ()=>{
   if (lobbyUnsub) { try{ lobbyUnsub(); }catch{} lobbyUnsub = null; }
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 };
-createLobbyBtn.onclick = async ()=>{
-  try{
-    const cfg = CHARACTERS[selectedKey];
-    if (!cfg) return;
 
-    // generate and store a new map for this lobby
+// ---- Create lobby (more robust + visible progress) ----
+createLobbyBtn.onclick = async ()=>{
+  const btnLabel = createLobbyBtn.textContent;
+  createLobbyBtn.disabled = true;
+  createLobbyBtn.textContent = "Creating…";
+  try{
+    // must have a character
+    const cfg = CHARACTERS[selectedKey];
+    if (!cfg) throw new Error("Pick a character first");
+
+    // generate + store a new map in the lobby doc
     const visW = Math.floor(canvas.width / TILE);
     const visH = Math.floor(canvas.height / TILE);
     const map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
 
     const name = (newLobbyNameEl.value || "").trim();
+    console.log("[Lobby] creating…");
     const lobbyId = await net.createLobby(name, map);
+    console.log("[Lobby] created:", lobbyId);
+
     await net.joinLobby(lobbyId);
-    await startWithCharacter(cfg, map); // use the generated map
+    console.log("[Lobby] joined:", lobbyId);
+
+    await startWithCharacter(cfg, map); // use the generated map immediately
+    console.log("[Lobby] game started");
+
     overlayLobbies.classList.add("hidden");
   } catch(e){
-    console.error(e);
-    alert("Failed to create lobby. Check console.");
+    console.error("Create lobby failed:", e);
+    alert("Create lobby failed: " + (e?.message || e));
+  } finally {
+    createLobbyBtn.disabled = false;
+    createLobbyBtn.textContent = btnLabel;
   }
 };
 
 async function joinLobbyFlow(lobbyId){
   try{
     const cfg = CHARACTERS[selectedKey];
-    if (!cfg) return;
+    if (!cfg) { alert("Pick a character first"); return; }
     const lobby = await net.getLobby(lobbyId);
     await net.joinLobby(lobbyId);
     await startWithCharacter(cfg, lobby.map); // use shared map
     overlayLobbies.classList.add("hidden");
   } catch(e){
-    console.error(e);
-    alert("Failed to join lobby.");
+    console.error("Join lobby failed:", e);
+    alert("Join lobby failed: " + (e?.message || e));
   }
 }
 
@@ -350,7 +366,6 @@ function makePingPong(n){
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
 
-// Load assets for a character key
 async function loadCharacterAssets(key){
   if (charCache.has(key)) return charCache.get(key);
   const cfg = CHARACTERS[key]; if (!cfg) return null;
@@ -371,7 +386,6 @@ async function loadCharacterAssets(key){
   return assets;
 }
 
-// Subscribe to players inside the current lobby
 function startNetListeners(){
   const unsub = net.subscribePlayers({
     onAdd: async (uid, data)=>{
@@ -435,7 +449,7 @@ function generateMap(w, h){
       const x0 = 1 + Math.floor(Math.random()*(w-2));
       const len = 4 + Math.floor(Math.random()*(w-4));
       for (let x=x0; x<Math.min(w-1, x0+len); x++){
-        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true; // ✅ fixed yB
+        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true; // fixed yB
       }
     }
   }
@@ -482,7 +496,6 @@ async function startWithCharacter(cfg, map){
   state.animMeta = { walk:{}, idle:{}, hop:{} };
   state.scale = cfg.scale ?? 3;
 
-  // Use shared map (from lobby), or generate if missing
   if (!map){
     const visW = Math.floor(canvas.width / TILE);
     const visH = Math.floor(canvas.height / TILE);
@@ -508,7 +521,6 @@ async function startWithCharacter(cfg, map){
     state.animMeta.idle = sliceSheet(state.idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir);
     state.animMeta.hop  = state.hopImg ? sliceSheet(state.hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {};
 
-    // spawn near lobby spawn (slight random pixel offset for uniqueness)
     const spawn = tileCenter(map.spawn.x, map.spawn.y);
     state.x = spawn.x + (Math.random()*8 - 4);
     state.y = spawn.y + (Math.random()*8 - 4);
@@ -519,7 +531,6 @@ async function startWithCharacter(cfg, map){
     updateCamera();
     state.ready = true;
 
-    // Spawn online + subscribe to lobby players
     try {
       await net.spawnLocal({
         username: localUsername || "player",

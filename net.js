@@ -1,4 +1,4 @@
-// net.js — Firebase auth + lobbies + per-lobby players (session-only persistence)
+// net.js — Firebase auth + lobbies + per-lobby players (session-only)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged,
@@ -6,11 +6,12 @@ import {
   updateProfile, signOut, setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getDatabase, ref, set, update, get, onValue, push, remove,
-  onChildAdded, onChildChanged, onChildRemoved, serverTimestamp, onDisconnect
+  getDatabase, ref, set, update, get,
+  onValue, push, remove, onChildAdded, onChildChanged, onChildRemoved,
+  serverTimestamp, onDisconnect
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-// ---- Your Firebase config (with databaseURL!) ----
+// ---- Your Firebase config (with databaseURL) ----
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
   authDomain: "poketest-4d108.firebaseapp.com",
@@ -29,12 +30,9 @@ export class Net {
     this.app  = initializeApp(config);
     this.auth = getAuth(this.app);
     setPersistence(this.auth, browserSessionPersistence).catch(()=>{});
-
     this.db   = getDatabase(this.app, config.databaseURL);
 
     this.uid = null;
-
-    // Lobby state
     this.lobbyId = null;
     this.playerRef = null;
     this.playersRefPath = null;
@@ -82,12 +80,13 @@ export class Net {
   async createLobby(name, map){
     if (!this.uid) throw new Error("Not authed");
     const lref = push(ref(this.db, "lobbies"));
-    await set(lref, {
+    const payload = {
       name: (name && name.trim()) || "New Lobby",
       createdBy: this.uid,
       createdAt: serverTimestamp(),
       map
-    });
+    };
+    await set(lref, payload);
     return lref.key;
   }
 
@@ -98,6 +97,7 @@ export class Net {
   }
 
   async joinLobby(lobbyId){
+    if (!this.uid) throw new Error("Not authed");
     this.lobbyId = lobbyId;
     this.playersRefPath = `lobbies/${lobbyId}/players`;
   }
@@ -131,7 +131,7 @@ export class Net {
     const patch = { ...partial, t: serverTimestamp() };
     if ("x" in patch) patch.x = Math.round(patch.x);
     if ("y" in patch) patch.y = Math.round(patch.y);
-    update(this.playerRef, patch).catch(()=>{});
+    update(this.playerRef, patch).catch((e)=>console.warn("updateState failed:", e));
   }
 
   subscribePlayers({ onAdd, onChange, onRemove }){
@@ -153,22 +153,3 @@ export class Net {
     return () => { unsubs.forEach(u=>{ try{ u(); }catch{} }); };
   }
 }
-
-/* ---- Realtime Database Rules (Console → Realtime Database → Rules)
-{
-  "rules": {
-    "lobbies": {
-      ".read": true,
-      "$lobby": {
-        ".write": "auth != null",
-        "players": {
-          "$uid": {
-            ".read": true,
-            ".write": "auth != null && auth.uid === $uid"
-          }
-        }
-      }
-    }
-  }
-}
----------------------------------------------------------------- */
