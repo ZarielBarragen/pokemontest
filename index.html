@@ -5,92 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Poke Test</title>
 
-  <!-- Pixel-ish font for name tags and UI -->
+  <!-- Pixel UI font -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
-  <style>
-    :root{
-      --gb-green:#0f380f;
-      --gb-dark:#0c1e0c;
-      --gb-mid:#306230;
-      --gb-light:#8bac0f;
-      --ink:#e0f8cf;
-      --shadow: rgba(0,0,0,.55);
-    }
-
-    html,body{height:100%;margin:0;background:var(--gb-green);color:var(--ink);}
-    body{font-family: system-ui, -apple-system, Segoe UI, Roboto, "Press Start 2P", sans-serif; letter-spacing:.2px;}
-
-    /* Center the playfield */
-    .wrap{height:100%;display:grid;place-items:center;padding:16px;}
-    #game{
-      image-rendering: pixelated;
-      background:#0b2a30;
-      box-shadow:
-        0 0 0 4px var(--gb-mid),
-        0 10px 40px var(--shadow);
-      border-radius: 12px;
-    }
-
-    /* Overlays */
-    .overlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.6);z-index:10;}
-    .hidden{display:none !important;}
-
-    /* Auth */
-    .auth-overlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.65);z-index:20;}
-    .card{
-      background:#1a3a2c;
-      border:2px solid var(--gb-light);
-      border-radius:12px;
-      padding:16px;
-      box-shadow: 0 6px 28px var(--shadow);
-    }
-    .card h2{margin:0 0 10px 0;font-family:"Press Start 2P", monospace;font-size:18px;}
-    .card label{display:block;margin:10px 0 4px 2px;font-size:12px;opacity:.9;}
-    .card input{
-      width:100%; padding:10px 12px; border-radius:10px;
-      border:2px solid var(--gb-mid); background:#0f2a22; color:var(--ink);
-      font-size:14px; outline:none;
-    }
-    .button8{
-      border:2px solid #0c1200; background:var(--gb-mid); color:var(--ink);
-      padding:8px 12px; border-radius:10px; cursor:pointer; font-weight:600;
-      box-shadow:0 2px 0 #0c1200;
-    }
-    .button8:active{transform:translateY(1px); box-shadow:0 1px 0 #0c1200;}
-    .auth-error{color:#ff9a9a;margin:8px 0 0 0;min-height:1.4em;text-align:center;font-size:12px;}
-
-    /* Character grid */
-    #charGrid{
-      display:grid;
-      grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
-      gap:12px;
-      width:min(1000px,92vw);
-    }
-    #select h2{font-family:"Press Start 2P", monospace;margin:0 0 10px 0;font-size:18px;}
-    #select .card{
-      display:flex; flex-direction:column; align-items:center; gap:8px;
-      cursor:pointer; transition:transform .06s ease;
-    }
-    #select .card:hover{transform:translateY(-1px);}
-    #select .card img{
-      width:96px;height:96px;object-fit:contain;image-rendering:pixelated;
-      background:#0f2a22;border-radius:10px;border:1px solid #21483c;
-    }
-    #select .card span{font-size:12px;text-align:center;}
-
-    /* make sure the sign-out button (added by JS) fits theme */
-    .button8.signout{position:fixed;top:12px;right:12px;z-index:9999;}
-  </style>
+  <!-- Your stylesheet (contains the 8-bit/GB look) -->
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="wrap">
-    <!-- Big centered canvas (main.js reads these dimensions) -->
+  <main class="main">
+    <!-- Big centered canvas -->
     <canvas id="game" width="960" height="640"></canvas>
-  </div>
+  </main>
 
-  <!-- Auth overlay (main.js/net.js will manage visibility) -->
+  <!-- Auth overlay -->
   <div id="auth" class="auth-overlay">
     <form id="authForm" autocomplete="off" class="card" style="max-width:420px;width:min(92vw,420px);">
       <h2 id="authTitle">Sign up</h2>
@@ -100,24 +28,22 @@
       <input id="authPass" type="password" minlength="6" required placeholder="••••••••" />
       <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;">
         <button id="authSubmit" type="submit" class="button8">Create account</button>
-        <button id="authToggle" type="button" class="button8" style="background:#9bbc0f;color:#0c1200;">Already have an account? Log in</button>
+        <button id="authToggle" type="button" class="button8">Already have an account? Log in</button>
       </div>
       <p id="authErr" class="auth-error"></p>
     </form>
   </div>
 
   <!-- Character select overlay (populated by main.js) -->
-  <div id="select" class="overlay hidden" aria-hidden="true">
+  <div id="select" class="hidden">
     <div style="display:grid;gap:14px;place-items:center">
-      <h2>Pick your character</h2>
+      <h1>Pick your character</h1>
       <div id="charGrid"></div>
-      <p style="opacity:.85;font-size:12px;text-align:center">
-        WASD / Arrows to move • E to hop • Esc to reselect
-      </p>
+      <p>WASD / Arrows to move • E to hop • Esc to reselect</p>
     </div>
   </div>
 
-  <!-- Load scripts as ES modules (IMPORTANT) -->
+  <!-- Scripts as ES modules -->
   <script type="module" src="./net.js"></script>
   <script type="module" src="./main.js"></script>
 </body>
