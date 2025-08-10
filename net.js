@@ -11,7 +11,7 @@ import {
   serverTimestamp, onDisconnect
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-// --- Your Firebase config ---
+// 🔧 ADD your databaseURL from the console here:
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
   authDomain: "poketest-4d108.firebaseapp.com",
@@ -19,24 +19,28 @@ export const firebaseConfig = {
   storageBucket: "poketest-4d108.firebasestorage.app",
   messagingSenderId: "874372031897",
   appId: "1:874372031897:web:bd7bdfe8338d36d086df08",
-  measurementId: "G-HFXK2J605R"
+  measurementId: "G-HFXK2J605R",
+  // ⬇️ this must match exactly what you see in Realtime Database
+  databaseURL: "https://poketest-4d108-default-rtdb.firebasedatabase.app"
 };
 
-// Treat username as an email behind the scenes so we can use email/password auth
+// treat username as an email behind the scenes
 function usernameToEmail(u){ return `${u}@poketest.local`; }
 
 export class Net {
   constructor(config = firebaseConfig){
     this.app  = initializeApp(config);
     this.auth = getAuth(this.app);
-    // Session-only: you’ll see the auth screen on a fresh tab/window
+    // Session-only: auth persists only while the tab is open
     setPersistence(this.auth, browserSessionPersistence).catch(()=>{});
 
-    this.db   = getDatabase(this.app);
+    // IMPORTANT: pass databaseURL so RTDB is found
+    this.db   = getDatabase(this.app, config.databaseURL);
+
     this.uid = null;
     this.playerRef = null;
     this.playersRefPath = "players";
-    this._throttleMs = 80;   // ~12.5 updates/sec
+    this._throttleMs = 80;
     this._lastSend = 0;
 
     onAuthStateChanged(this.auth, (user)=>{
