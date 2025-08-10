@@ -8,7 +8,7 @@ import {
 import {
   getDatabase, ref, set, update, get,
   onValue, push, remove, onChildAdded, onChildChanged, onChildRemoved,
-  serverTimestamp, onDisconnect, setLogLevel
+  serverTimestamp, onDisconnect
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 // ---- Your Firebase config ----
@@ -25,7 +25,10 @@ export const firebaseConfig = {
 
 function usernameToEmail(u){ return `${u}@poketest.local`; }
 const withTimeout = (p, ms=8000) =>
-  Promise.race([ p, new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timed out talking to Realtime Database")), ms)) ]);
+  Promise.race([
+    p,
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error("Timed out talking to Realtime Database")), ms))
+  ]);
 
 export class Net {
   constructor(config = firebaseConfig){
@@ -33,12 +36,8 @@ export class Net {
     this.auth = getAuth(this.app);
     setPersistence(this.auth, browserSessionPersistence).catch(()=>{});
 
-    // 🔧 Pin to the exact instance (firebaseio.com host)
-    // This avoids rare .lp script failures some hosts/extensions cause on .firebasedatabase.app
+    // Pin to your exact RTDB instance to avoid odd transport issues across hosts
     this.db   = getDatabase(this.app, "https://poketest-4d108-default-rtdb.firebaseio.com");
-
-    // Uncomment while debugging to see detailed DB logs in the console:
-    // setLogLevel("info"); // or "debug" for very noisy
 
     this.uid = null;
     this.lobbyId = null;
@@ -161,3 +160,22 @@ export class Net {
     return () => { unsubs.forEach(u=>{ try{ u(); }catch{} }); };
   }
 }
+
+/* Realtime Database rules (Console → Realtime Database → Rules) while testing:
+{
+  "rules": {
+    "lobbies": {
+      ".read": true,
+      "$lobby": {
+        ".write": "auth != null",
+        "players": {
+          "$uid": {
+            ".read": true,
+            ".write": "auth != null && auth.uid === $uid"
+          }
+        }
+      }
+    }
+  }
+}
+*/
