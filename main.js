@@ -1,4 +1,4 @@
-// main.js — game, textures, SFX, auth/login, realtime multiplayer
+// main.js — game, textures, SFX, auth/login (session-only), realtime multiplayer
 
 // ========== Online: imports + setup ==========
 import { Net, firebaseConfig } from "./net.js";
@@ -61,12 +61,27 @@ formEl.addEventListener("submit", async (e)=>{
     errEl.textContent = (err.code || "Auth error").replace("auth/", "");
   }
 });
+
+// Quick sign-out button (top-right)
+const logoutBtn = document.createElement("button");
+logoutBtn.textContent = "Sign out";
+logoutBtn.className = "button8";
+logoutBtn.style.position = "fixed";
+logoutBtn.style.top = "12px";
+logoutBtn.style.right = "12px";
+logoutBtn.style.zIndex = "9999";
+logoutBtn.style.display = "none";
+logoutBtn.onclick = () => net.logOut().catch(()=>{});
+document.body.appendChild(logoutBtn);
+
 net.onAuth(user=>{
   if (user){
     localUsername = user.displayName || (user.email ? user.email.split("@")[0] : "player");
     authEl.classList.add("hidden");
+    logoutBtn.style.display = "inline-block";
     overlay.classList.remove("hidden");   // show character select
   } else {
+    logoutBtn.style.display = "none";
     authEl.classList.remove("hidden");
     overlay.classList.add("hidden");
   }
@@ -278,8 +293,8 @@ const CHARACTERS = {
 };
 
 // ========== Game settings ==========
-const TILE = 48;                 // bigger tiles (adjust as you like)
-const MAP_SCALE = 3;             // world is this many screens large in each axis
+const TILE = 48;                 // larger tiles
+const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;        // ~2.6 tiles/sec
 const WALK_FPS = 10;
 const IDLE_FPS = 6;

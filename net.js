@@ -1,11 +1,9 @@
-// net.js — Firebase auth + realtime presence for players
-// Loads Firebase v10 modules from CDN.
-
+// net.js — Firebase auth + realtime presence for players (session-only persistence)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  updateProfile, signOut
+  updateProfile, signOut, setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getDatabase, ref, set, update,
@@ -24,15 +22,17 @@ export const firebaseConfig = {
   measurementId: "G-HFXK2J605R"
 };
 
-// Behind the scenes we treat username as an email so we can use email/password auth
+// Treat username as an email behind the scenes so we can use email/password auth
 function usernameToEmail(u){ return `${u}@poketest.local`; }
 
 export class Net {
   constructor(config = firebaseConfig){
     this.app  = initializeApp(config);
     this.auth = getAuth(this.app);
-    this.db   = getDatabase(this.app);
+    // Session-only: you’ll see the auth screen on a fresh tab/window
+    setPersistence(this.auth, browserSessionPersistence).catch(()=>{});
 
+    this.db   = getDatabase(this.app);
     this.uid = null;
     this.playerRef = null;
     this.playersRefPath = "players";
