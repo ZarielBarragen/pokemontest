@@ -272,8 +272,8 @@ const CHARACTERS = {
   },
 
   emoleon: {
-    name: "Emoleon",
-    base: "assets/Emoleon/",
+    name: "Empoleon",
+    base: "assets/Empoleon/",
     portrait: "portrait.png",
     scale: 3,
     walk: { sheet: "walk.png", cols: 4, rows: 8, framesPerDir: 4, dirGrid: makeRowDirGrid() },
