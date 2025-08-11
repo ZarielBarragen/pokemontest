@@ -162,7 +162,41 @@ const CHARACTERS = {
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
-  }
+  },
+    pangoro:{ name:"Pangoro", base:"assets/Pangoro/", portrait:"portrait.png", scale:3,
+    // Normal walk (4×8), idle is 6×8, hop is normal (10×8)
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+
+  scrafty:{ name:"Scrafty", base:"assets/Scrafty/", portrait:"portrait.png", scale:3,
+    // Normal walk (4×8), idle is 6×8, hop is normal (10×8)
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+
+  cyclizar:{ name:"Cyclizar", base:"assets/Cyclizar/", portrait:"portrait.png", scale:3,
+    // Walk is 6×8, idle is 10×8, hop normal (10×8)
+    walk:{sheet:"walk.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+
+  axew:{ name:"Axew", base:"assets/Axew/", portrait:"portrait.png", scale:3,
+    // Normal walk (4×8), idle is 4×8, hop normal (10×8)
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+
+  obstagoon:{ name:"Obstagoon", base:"assets/Obstagoon/", portrait:"portrait.png", scale:3,
+    // Normal walk (4×8), idle is 4×8, hop normal (10×8)
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
 };
 
 // ------- Auth overlay wiring -------
