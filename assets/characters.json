@@ -34,8 +34,8 @@
       "speed": 1.01,
       "walk": {
         "sheet": "walk.png",
-        "cols": 8,
-        "rows": 4,
+        "cols": 4,
+        "rows": 8,
         "framesPerDir": 4,
         "dirGrid": "row"
       }
