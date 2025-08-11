@@ -883,7 +883,7 @@ function drawMap(){
   }
   for (let yb=Math.max(1,ys); yb<=Math.min(m.h-1,ye); yb++){
     for (let x=xs; x<=xe; x++){
-      if (!m.edgesH[yB][x]) continue;
+      if (!m.edgesH[yb][x]) continue;
       const cy = yb*TILE - state.cam.y, x0 = x*TILE - state.cam.x;
       ctx.fillStyle = EDGE_DARK;   ctx.fillRect(x0, Math.floor(cy - GAP_W/2), TILE, GAP_W);
       ctx.fillStyle = EDGE_DARKER; ctx.fillRect(x0, Math.floor(cy - GAP_W/6), TILE, Math.ceil(GAP_W/3));
