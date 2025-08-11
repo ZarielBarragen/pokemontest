@@ -71,6 +71,7 @@ function unmountChatLog(){
 const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
+function currentSpeedMult(){ const cfg = CHARACTERS[selectedKey]; return (cfg && cfg.speed) ? cfg.speed : 1.0; }
 const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
@@ -122,7 +123,7 @@ function makeRowDirGrid() {
   };
 }
 const CHARACTERS = {
-  sableye:{ name:"Sableye", base:"assets/Sableye/", portrait:"portrait.png", scale:3,
+  sableye:{ name:"Sableye", base:"assets/Sableye/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:8, rows:4, framesPerDir:4, dirGrid:{
       down:{row:0,start:0}, downRight:{row:0,start:4}, right:{row:1,start:0}, upRight:{row:1,start:4},
       up:{row:2,start:0}, upLeft:{row:2,start:4}, left:{row:3,start:0}, downLeft:{row:3,start:4},
@@ -130,7 +131,7 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  ditto:{ name:"Ditto", base:"assets/Ditto/", portrait:"portrait.png", scale:3,
+  ditto:{ name:"Ditto", base:"assets/Ditto/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:5, rows:8, framesPerDir:5, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
@@ -140,106 +141,113 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  hypno:{ name:"Hypno", base:"assets/Hypno/", portrait:"portrait.png", scale:3,
+  hypno:{ name:"Hypno", base:"assets/Hypno/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  mimikyu:{ name:"Mimikyu", base:"assets/Mimikyu/", portrait:"portrait.png", scale:3,
+  mimikyu:{ name:"Mimikyu", base:"assets/Mimikyu/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  quagsire:{ name:"Quagsire", base:"assets/Quagsire/", portrait:"portrait.png", scale:3,
+  quagsire:{ name:"Quagsire", base:"assets/Quagsire/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  smeargle:{ name:"Smeargle", base:"assets/Smeargle/", portrait:"portrait.png", scale:3,
+  smeargle:{ name:"Smeargle", base:"assets/Smeargle/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  corviknight:{ name:"Corviknight", base:"assets/Corviknight/", portrait:"portrait.png", scale:3,
+  corviknight:{ name:"Corviknight", base:"assets/Corviknight/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  cacturne:{ name:"Cacturne", base:"assets/Cacturne/", portrait:"portrait.png", scale:3,
+  cacturne:{ name:"Cacturne", base:"assets/Cacturne/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  decidueye:{ name:"Decidueye", base:"assets/Decidueye/", portrait:"portrait.png", scale:3,
+  decidueye:{ name:"Decidueye", base:"assets/Decidueye/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  blaziken:{ name:"Blaziken", base:"assets/Blaziken/", portrait:"portrait.png", scale:3,
+  blaziken:{ name:"Blaziken", base:"assets/Blaziken/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  snorlax:{ name:"Snorlax", base:"assets/Snorlax/", portrait:"portrait.png", scale:3,
+  snorlax:{ name:"Snorlax", base:"assets/Snorlax/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  chandelure:{ name:"Chandelure", base:"assets/Chandelure/", portrait:"portrait.png", scale:3,
+  chandelure:{ name:"Chandelure", base:"assets/Chandelure/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  emoleon:{ name:"Emoleon", base:"assets/Emoleon/", portrait:"portrait.png", scale:3,
+  empoleon:{ name:"Empoleon", base:"assets/Empoleon/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  jolteon:{ name:"Jolteon", base:"assets/Jolteon/", portrait:"portrait.png", scale:3,
+  jolteon:{ name:"Jolteon", base:"assets/Jolteon/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  pangoro:{ name:"Pangoro", base:"assets/Pangoro/", portrait:"portrait.png", scale:3,
+  pangoro:{ name:"Pangoro", base:"assets/Pangoro/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  scrafty:{ name:"Scrafty", base:"assets/Scrafty/", portrait:"portrait.png", scale:3,
+  scrafty:{ name:"Scrafty", base:"assets/Scrafty/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  cyclizar:{ name:"Cyclizar", base:"assets/Cyclizar/", portrait:"portrait.png", scale:3,
+  cyclizar:{ name:"Cyclizar", base:"assets/Cyclizar/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  axew:{ name:"Axew", base:"assets/Axew/", portrait:"portrait.png", scale:3,
+  axew:{ name:"Axew", base:"assets/Axew/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  obstagoon:{ name:"Obstagoon", base:"assets/Obstagoon/", portrait:"portrait.png", scale:3,
+  obstagoon:{ name:"Obstagoon", base:"assets/Obstagoon/", portrait:"portrait.png", scale:3, speed:1.01,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+   primarina:{ name:"Primarina", base:"assets/Primarina/", portrait:"portrait.png", scale:3, speed:1.02,
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  dewgong:{ name:"Dewgong", base:"assets/Dewgong/", portrait:"portrait.png", scale:3, speed:1.01,
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  scolipede:{ name:"Scolipede", base:"assets/Scolipede/", portrait:"portrait.png", scale:3, speed:1.12,
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  lycanroc:{ name:"Lycanroc", base:"assets/Lycanroc/", portrait:"portrait.png", scale:3, speed:1.08,
+    idle:{sheet:"Idle-Anim.png", cols:14, rows:8, framesPerDir:14, dirGrid:makeRowDirGrid()},
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   }
 };
 
-// ---------- Auth ----------
-let localUsername = null;
-let selectedKey = null;
-let lobbyUnsub = null;
-
-let authMode = "signup";
-toggleEl.onclick = () => {
-  authMode = authMode === "signup" ? "login" : "signup";
-  titleEl.textContent = authMode === "signup" ? "Sign up" : "Log in";
-  document.getElementById("authSubmit").textContent =
-    authMode === "signup" ? "Create account" : "Log in";
-  errEl.textContent = "";
-};
 formEl.addEventListener("submit", async (e)=>{
   e.preventDefault();
   errEl.textContent = "";
@@ -767,8 +775,8 @@ function resolvePlayerCollisions(nx, ny){
   return {x,y};
 }
 function tryMove(dt, vx, vy){
-  const stepX = vx * SPEED * dt;
-  const stepY = vy * SPEED * dt;
+  const stepX = vx * SPEED * currentSpeedMult() * dt;
+  const stepY = vy * SPEED * currentSpeedMult() * dt;
 
   if (stepX){
     const oldX = state.x;
