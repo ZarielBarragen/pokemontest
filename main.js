@@ -363,6 +363,7 @@ createLobbyBtn.onclick = async ()=>{
     const lobbyId = await net.createLobby((newLobbyNameEl.value||"").trim(), { w,h,seed });
     await net.joinLobby(lobbyId);
     await startWithCharacter(cfg, generateMap(w,h,seed));
+    watchdogEnsureGame(cfg, {w,h,seed});
     overlayLobbies.classList.add("hidden");
     mountChatLog();          // mount only after we're inside a lobby
     startChatSubscription(); // subscribe now
@@ -383,6 +384,7 @@ async function joinLobbyFlow(lobbyId){
     const { w,h,seed } = lobby.mapMeta || {};
     await net.joinLobby(lobbyId);
     await startWithCharacter(cfg, generateMap(w||48,h||32,seed??1234));
+    watchdogEnsureGame(cfg, {w:w||48, h:h||32, seed: (seed??1234)});
     overlayLobbies.classList.add("hidden");
     mountChatLog();
     startChatSubscription();
@@ -392,6 +394,15 @@ async function joinLobbyFlow(lobbyId){
   }
 }
 
+
+function watchdogEnsureGame(cfg, mapMeta){
+  // If for any reason state.ready/map didn't initialize, retry once after a tick
+  setTimeout(()=>{
+    if (!state.map || !state.ready){
+      try { startWithCharacter(cfg, generateMap(mapMeta.w||48, mapMeta.h||32, mapMeta.seed||1234)); } catch {}
+    }
+  }, 600);
+}
 // ---------- Game state ----------
 const keys = new Set();
 let chatMode=false, chatBuffer="", chatTypingDots=0, chatShowTime=4.5;
@@ -1053,6 +1064,15 @@ function update(dt){
   }
 }
 function draw(){
+  // Always clear bg so the canvas never appears empty/transparent
+  ctx.fillStyle = '#061b21';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  if (!state.map) {
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.fillStyle = '#9bd5e0';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading map…', canvas.width/2, canvas.height/2);
+  }
   drawMap();
 
   // collect actors
