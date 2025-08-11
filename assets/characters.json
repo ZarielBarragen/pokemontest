@@ -1,0 +1,702 @@
+{
+  "$schemaVersion": 1,
+  "defaults": {
+    "scale": 3,
+    "speed": 1.0,
+    "idle": {
+      "sheet": "Idle-Anim.png",
+      "cols": 2,
+      "rows": 8,
+      "framesPerDir": 2,
+      "dirGrid": "row"
+    },
+    "walk": {
+      "sheet": "walk.png",
+      "cols": 4,
+      "rows": 8,
+      "framesPerDir": 4,
+      "dirGrid": "row"
+    },
+    "hop": {
+      "sheet": "Hop-Anim.png",
+      "cols": 10,
+      "rows": 8,
+      "framesPerDir": 10,
+      "dirGrid": "row"
+    }
+  },
+  "characters": {
+    "Sableye": {
+      "name": "Sableye",
+      "base": "assets/Sableye/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 8,
+        "rows": 4,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      }
+    },
+    "idle": {
+      "name": "idle",
+      "base": "",
+      "portrait": "portrait.png",
+      "scale": 3,
+      "speed": 1.0,
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Ditto": {
+      "name": "Ditto",
+      "base": "assets/Ditto/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 2,
+        "rows": 8,
+        "framesPerDir": 2,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 5,
+        "rows": 8,
+        "framesPerDir": 5,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Hisuian Zoroark": {
+      "name": "Hisuian Zoroark",
+      "base": "assets/Hisuian Zoroark/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.0,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Hypno": {
+      "name": "Hypno",
+      "base": "assets/Hypno/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 8,
+        "rows": 8,
+        "framesPerDir": 8,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Mimikyu": {
+      "name": "Mimikyu",
+      "base": "assets/Mimikyu/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Quagsire": {
+      "name": "Quagsire",
+      "base": "assets/Quagsire/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 7,
+        "rows": 8,
+        "framesPerDir": 7,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Smeargle": {
+      "name": "Smeargle",
+      "base": "assets/Smeargle/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 2,
+        "rows": 8,
+        "framesPerDir": 2,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Corviknight": {
+      "name": "Corviknight",
+      "base": "assets/Corviknight/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Cacturne": {
+      "name": "Cacturne",
+      "base": "assets/Cacturne/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Decidueye": {
+      "name": "Decidueye",
+      "base": "assets/Decidueye/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Blaziken": {
+      "name": "Blaziken",
+      "base": "assets/Blaziken/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 2,
+        "rows": 8,
+        "framesPerDir": 2,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Snorlax": {
+      "name": "Snorlax",
+      "base": "assets/Snorlax/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Chandelure": {
+      "name": "Chandelure",
+      "base": "assets/Chandelure/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 8,
+        "rows": 8,
+        "framesPerDir": 8,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 8,
+        "rows": 8,
+        "framesPerDir": 8,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Empoleon": {
+      "name": "Empoleon",
+      "base": "assets/Empoleon/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Jolteon": {
+      "name": "Jolteon",
+      "base": "assets/Jolteon/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 2,
+        "rows": 8,
+        "framesPerDir": 2,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Pangoro": {
+      "name": "Pangoro",
+      "base": "assets/Pangoro/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Scrafty": {
+      "name": "Scrafty",
+      "base": "assets/Scrafty/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Cyclizar": {
+      "name": "Cyclizar",
+      "base": "assets/Cyclizar/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Axew": {
+      "name": "Axew",
+      "base": "assets/Axew/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Obstagoon": {
+      "name": "Obstagoon",
+      "base": "assets/Obstagoon/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Primarina": {
+      "name": "Primarina",
+      "base": "assets/Primarina/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.02,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 7,
+        "rows": 8,
+        "framesPerDir": 7,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Dewgong": {
+      "name": "Dewgong",
+      "base": "assets/Dewgong/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.01,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 6,
+        "rows": 8,
+        "framesPerDir": 6,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 7,
+        "rows": 8,
+        "framesPerDir": 7,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Scolipede": {
+      "name": "Scolipede",
+      "base": "assets/Scolipede/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.12,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    },
+    "Lycanroc": {
+      "name": "Lycanroc",
+      "base": "assets/Lycanroc/",
+      "portrait": "portrait.png",
+      "scale": 3.0,
+      "speed": 1.08,
+      "idle": {
+        "sheet": "Idle-Anim.png",
+        "cols": 14,
+        "rows": 8,
+        "framesPerDir": 14,
+        "dirGrid": "row"
+      },
+      "walk": {
+        "sheet": "walk.png",
+        "cols": 4,
+        "rows": 8,
+        "framesPerDir": 4,
+        "dirGrid": "row"
+      },
+      "hop": {
+        "sheet": "Hop-Anim.png",
+        "cols": 10,
+        "rows": 8,
+        "framesPerDir": 10,
+        "dirGrid": "row"
+      }
+    }
+  }
+}
