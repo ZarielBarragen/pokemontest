@@ -185,3 +185,35 @@ body::after{
   margin-top: 6px;
   line-height: 1.1;
 }
+
+/* Smaller select cards (already referenced with .small-card class) */
+#charGrid {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+#charGrid .small-card {
+  width: 120px;
+  height: 120px;
+  padding: 8px;
+}
+#charGrid .small-card img { width: 64px; height: auto; image-rendering: pixelated; }
+#charGrid .small-card span { font-size: 10px; margin-top: 6px; line-height: 1.1; }
+
+/* Chat HUD log */
+#chatLog{
+  position: fixed;
+  left: 12px; bottom: 12px;
+  width: min(420px, 45vw);
+  max-height: 40vh;
+  overflow: auto;
+  background: rgba(9, 22, 26, 0.65);
+  border: 2px solid #2a6473;
+  padding: 8px;
+  color: #dff8ff;
+  font-family: "Press Start 2P", monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  backdrop-filter: blur(2px);
+  border-radius: 8px;
+}
+#chatLog .chatItem { margin: 2px 0; white-space: pre-wrap; word-break: break-word; }
