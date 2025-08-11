@@ -8,7 +8,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, getDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit, getCountFromServer
+  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit, getCountFromServer, getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // --- Your Firebase project config ---
@@ -33,6 +33,7 @@ export class Net {
 
     // Lobby state
     this.currentLobbyId = null;
+    this.currentLobbyOwner = null;
     this.playersUnsub = null;
     this.chatUnsub = null;
 
@@ -141,14 +142,17 @@ export class Net {
     }
   }
 
-  async joinLobby(lobbyId) {
+    async joinLobby(lobbyId) {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
     try { await updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) }); } catch {}
-  }
-
-  async leaveLobby() {
+    // fetch lobby owner for permissions (chat cleanup)
+    try {
+      const snap = await getDoc(doc(this.db, "lobbies", lobbyId));
+      this.currentLobbyOwner = snap.exists() ? snap.data().owner || null : null;
+    } catch { this.currentLobbyOwner = null; }
+  }async leaveLobby() {
     const uid = this.auth.currentUser?.uid;
     const lob = this.currentLobbyId;
     if (!lob) return;
@@ -214,6 +218,23 @@ export class Net {
   }
 
   // -------------------- CHAT --------------------
+
+  // Remove oldest chat messages so only the latest 24 remain.
+  async cleanupChatIfNeeded() {
+    if (!this.currentLobbyId) return;
+    try {
+      const chatCol = collection(this.db, "lobbies", this.currentLobbyId, "chat");
+      const countSnap = await getCountFromServer(chatCol);
+      const count = countSnap.data().count || 0;
+      if (count <= 24) return;
+      const toDelete = count - 24;
+      const q = query(chatCol, orderBy("createdAt", "asc"), limit(toDelete));
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        try { await deleteDoc(d.ref); } catch {}
+      }
+    } catch {}
+  }
   async sendChat(text) {
     if (!this.currentLobbyId) return;
     const uid = this.auth.currentUser?.uid;
@@ -222,6 +243,9 @@ export class Net {
 
     const ref = collection(this.db, "lobbies", this.currentLobbyId, "chat");
     await addDoc(ref, { uid, username, text: String(text).slice(0,200), createdAt: serverTimestamp() });
+    if (this.currentLobbyOwner && this.currentLobbyOwner === uid) {
+      try { await this.cleanupChatIfNeeded(); } catch {}
+    }
   }
 
   subscribeChat(cb) {
