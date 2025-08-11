@@ -1,22 +1,16 @@
-// net.js — Firestore for lobbies+chat, Realtime DB for players (clean)
+// net.js — ALL multiplayer on Realtime Database (RTDB): lobbies, players, chat
+// Drop-in replacement for previous Net API.
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, updateProfile, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 import {
-  getFirestore, collection, doc, addDoc, getDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, serverTimestamp as fsServerTimestamp, increment, query, orderBy, where, limit,
-  limitToLast, getDocs
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-import {
-  getDatabase, ref, set, update, remove, onDisconnect,
-  onChildAdded, onChildChanged, onChildRemoved, get, child,
-  serverTimestamp as rtdbServerTimestamp
+  getDatabase, ref, set, update, remove, onDisconnect, push,
+  onValue, onChildAdded, onChildChanged, onChildRemoved, get, child, query,
+  orderByChild, limitToLast, serverTimestamp as rtdbServerTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 export const firebaseConfig = {
@@ -31,14 +25,13 @@ export const firebaseConfig = {
 };
 
 export class Net {
-  constructor(cfg = firebaseConfig) {
+  constructor(cfg = firebaseConfig){
     this.app  = initializeApp(cfg);
     this.auth = getAuth(this.app);
-    this.db   = getFirestore(this.app);
-    this.rtdb = getDatabase(this.app);
+    this.db   = getDatabase(this.app);
 
     this._authCb = () => {};
-    this._authUnsub = onAuthStateChanged(this.auth, (u) => this._authCb(u));
+    this._authUnsub = onAuthStateChanged(this.auth, (u)=>this._authCb(u));
 
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
@@ -48,41 +41,25 @@ export class Net {
 
     this.playersUnsubs = [];
     this.chatUnsub = null;
-
-    // soft FS backoff for quota
-    this._backoffUntil = 0;
+    this.lobbiesUnsub = null;
 
     window.addEventListener("beforeunload", () => { this.leaveLobby().catch(()=>{}); });
     window.addEventListener("unload",       () => { this.leaveLobby().catch(()=>{}); });
   }
 
-  // --------- Backoff helpers for Firestore writes ---------
-  _now(){ return Date.now(); }
-  _shouldBackoff(){ return this._now() < this._backoffUntil; }
-  _noteError(e){
-    const code = (e && (e.code || e.message)) || "";
-    if (typeof code === "string" && (code.includes("resource-exhausted") || code.includes("unavailable"))) {
-      this._backoffUntil = this._now() + 30000;
-    }
-  }
-  async _guardFS(fn){
-    if (this._shouldBackoff()) throw new Error("backoff");
-    try { return await fn(); } catch(e){ this._noteError(e); throw e; }
-  }
-
-  // ----------------------------- AUTH -----------------------------
+  // ---------- AUTH ----------
   onAuth(cb){ this._authCb = cb; }
   _usernameToEmail(username){ return `${username}@poketest.local`; }
 
   async signUp(username, password){
     const email = this._usernameToEmail(username);
-    const cred  = await createUserWithEmailAndPassword(this.auth, email, password);
+    const cred = await createUserWithEmailAndPassword(this.auth, email, password);
     try { await updateProfile(cred.user, { displayName: username }); } catch {}
     return cred.user;
   }
   async logIn(username, password){
     const email = this._usernameToEmail(username);
-    const cred  = await signInWithEmailAndPassword(this.auth, email, password);
+    const cred = await signInWithEmailAndPassword(this.auth, email, password);
     return cred.user;
   }
   async logOut(){
@@ -90,94 +67,89 @@ export class Net {
     return signOut(this.auth);
   }
 
-  // --------------------------- LOBBIES (FS) ---------------------------
+  // ---------- LOBBIES (RTDB) ----------
   async createLobby(name, mapMeta){
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
-    const refDoc = await this._guardFS(() => addDoc(collection(this.db, "lobbies"), {
+    const lobbiesRef = ref(this.db, "lobbies");
+    const newRef = push(lobbiesRef);
+    const id = newRef.key;
+    const meta = {
       name: name || `Lobby ${Math.floor(Math.random()*9999)}`,
       owner: uid,
-      createdAt: fsServerTimestamp(),
+      createdAt: rtdbServerTimestamp(),
       mapMeta: { w: Number(mapMeta?.w)||48, h: Number(mapMeta?.h)||32, seed: Number(mapMeta?.seed)||1234 },
-      playersCount: 0,
       active: true
-    }));
-    return refDoc.id;
+    };
+    await set(ref(this.db, `lobbies/${id}/meta`), meta);
+    // players & chat containers will be created on demand
+    return id;
   }
 
   async getLobby(lobbyId){
-    const snap = await getDoc(doc(this.db, "lobbies", lobbyId));
-    if (!snap.exists()) throw new Error("Lobby not found");
-    return { id: snap.id, ...snap.data() };
-  }
-
-  async _countPlayersRTDB(lobbyId){
+    const s = await get(child(ref(this.db), `lobbies/${lobbyId}/meta`));
+    if (!s.exists()) throw new Error("Lobby not found");
+    const meta = s.val();
+    // compute playersCount quickly
+    let playersCount = 0;
     try {
-      const s = await get(child(ref(this.rtdb), `lobbies/${lobbyId}/players`));
-      return s.exists() ? Object.keys(s.val() || {}).length : 0;
-    } catch { return 0; }
-  }
-
-  async _reconcilePlayersCount(lobbyId){
-    try {
-      const actual = await this._countPlayersRTDB(lobbyId);
-      const dref = doc(this.db, "lobbies", lobbyId);
-      const ds   = await getDoc(dref);
-      if (!ds.exists()) return;
-      const current = Number(ds.data().playersCount || 0);
-      if (current !== actual) { try { await this._guardFS(() => updateDoc(dref, { playersCount: actual })); } catch {} }
+      const ps = await get(child(ref(this.db), `lobbies/${lobbyId}/players`));
+      playersCount = ps.exists() ? Object.keys(ps.val()||{}).length : 0;
     } catch {}
+    return { id: lobbyId, ...meta, playersCount };
   }
-  softReconcileLater(lobbyId, ms=2500){ try{ setTimeout(()=>{ this._reconcilePlayersCount(lobbyId).catch(()=>{}); }, ms); }catch{} }
 
   subscribeLobbies(cb){
-    const qy = query(collection(this.db, "lobbies"), orderBy("createdAt","desc"), limit(50));
-    return onSnapshot(qy, async (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Listen to whole lobbies tree and map to array
+    const base = ref(this.db, "lobbies");
+    if (this.lobbiesUnsub) { try{ this.lobbiesUnsub(); }catch{} this.lobbiesUnsub = null; }
+    const handler = onValue(base, (snap)=>{
+      const val = snap.val() || {};
+      const list = Object.entries(val).map(([id, node])=>{
+        const meta = node.meta || {};
+        const players = node.players || {};
+        return {
+          id,
+          name: meta.name || "Lobby",
+          owner: meta.owner || "",
+          createdAt: meta.createdAt || 0,
+          mapMeta: meta.mapMeta || { w:48, h:32, seed:1234 },
+          active: meta.active !== false,
+          playersCount: Object.keys(players).length
+        };
+      }).sort((a,b)=> (a.createdAt||0) < (b.createdAt||0) ? 1 : -1).slice(0,50);
       cb(list);
-      try { await Promise.all(list.map(l => this._reconcilePlayersCount(l.id))); } catch {}
     }, (err)=>console.error("subscribeLobbies:", err));
+    this.lobbiesUnsub = handler;
+    return handler;
   }
 
   async cleanupEmptyLobbies(){
     const uid = this.auth.currentUser?.uid;
     if (!uid) return 0;
-    try {
-      const qy = query(
-        collection(this.db, "lobbies"),
-        where("owner","==",uid),
-        where("active","==",true),
-        limit(20)
-      );
-      const snap = await getDocs(qy);
-      let removed = 0;
-      for (const d of snap.docs) {
-        const id = d.id;
-        let n = 0;
-        try { n = await this._countPlayersRTDB(id); } catch { n = 0; }
-        try { await this._guardFS(() => updateDoc(doc(this.db,"lobbies",id), { playersCount: n })); } catch {}
-        if (n === 0) {
-          try { await this._guardFS(() => deleteDoc(doc(this.db,"lobbies",id))); removed++; } catch {}
-        }
+    const s = await get(child(ref(this.db), "lobbies"));
+    if (!s.exists()) return 0;
+    let removed = 0;
+    const all = s.val() || {};
+    for (const [id, node] of Object.entries(all)){
+      const meta = node.meta || {};
+      const players = node.players || {};
+      if (meta.owner === uid){
+        const n = Object.keys(players).length;
+        if (n === 0) { try { await remove(ref(this.db, `lobbies/${id}`)); removed++; } catch {} }
       }
-      return removed;
-    } catch { return 0; }
+    }
+    return removed;
   }
 
-  // -------------------- JOIN / LEAVE (non-blocking FS) --------------------
   async joinLobby(lobbyId){
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
-
     try {
-      const s = await getDoc(doc(this.db, "lobbies", lobbyId));
-      this.currentLobbyOwner = s.exists() ? (s.data().owner || null) : null;
+      const s = await get(child(ref(this.db), `lobbies/${lobbyId}/meta`));
+      this.currentLobbyOwner = s.exists() ? (s.val().owner || null) : null;
     } catch { this.currentLobbyOwner = null; }
-
-    // do not await; reconcile later
-    try { this._guardFS(() => updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) })); } catch {}
-    this.softReconcileLater(lobbyId, 2500);
   }
 
   async leaveLobby(){
@@ -185,41 +157,35 @@ export class Net {
     const lob = this.currentLobbyId;
     if (!lob) return;
 
-    // RTDB presence removal
     try {
       if (this._playerOnDisconnect) { try { await this._playerOnDisconnect.cancel(); } catch {} this._playerOnDisconnect = null; }
       if (this._playerRef) { await remove(this._playerRef); this._playerRef = null; }
     } catch {}
 
-    // non-blocking decrement
-    try { this._guardFS(() => updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) })); } catch {}
-    this.softReconcileLater(lob, 2500);
-
-    // unsubscribe
-    this.playersUnsubs.forEach(u => { try{ u(); }catch{} });
+    this.playersUnsubs.forEach(u=>{ try{u();}catch{} });
     this.playersUnsubs = [];
-    if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
+    if (this.chatUnsub){ try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
 
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
   }
 
-  // --------------------------- PLAYERS (RTDB) ---------------------------
+  // ---------- PLAYERS (RTDB) ----------
   _playerPath(){ return `lobbies/${this.currentLobbyId}/players/${this.auth.currentUser?.uid}`; }
 
   async spawnLocal(state){
     const uid = this.auth.currentUser?.uid;
     if (!uid || !this.currentLobbyId) throw new Error("No lobby joined");
-    this._playerRef = ref(this.rtdb, this._playerPath());
+    this._playerRef = ref(this.db, this._playerPath());
     const payload = {
       username: state.username || "player",
       character: state.character,
-      x: Number(state.x) || 0,
-      y: Number(state.y) || 0,
+      x: Number(state.x)||0,
+      y: Number(state.y)||0,
       dir: state.dir || "down",
       anim: state.anim || "stand",
       typing: !!state.typing,
-      scale: Number(state.scale) || 3,
+      scale: Number(state.scale)||3,
       ts: rtdbServerTimestamp()
     };
     await set(this._playerRef, payload);
@@ -235,7 +201,7 @@ export class Net {
   subscribePlayers({ onAdd, onChange, onRemove }){
     if (!this.currentLobbyId) return () => {};
     const uid = this.auth.currentUser?.uid;
-    const base = ref(this.rtdb, `lobbies/${this.currentLobbyId}/players`);
+    const base = ref(this.db, `lobbies/${this.currentLobbyId}/players`);
 
     const a = onChildAdded(base, (snap) => {
       if (snap.key === uid) return;
@@ -250,58 +216,50 @@ export class Net {
       onRemove && onRemove(snap.key);
     });
 
-    const unsub = () => { try{ a(); }catch{} try{ c(); }catch{} try{ r(); }catch{} };
+    const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
     this.playersUnsubs.push(unsub);
     return unsub;
   }
 
-  // ----------------------------- CHAT (FS) -----------------------------
-  async cleanupChatIfNeeded(){
-    if (!this.currentLobbyId) return;
-    try {
-      const chatCol = collection(this.db, "lobbies", this.currentLobbyId, "chat");
-      const snap = await getDocs(query(chatCol, orderBy("createdAt","desc"), limit(26)));
-      if (snap.size > 24) {
-        const old = snap.docs.slice(24);
-        for (const d of old) { try { await this._guardFS(() => deleteDoc(d.ref)); } catch {} }
-      }
-    } catch {}
-  }
-
+  // ---------- CHAT (RTDB) ----------
   async sendChat(text){
     if (!this.currentLobbyId) return;
     const uid = this.auth.currentUser?.uid;
     const user = this.auth.currentUser;
     const username = user?.displayName || (user?.email ? user.email.split("@")[0] : "player");
-    const refCol = collection(this.db, "lobbies", this.currentLobbyId, "chat");
-    await this._guardFS(() => addDoc(refCol, {
-      uid, username, text: String(text).slice(0,200), createdAt: fsServerTimestamp()
-    }));
-    if (this.currentLobbyOwner && this.currentLobbyOwner === uid) {
-      try { await this.cleanupChatIfNeeded(); } catch {}
+    const msgRef = push(ref(this.db, `lobbies/${this.currentLobbyId}/chat`));
+    await set(msgRef, { uid, username, text: String(text).slice(0,200), ts: rtdbServerTimestamp() });
+
+    // Trim to last 24 (owner only) by timestamp order
+    if (this.currentLobbyOwner && this.currentLobbyOwner === uid){
+      try {
+        const chatQ = query(ref(this.db, `lobbies/${this.currentLobbyId}/chat`), orderByChild("ts"));
+        const snap = await get(chatQ);
+        if (snap.exists()){
+          const entries = Object.entries(snap.val()).sort((a,b)=> (a[1].ts||0) - (b[1].ts||0));
+          if (entries.length > 24){
+            const removeCount = entries.length - 24;
+            for (let i=0;i<removeCount;i++){ try { await remove(ref(this.db, `lobbies/${this.currentLobbyId}/chat/${entries[i][0]}`)); } catch {} }
+          }
+        }
+      } catch {}
     }
   }
 
   subscribeChat(cb){
     if (!this.currentLobbyId) return () => {};
-    const qy = query(
-      collection(this.db, "lobbies", this.currentLobbyId, "chat"),
-      orderBy("createdAt","asc"),
-      limitToLast(24)
-    );
-    if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} }
-    this.chatUnsub = onSnapshot(qy, (snap) => {
-      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      cb && cb(msgs);
+    // Keep an array with limitToLast(24) and stable ordering
+    const qy = query(ref(this.db, `lobbies/${this.currentLobbyId}/chat`), orderByChild("ts"), limitToLast(24));
+    const items = new Map(); // key -> message
+    if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
+    const unsub = onValue(qy, (snap)=>{
+      const arr = [];
+      snap.forEach((child)=>{
+        arr.push({ id: child.key, ...(child.val() || {}) });
+      });
+      cb(arr); // ascending by ts
     }, (err)=>console.error("subscribeChat:", err));
-    return this.chatUnsub;
+    this.chatUnsub = unsub;
+    return unsub;
   }
-}
-
-// One-shot Firestore query
-async function onSnapshotOnce(qry){
-  return new Promise((resolve, reject) => {
-    const unsub = onSnapshot(qry, (snap) => { try{unsub();}catch{} resolve(snap); },
-                                 (err)  => { try{unsub();}catch{} reject(err); });
-  });
 }
