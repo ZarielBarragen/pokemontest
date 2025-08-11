@@ -1,15 +1,15 @@
-// main.js — character select → lobby list → join/create → shared map play + chat
+// main.js — select → lobby list → create/join → multiplayer + chat (seeded maps)
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
 
-let localUsername = null;
-let selectedKey = null;
-let lobbyUnsub = null;
-
+// ---------- Canvas ----------
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
+const CANVAS_W = 960, CANVAS_H = 640;
+canvas.width = CANVAS_W; canvas.height = CANVAS_H;
 
+// ---------- Overlays / UI ----------
 const overlaySelect  = document.getElementById("select");
 const gridEl         = document.getElementById("charGrid");
 const overlayLobbies = document.getElementById("lobbies");
@@ -27,7 +27,7 @@ const toggleEl       = document.getElementById("authToggle");
 const titleEl        = document.getElementById("authTitle");
 const errEl          = document.getElementById("authErr");
 
-// HUD chat log (created here so no HTML edit needed)
+// Chat HUD (insert if not present)
 let chatLogEl = document.getElementById("chatLog");
 if (!chatLogEl){
   chatLogEl = document.createElement("div");
@@ -35,7 +35,7 @@ if (!chatLogEl){
   document.body.appendChild(chatLogEl);
 }
 
-// ------- Settings -------
+// ---------- Settings ----------
 const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
@@ -54,54 +54,7 @@ const TEX = { floor: null, wall: null };
 loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{});
 loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
 
-const CANVAS_W = 960, CANVAS_H = 640;
-canvas.width  = CANVAS_W;
-canvas.height = CANVAS_H;
-
-const keys = new Set();
-
-// ------- Chat State -------
-let chatMode = false;
-let chatBuffer = "";
-let chatTypingDots = 0;
-const chatShowTime = 4.5;
-const MAX_CHAT_LEN = 140;
-
-// banned-word censor (patterns intentionally obfuscated; extend as needed)
-const BANNED_PATTERNS = [
-  new RegExp("\\b" + "n" + "[^a-z0-9]{0,3}" + "[i1!|l]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[e3]" + "[^a-z0-9]{0,3}" + "[r]" + "\\b", "i"),
-  new RegExp("\\b" + "f" + "[^a-z0-9]{0,3}" + "[a@4]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[o0]" + "[^a-z0-9]{0,3}" + "[t+]" + "\\b", "i"),
-];
-function normalizeForFilter(s){
-  return s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/\u200b|\u200c|\u200d/g, "");
-}
-function censorMessage(text){
-  const n = normalizeForFilter(text);
-  for (const rx of BANNED_PATTERNS){
-    if (rx.test(n)) return null; // block entirely
-  }
-  return text;
-}
-
-// ------- Local Player State -------
-const state = {
-  x:0, y:0, dir:"down",
-  moving:false, prevMoving:false,
-  frameTime:0, frameStep:0, frameOrder: makePingPong(4),
-  anim:"stand", idleAccum:0,
-  scale:3,
-  walkImg:null, idleImg:null, hopImg:null,
-  animMeta:{walk:null, idle:null, hop:null},
-  hopping:false,
-  hop:{sx:0,sy:0,tx:0,ty:0,t:0,dur:0,z:0},
-  map:null, cam:{x:0,y:0},
-  ready:false,
-  showGrid:false, showBoxes:false,
-  say:null, sayTimer:0,
-  typing:false
-};
-
-// ------- SFX -------
+// ---------- SFX ----------
 function makeAudioPool(url, poolSize = 6){
   const pool = Array.from({length: poolSize}, () => new Audio(url));
   return {
@@ -119,7 +72,15 @@ const sfx = {
   jump:   makeAudioPool("assets/sfx/jump.wav"),
 };
 
-// ------- Characters -------
+// ---------- Chat filter ----------
+const BANNED_PATTERNS = [
+  new RegExp("\\b" + "n" + "[^a-z0-9]{0,3}" + "[i1!|l]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[e3]" + "[^a-z0-9]{0,3}" + "r" + "\\b","i"),
+  new RegExp("\\b" + "f" + "[^a-z0-9]{0,3}" + "[a@4]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[o0]" + "[^a-z0-9]{0,3}" + "[t+]" + "\\b","i")
+];
+const normalize = s => s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/\u200b|\u200c|\u200d/g,"");
+function censorMessage(t){ const n=normalize(t); return BANNED_PATTERNS.some(rx=>rx.test(n)) ? null : t; }
+
+// ---------- Characters ----------
 function makeRowDirGrid() {
   return {
     down:{row:0,start:0}, downRight:{row:1,start:0}, right:{row:2,start:0}, upRight:{row:3,start:0},
@@ -232,7 +193,11 @@ const CHARACTERS = {
   }
 };
 
-// ------- Auth wiring -------
+// ---------- Auth ----------
+let localUsername = null;
+let selectedKey = null;
+let lobbyUnsub = null;
+
 let authMode = "signup";
 toggleEl.onclick = () => {
   authMode = authMode === "signup" ? "login" : "signup";
@@ -247,17 +212,18 @@ formEl.addEventListener("submit", async (e)=>{
   const u = userEl.value.trim().toLowerCase();
   const p = passEl.value;
   if (!/^[a-z0-9_]{3,16}$/.test(u)) { errEl.textContent = "3–16 chars a–z, 0–9, _"; return; }
-  try{ if (authMode === "signup") await net.signUp(u, p); else await net.logIn(u, p); }
-  catch (err){ errEl.textContent = (err.code || "Auth error").replace("auth/",""); }
+  try{
+    if (authMode === "signup") await net.signUp(u, p);
+    else await net.logIn(u, p);
+  }catch(err){
+    if (err?.code === "auth/too-many-requests") errEl.textContent = "Too many attempts. Wait a few minutes and try again.";
+    else errEl.textContent = (err?.code || "Auth error").replace("auth/","");
+  }
 });
 const logoutBtn = document.createElement("button");
 logoutBtn.textContent = "Sign out";
 logoutBtn.className = "button8 signout";
-logoutBtn.style.position = "fixed";
-logoutBtn.style.top = "12px";
-logoutBtn.style.right = "12px";
-logoutBtn.style.zIndex = "9999";
-logoutBtn.style.display = "none";
+Object.assign(logoutBtn.style,{position:"fixed",top:"12px",right:"12px",zIndex:"9999",display:"none"});
 logoutBtn.onclick = () => net.logOut().catch(()=>{});
 document.body.appendChild(logoutBtn);
 
@@ -275,7 +241,7 @@ net.onAuth(user=>{
   }
 });
 
-// ------- Character select -------
+// ---------- Select UI ----------
 function buildSelectUI(){
   gridEl.innerHTML = "";
   Object.entries(CHARACTERS).forEach(([key, c])=>{
@@ -307,7 +273,7 @@ function buildSelectUI(){
 }
 buildSelectUI();
 
-// ------- Lobbies UI -------
+// ---------- Lobbies ----------
 function renderLobbyList(list){
   lobbyListEl.innerHTML = "";
   lobbyHintEl.style.display = list.length ? "none" : "block";
@@ -316,11 +282,13 @@ function renderLobbyList(list){
     wrap.className = "card";
     wrap.style.textAlign = "left";
     wrap.style.alignItems = "flex-start";
+    const w = lob.mapMeta?.w ?? "?";
+    const h = lob.mapMeta?.h ?? "?";
     wrap.innerHTML = `
       <div style="display:grid;gap:6px;">
         <div><strong>${lob.name}</strong></div>
         <div style="font-size:11px;opacity:.9">Players: ${lob.playersCount|0}</div>
-        <div style="font-size:11px;opacity:.8">Map: ${lob.w || (lob.map?.w ?? "?")}×${lob.h || (lob.map?.h ?? "?")}</div>
+        <div style="font-size:11px;opacity:.8">Map: ${w}×${h}</div>
       </div>
     `;
     wrap.onclick = () => joinLobbyFlow(lob.id);
@@ -343,7 +311,10 @@ refreshBtn.onclick = ()=>{
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 };
 
-// ---- Create lobby ----
+// ---------- Seeded map meta ----------
+function randSeed(){ return (Math.random()*0xFFFFFFFF)>>>0; }
+function mulberry32(a){ return function(){ let t=a+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+
 createLobbyBtn.onclick = async ()=>{
   const btnLabel = createLobbyBtn.textContent;
   createLobbyBtn.disabled = true;
@@ -353,10 +324,12 @@ createLobbyBtn.onclick = async ()=>{
     if (!cfg) throw new Error("Pick a character first");
     const visW = Math.floor(canvas.width / TILE);
     const visH = Math.floor(canvas.height / TILE);
-    const map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
-    const lobbyId = await net.createLobby((newLobbyNameEl.value||"").trim(), map);
+    const w = visW * MAP_SCALE;
+    const h = visH * MAP_SCALE;
+    const seed = randSeed();
+    const lobbyId = await net.createLobby((newLobbyNameEl.value||"").trim(), { w,h,seed });
     await net.joinLobby(lobbyId);
-    await startWithCharacter(cfg, map);
+    await startWithCharacter(cfg, generateMap(w,h,seed));
     overlayLobbies.classList.add("hidden");
     startChatSubscription();
   } catch(e){
@@ -373,8 +346,9 @@ async function joinLobbyFlow(lobbyId){
     const cfg = CHARACTERS[selectedKey];
     if (!cfg) { alert("Pick a character first"); return; }
     const lobby = await net.getLobby(lobbyId);
+    const { w,h,seed } = lobby.mapMeta || {};
     await net.joinLobby(lobbyId);
-    await startWithCharacter(cfg, lobby.map);
+    await startWithCharacter(cfg, generateMap(w||48,h||32,seed??1234));
     overlayLobbies.classList.add("hidden");
     startChatSubscription();
   } catch(e){
@@ -383,77 +357,116 @@ async function joinLobbyFlow(lobbyId){
   }
 }
 
-// ------- Input -------
+// ---------- Game state ----------
+const keys = new Set();
+let chatMode=false, chatBuffer="", chatTypingDots=0, chatShowTime=4.5;
+
+const state = {
+  x:0, y:0, dir:"down",
+  moving:false, prevMoving:false,
+  frameTime:0, frameStep:0, frameOrder: makePingPong(4),
+  anim:"stand", idleAccum:0,
+  scale:3,
+  walkImg:null, idleImg:null, hopImg:null,
+  animMeta:{walk:null, idle:null, hop:null},
+  hopping:false,
+  hop:{sx:0,sy:0,tx:0,ty:0,t:0,dur:0,z:0},
+  map:null, cam:{x:0,y:0},
+  ready:false,
+  showGrid:false, showBoxes:false,
+  say:null, sayTimer:0,
+  typing:false
+};
+
+// ---------- Input ----------
 window.addEventListener("keydown", e=>{
-  // Chat capture
   if (chatMode){
     if (e.key === "Enter"){
       e.preventDefault();
       const clean = censorMessage(chatBuffer.trim());
-      chatMode = false;
-      state.typing = false;
-      net.updateState({ typing:false }).catch(()=>{});
+      chatMode = false; state.typing = false; net.updateState({ typing:false }).catch(()=>{});
       if (clean && clean.length){
-        state.say = clean; state.sayTimer = chatShowTime;
-        net.sendChat(clean).catch(()=>{});
+        state.say = clean; state.sayTimer = chatShowTime; net.sendChat(clean).catch(()=>{});
       }
       chatBuffer = "";
       return;
     }
     if (e.key === "Escape"){
       e.preventDefault();
-      chatMode = false; chatBuffer = "";
-      state.typing = false;
-      net.updateState({ typing:false }).catch(()=>{});
+      chatMode = false; chatBuffer = ""; state.typing = false; net.updateState({ typing:false }).catch(()=>{});
       return;
     }
-    if (e.key === "Backspace"){
-      e.preventDefault();
-      chatBuffer = chatBuffer.slice(0, -1);
-      return;
-    }
-    if (e.key.length === 1){
-      if (chatBuffer.length < MAX_CHAT_LEN) chatBuffer += e.key;
-      return;
-    }
-    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab"].includes(e.key)){
-      e.preventDefault(); return;
-    }
+    if (e.key === "Backspace"){ e.preventDefault(); chatBuffer = chatBuffer.slice(0, -1); return; }
+    if (e.key.length === 1){ if (chatBuffer.length < 140) chatBuffer += e.key; return; }
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab"].includes(e.key)){ e.preventDefault(); return; }
   }
 
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
 
-  if (e.key === "Enter"){
-    chatMode = true; chatBuffer = "";
-    state.typing = true;
-    net.updateState({ typing:true }).catch(()=>{});
-    return;
-  }
-
-  if (e.key === "Escape"){
-    remote.clear();
-    net.leaveLobby().catch(()=>{});
-    state.ready = false;
-    overlayLobbies.classList.add("hidden");
-    overlaySelect.classList.remove("hidden");
-    return;
-  }
-
+  if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); return; }
+  if (e.key === "Escape"){ remote.clear(); net.leaveLobby().catch(()=>{}); state.ready=false; overlayLobbies.classList.add("hidden"); overlaySelect.classList.remove("hidden"); return; }
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
   if (e.key.toLowerCase() === "b") state.showBoxes = !state.showBoxes;
   if (e.key.toLowerCase() === "e") tryStartHop();
   keys.add(e.key);
 });
-window.addEventListener("keyup", e=>{
-  if (!chatMode) keys.delete(e.key);
-});
+window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
 
-// ------- Remote players cache -------
-const remote = new Map();
-const charCache = new Map();
-function makePingPong(n){ const f=[...Array(n).keys()], b=[...Array(Math.max(n-2,0)).keys()].reverse().map(i=>i+1); return f.concat(b); }
+// ---------- Map generation (seeded) ----------
+function generateMap(w, h, seed=1234){
+  const rnd = mulberry32(seed>>>0);
+  const walls = Array.from({length:h}, (_,y)=>
+    Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1)));
+  const rects = 12 + Math.floor(rnd()*8);
+  for (let i=0;i<rects;i++){
+    const rw = 2 + Math.floor(rnd()*5);
+    const rh = 2 + Math.floor(rnd()*4);
+    const rx = 1 + Math.floor(rnd()*(w-rw-2));
+    const ry = 1 + Math.floor(rnd()*(h-rh-2));
+    for (let y=ry; y<ry+rh; y++){
+      for (let x=rx; x<Math.min(w, rx+rw); x++){
+        walls[y][x] = true;
+      }
+    }
+  }
+  const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
+  const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
+  const edgeSegments = 20 + Math.floor(rnd()*12);
+  for (let i=0;i<edgeSegments;i++){
+    const vertical = rnd() < 0.5;
+    if (vertical){
+      const xB = 1 + Math.floor(rnd()*(w-1));
+      const y0 = 1 + Math.floor(rnd()*(h-2));
+      const len = 3 + Math.floor(rnd()*(h-4));
+      for (let y=y0; y<Math.min(h-1, y0+len); y++){
+        if (!walls[y][xB-1] && !walls[y][xB]) edgesV[y][xB] = true;
+      }
+    } else {
+      const yB = 1 + Math.floor(rnd()*(h-1));
+      const x0 = 1 + Math.floor(rnd()*(w-2));
+      const len = 4 + Math.floor(rnd()*(w-4));
+      for (let x=x0; x<Math.min(w-1, x0+len); x++){
+        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true;
+      }
+    }
+  }
+  let sx=1, sy=1;
+  for (let tries=0; tries<400; tries++){
+    const tx = 1 + Math.floor(rnd()*(w-2));
+    const ty = 1 + Math.floor(rnd()*(h-2));
+    if (!walls[ty][tx]){ sx=tx; sy=ty; break; }
+  }
+  return { w, h, walls, edgesV, edgesH, spawn:{x:sx, y:sy} };
+}
+function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
+function tileCenter(tx,ty){ return {x: tx*TILE + TILE/2, y: ty*TILE + TILE/2}; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
+
+// ---------- Character assets / anim ----------
+function makePingPong(n){ const f=[...Array(n).keys()], b=[...Array(Math.max(n-2,0)).keys()].reverse().map(i=>i+1); return f.concat(b); }
+const remote = new Map();
+const charCache = new Map();
 
 async function loadCharacterAssets(key){
   if (charCache.has(key)) return charCache.get(key);
@@ -474,319 +487,6 @@ async function loadCharacterAssets(key){
   charCache.set(key, assets);
   return assets;
 }
-
-function startNetListeners(){
-  const unsub = net.subscribePlayers({
-    onAdd: async (uid, data)=>{
-      const assets = await loadCharacterAssets(data.character);
-      if (!assets) return;
-      remote.set(uid, {
-        username: data.username, character: data.character,
-        x:data.x, y:data.y, dir:data.dir, anim:data.anim || "stand",
-        typing: !!data.typing,
-        scale: assets.cfg.scale ?? 3,
-        frameTime: 0, frameStep: 0,
-        idlePlaying: data.anim === "idle",
-        hopT: 0, hopDur: (assets.cfg.hop?.framesPerDir || 1)/HOP_FPS, z: 0,
-        say:null, sayTimer:0,
-        assets
-      });
-    },
-    onChange: (uid, data)=>{
-      const r = remote.get(uid); if (!r) return;
-      r.x = data.x ?? r.x; r.y = data.y ?? r.y;
-      r.dir = data.dir ?? r.dir;
-      r.typing = !!data.typing;
-
-      if (typeof data.anim === "string" && data.anim !== r.anim){
-        r.anim = data.anim;
-        r.frameTime = 0; r.frameStep = 0;
-        r.idlePlaying = (r.anim === "idle");
-        if (r.anim === "hop"){ r.hopT = 0; r.hopDur = (r.assets?.cfg?.hop?.framesPerDir || 1)/HOP_FPS; r.z = 0; }
-        else { r.hopT = 0; r.z = 0; }
-      }
-
-      if (data.character && data.character !== r.character){
-        loadCharacterAssets(data.character).then(a=>{
-          r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3; r.hopDur = (a.cfg.hop?.framesPerDir || 1)/HOP_FPS;
-        });
-      }
-      r.username = data.username ?? r.username;
-    },
-    onRemove: (uid)=> remote.delete(uid)
-  });
-  return unsub;
-}
-
-function startChatSubscription(){
-  net.subscribeChat((msgs)=>{
-    chatLogEl.innerHTML = "";
-    msgs.slice(-24).forEach(m=>{
-      const div = document.createElement("div");
-      div.className = "chatItem";
-      const who = (m.username || "player");
-      div.textContent = `${who}: ${m.text}`;
-      chatLogEl.appendChild(div);
-    });
-    const whoMap = new Map();
-    msgs.forEach(m=> whoMap.set(m.uid, m));
-    for (const [uid, r] of remote){
-      const m = whoMap.get(uid);
-      if (m){ r.say = m.text; r.sayTimer = chatShowTime; }
-    }
-  });
-}
-
-// ------- Map generation / movement -------
-function generateMap(w, h){
-  const walls = Array.from({length:h}, (_,y)=>
-    Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1)));
-  const rects = 12 + Math.floor(Math.random()*8);
-  for (let i=0;i<rects;i++){
-    const rw = 2 + Math.floor(Math.random()*5);
-    const rh = 2 + Math.floor(Math.random()*4);
-    const rx = 1 + Math.floor(Math.random()*(w-rw-2));
-    const ry = 1 + Math.floor(Math.random()*(h-rh-2));
-    for (let y=ry; y<ry+rh; y++){
-      for (let x=rx; x<rx+rw && x<w; x++){
-        walls[y][x] = true;
-      }
-    }
-  }
-  const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
-  const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
-  const edgeSegments = 20 + Math.floor(Math.random()*12);
-  for (let i=0;i<edgeSegments;i++){
-    const vertical = Math.random() < 0.5;
-    if (vertical){
-      const xB = 1 + Math.floor(Math.random()*(w-1));
-      const y0 = 1 + Math.floor(Math.random()*(h-2));
-      const len = 3 + Math.floor(Math.random()*(h-4));
-      for (let y=y0; y<Math.min(h-1, y0+len); y++){
-        if (!walls[y][xB-1] && !walls[y][xB]) edgesV[y][xB] = true;
-      }
-    } else {
-      const yB = 1 + Math.floor(Math.random()*(h-1));
-      const x0 = 1 + Math.floor(Math.random()*(w-2));
-      const len = 4 + Math.floor(Math.random()*(w-4));
-      for (let x=x0; x<Math.min(w-1, x0+len); x++){
-        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true;
-      }
-    }
-  }
-  let sx=1, sy=1;
-  for (let tries=0; tries<400; tries++){
-    const tx = 1 + Math.floor(Math.random()*(w-2));
-    const ty = 1 + Math.floor(Math.random()*(h-2));
-    if (!walls[ty][tx]){ sx=tx; sy=ty; break; }
-  }
-  return { w, h, walls, edgesV, edgesH, spawn:{x:sx, y:sy} };
-}
-function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
-function tileCenter(tx,ty){ return {x: tx*TILE + TILE/2, y: ty*TILE + TILE/2}; }
-function updateCamera(){
-  const mapPxW = state.map.w * TILE;
-  const mapPxH = state.map.h * TILE;
-  state.cam.x = clamp(state.x - canvas.width  /2, 0, Math.max(0, mapPxW - canvas.width));
-  state.cam.y = clamp(state.y - canvas.height /2, 0, Math.max(0, mapPxH - canvas.height));
-}
-function isOverGapWorld(x, y){
-  const m = state.map; if (!m) return false;
-  const ty = Math.floor(y / TILE);
-  const xbCandidates = [Math.round(x / TILE), Math.round(x / TILE) - 1];
-  for (const xb of xbCandidates){
-    if (ty >= 0 && ty < m.h && xb >= 1 && xb < m.w){
-      if (m.edgesV[ty][xb] && Math.abs(x - xb*TILE) < GAP_W * 0.5) return true;
-    }
-  }
-  const ybCandidates = [Math.round(y / TILE), Math.round(y / TILE) - 1];
-  for (const yb of ybCandidates){
-    if (yb >= 1 && yb < m.h){
-      const tx = Math.floor(x / TILE);
-      if (m.edgesH[yb][tx] && Math.abs(y - yb*TILE) < GAP_W * 0.5) return true;
-    }
-  }
-  return false;
-}
-
-// Resolve collision against other players after moving
-function resolvePlayerCollisions(nx, ny){
-  let x = nx, y = ny;
-  const myR = PLAYER_R * (state.scale || 3);
-  for (const r of remote.values()){
-    const rr = PLAYER_R * (r.scale || 3);
-    const minD = myR + rr;
-    const dx = x - r.x, dy = y - r.y;
-    const d = Math.hypot(dx,dy);
-    if (d > 0 && d < minD){
-      const push = (minD - d) + 0.5;
-      x += (dx / d) * push;
-      y += (dy / d) * push;
-    }
-  }
-  x = clamp(x, TILE*0.5, state.map.w*TILE - TILE*0.5);
-  y = clamp(y, TILE*0.5, state.map.h*TILE - TILE*0.5);
-  return {x,y};
-}
-
-// ------- Boot character inside a lobby map -------
-async function startWithCharacter(cfg, map){
-  state.ready = false;
-  state.animMeta = { walk:{}, idle:{}, hop:{} };
-  state.scale = cfg.scale ?? 3;
-
-  if (!map){
-    const visW = Math.floor(canvas.width / TILE);
-    const visH = Math.floor(canvas.height / TILE);
-    map = generateMap(visW * MAP_SCALE, visH * MAP_SCALE);
-  }
-  state.map = map;
-
-  try{
-    const [walkRes, idleRes, hopRes] = await Promise.allSettled([
-      loadImage(cfg.base + cfg.walk.sheet),
-      loadImage(cfg.base + cfg.idle.sheet),
-      loadImage(cfg.base + cfg.hop.sheet)
-    ]);
-
-    if (walkRes.status !== "fulfilled") throw new Error("walk sheet missing");
-    if (idleRes.status !== "fulfilled") throw new Error("idle sheet missing");
-
-    state.walkImg = walkRes.value;
-    state.idleImg = idleRes.value;
-    state.hopImg  = (hopRes.status === "fulfilled") ? hopRes.value : null;
-
-    state.animMeta.walk = sliceSheet(state.walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir);
-    state.animMeta.idle = sliceSheet(state.idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir);
-    state.animMeta.hop  = state.hopImg ? sliceSheet(state.hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {};
-
-    const spawn = tileCenter(map.spawn.x, map.spawn.y);
-    state.x = spawn.x + (Math.random()*8 - 4);
-    state.y = spawn.y + (Math.random()*8 - 4);
-    state.dir = "down"; state.anim = "stand"; state.hopping = false;
-    state.frameOrder = makePingPong(cfg.walk.framesPerDir);
-    state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
-    state.say = null; state.sayTimer = 0; state.typing = false;
-
-    updateCamera();
-    state.ready = true;
-
-    try {
-      await net.spawnLocal({
-        username: localUsername || "player",
-        character: selectedKey,
-        x: state.x, y: state.y, dir: state.dir,
-        anim: state.anim, scale: state.scale, typing:false
-      });
-      startNetListeners();
-    } catch(e) {
-      console.warn("Net spawn failed (offline?)", e);
-    }
-  } catch (err){
-    console.error(err);
-    alert(`Failed to load ${cfg.name}. Check assets/ paths or server.`);
-  }
-}
-
-// ------- Input & animation -------
-const DIR_VECS = {
-  down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
-  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1],
-};
-function getInputVec(){
-  if (chatMode) return {vx:0, vy:0};
-  const up = keys.has("w") || keys.has("ArrowUp");
-  const down = keys.has("s") || keys.has("ArrowDown");
-  const left = keys.has("a") || keys.has("ArrowLeft");
-  const right = keys.has("d") || keys.has("ArrowRight");
-  let vx=0, vy=0;
-  if (up) vy -= 1; if (down) vy += 1;
-  if (left) vx -= 1; if (right) vx += 1;
-  if (vx && vy){ const inv = 1/Math.sqrt(2); vx *= inv; vy *= inv; }
-  return {vx, vy};
-}
-function vecToDir(vx, vy){
-  if (!vx && !vy) return state.dir;
-  if (vx>0 && vy===0) return "right";
-  if (vx<0 && vy===0) return "left";
-  if (vy>0 && vx===0) return "down";
-  if (vy<0 && vx===0) return "up";
-  if (vx>0 && vy>0)   return "downRight";
-  if (vx<0 && vy>0)   return "downLeft";
-  if (vx<0 && vy<0)   return "upLeft";
-  if (vx>0 && vy<0)   return "upRight";
-  return state.dir;
-}
-
-function tryMove(dt, vx, vy){
-  const map = state.map; if (!map) return;
-  const stepX = vx * SPEED * dt;
-  const stepY = vy * SPEED * dt;
-
-  if (stepX){
-    const oldX = state.x;
-    let newX = clamp(oldX + stepX, TILE*0.5, map.w*TILE - TILE*0.5);
-    const ty = Math.floor(state.y / TILE);
-    const tx0 = Math.floor(oldX / TILE);
-    const tx1 = Math.floor(newX / TILE);
-    if (tx1 !== tx0){
-      if (!canWalk(tx1, ty, map)){ newX = oldX; }
-      else {
-        const xB = stepX > 0 ? tx0+1 : tx0;
-        if (!state.hopping && map.edgesV[ty][xB]) newX = oldX;
-      }
-    }
-    state.x = newX;
-  }
-
-  if (stepY){
-    const oldY = state.y;
-    let newY = clamp(oldY + stepY, TILE*0.5, map.h*TILE - TILE*0.5);
-    const tx = Math.floor(state.x / TILE);
-    const ty0 = Math.floor(oldY / TILE);
-    const ty1 = Math.floor(newY / TILE);
-    if (ty1 !== ty0){
-      if (!canWalk(tx, ty1, map)){ newY = oldY; }
-      else {
-        const yB = stepY > 0 ? ty0+1 : ty0;
-        if (!state.hopping && map.edgesH[yB][tx]) newY = oldY;
-      }
-    }
-    state.y = newY;
-  }
-
-  const adj = resolvePlayerCollisions(state.x, state.y);
-  state.x = adj.x; state.y = adj.y;
-}
-
-function tryStartHop(){
-  if (!state.ready || state.hopping) return;
-  const cfg = CHARACTERS[selectedKey];
-  const strip = state.animMeta.hop?.[state.dir];
-  if (!cfg?.hop || !state.hopImg || !strip || strip.length === 0) return;
-
-  const {vx,vy} = getInputVec();
-  let dx = Math.sign(vx), dy = Math.sign(vy);
-  if (!dx && !dy){ const v = DIR_VECS[state.dir]; dx = v[0]; dy = v[1]; }
-
-  const tx0 = Math.floor(state.x / TILE);
-  const ty0 = Math.floor(state.y / TILE);
-  let tx = tx0 + dx, ty = ty0 + dy;
-  if (!canWalk(tx,ty,state.map)){ tx = tx0; ty = ty0; }
-
-  const start = {x: state.x, y: state.y};
-  const end   = tileCenter(tx,ty);
-
-  state.hopping = true;
-  sfx.jump.play(0.6, 1 + (Math.random()*0.08 - 0.04));
-
-  state.anim = "hop";
-  state.frameOrder = [...Array(cfg.hop.framesPerDir).keys()];
-  state.frameStep = 0; state.frameTime = 0;
-  state.hop = { sx:start.x, sy:start.y, tx:end.x, ty:end.y, t:0, dur: cfg.hop.framesPerDir / HOP_FPS, z:0 };
-  state.idleAccum = 0;
-}
-
 function sliceSheet(img, cols, rows, dirGrid, framesPerDir){
   const CELL_W = Math.floor(img.width / cols);
   const CELL_H = Math.floor(img.height / rows);
@@ -830,6 +530,244 @@ function analyzeBitmap(sheet, sx, sy, sw, sh){
   return { sx:sx+minX, sy:sy+minY, sw:cropW, sh:cropH, ox:anchorX-minX, oy:anchorY-minY };
 }
 
+// ---------- Net listeners ----------
+function startNetListeners(){
+  return net.subscribePlayers({
+    onAdd: async (uid, data)=>{
+      const assets = await loadCharacterAssets(data.character);
+      if (!assets) return;
+      remote.set(uid, {
+        username: data.username, character: data.character,
+        x:data.x, y:data.y, dir:data.dir, anim:data.anim || "stand",
+        typing: !!data.typing,
+        scale: assets.cfg.scale ?? 3,
+        frameTime: 0, frameStep: 0,
+        idlePlaying: data.anim === "idle",
+        hopT: 0, hopDur: (assets.cfg.hop?.framesPerDir || 1)/HOP_FPS, z: 0,
+        say:null, sayTimer:0,
+        assets
+      });
+    },
+    onChange: (uid, data)=>{
+      const r = remote.get(uid); if (!r) return;
+      r.x = data.x ?? r.x; r.y = data.y ?? r.y;
+      r.dir = data.dir ?? r.dir;
+      r.typing = !!data.typing;
+      if (typeof data.anim === "string" && data.anim !== r.anim){
+        r.anim = data.anim; r.frameTime = 0; r.frameStep = 0;
+        r.idlePlaying = (r.anim === "idle");
+        if (r.anim === "hop"){ r.hopT = 0; r.hopDur = (r.assets?.cfg?.hop?.framesPerDir || 1)/HOP_FPS; r.z = 0; }
+        else { r.hopT = 0; r.z = 0; }
+      }
+      if (data.character && data.character !== r.character){
+        loadCharacterAssets(data.character).then(a=>{
+          r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3; r.hopDur=(a.cfg.hop?.framesPerDir||1)/HOP_FPS;
+        });
+      }
+      r.username = data.username ?? r.username;
+    },
+    onRemove: (uid)=> remote.delete(uid)
+  });
+}
+function startChatSubscription(){
+  net.subscribeChat((msgs)=>{
+    chatLogEl.innerHTML = "";
+    msgs.slice(-24).forEach(m=>{
+      const div = document.createElement("div");
+      div.className = "chatItem";
+      div.textContent = `${m.username || "player"}: ${m.text}`;
+      chatLogEl.appendChild(div);
+    });
+    const latest = new Map();
+    msgs.forEach(m=> latest.set(m.uid, m));
+    for (const [uid, r] of remote){
+      const m = latest.get(uid);
+      if (m){ r.say = m.text; r.sayTimer = 4.5; }
+    }
+  });
+}
+
+// ---------- Boot character in map ----------
+async function startWithCharacter(cfg, map){
+  state.ready = false;
+  state.animMeta = { walk:{}, idle:{}, hop:{} };
+  state.scale = cfg.scale ?? 3;
+  state.map = map;
+
+  try{
+    const [wRes,iRes,hRes] = await Promise.allSettled([
+      loadImage(cfg.base + cfg.walk.sheet),
+      loadImage(cfg.base + cfg.idle.sheet),
+      loadImage(cfg.base + cfg.hop.sheet)
+    ]);
+    if (wRes.status!=="fulfilled") throw new Error("walk sheet missing");
+    if (iRes.status!=="fulfilled") throw new Error("idle sheet missing");
+
+    state.walkImg = wRes.value;
+    state.idleImg = iRes.value;
+    state.hopImg  = (hRes.status==="fulfilled") ? hRes.value : null;
+
+    state.animMeta.walk = sliceSheet(state.walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir);
+    state.animMeta.idle = sliceSheet(state.idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir);
+    state.animMeta.hop  = state.hopImg ? sliceSheet(state.hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {};
+
+    const spawn = tileCenter(map.spawn.x, map.spawn.y);
+    state.x = spawn.x + (Math.random()*8 - 4);
+    state.y = spawn.y + (Math.random()*8 - 4);
+    state.dir = "down"; state.anim = "stand"; state.hopping = false;
+    state.frameOrder = makePingPong(cfg.walk.framesPerDir);
+    state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
+    state.say = null; state.sayTimer = 0; state.typing = false;
+
+    updateCamera();
+    state.ready = true;
+
+    await net.spawnLocal({
+      username: localUsername || "player",
+      character: selectedKey,
+      x: state.x, y: state.y, dir: state.dir,
+      anim: state.anim, scale: state.scale, typing:false
+    });
+    startNetListeners();
+  } catch (err){
+    console.error(err);
+    alert(`Failed to load ${cfg.name}. Check assets/ paths or server.`);
+  }
+}
+
+// ---------- Movement / hop / camera ----------
+const DIR_VECS = {
+  down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
+  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1],
+};
+function getInputVec(){
+  if (chatMode) return {vx:0, vy:0};
+  const up = keys.has("w") || keys.has("ArrowUp");
+  const down = keys.has("s") || keys.has("ArrowDown");
+  const left = keys.has("a") || keys.has("ArrowLeft");
+  const right = keys.has("d") || keys.has("ArrowRight");
+  let vx=0, vy=0;
+  if (up) vy -= 1; if (down) vy += 1;
+  if (left) vx -= 1; if (right) vx += 1;
+  if (vx && vy){ const inv = 1/Math.sqrt(2); vx *= inv; vy *= inv; }
+  return {vx, vy};
+}
+function vecToDir(vx, vy){
+  if (!vx && !vy) return state.dir;
+  if (vx>0 && vy===0) return "right";
+  if (vx<0 && vy===0) return "left";
+  if (vy>0 && vx===0) return "down";
+  if (vy<0 && vx===0) return "up";
+  if (vx>0 && vy>0)   return "downRight";
+  if (vx<0 && vy>0)   return "downLeft";
+  if (vx<0 && vy<0)   return "upLeft";
+  if (vx>0 && vy<0)   return "upRight";
+  return state.dir;
+}
+function updateCamera(){
+  const mapPxW = state.map.w * TILE;
+  const mapPxH = state.map.h * TILE;
+  state.cam.x = clamp(state.x - canvas.width  /2, 0, Math.max(0, mapPxW - canvas.width));
+  state.cam.y = clamp(state.y - canvas.height /2, 0, Math.max(0, mapPxH - canvas.height));
+}
+function canCrossVGap(xMove){
+  const m=state.map; const ty=Math.floor(state.y/TILE);
+  const tx0=Math.floor(state.x/TILE), tx1=Math.floor((state.x+xMove)/TILE);
+  if (tx0===tx1) return true;
+  const xB = xMove>0 ? tx0+1 : tx0;
+  return !m.edgesV[ty][xB] || state.hopping;
+}
+function canCrossHGap(yMove){
+  const m=state.map; const tx=Math.floor(state.x/TILE);
+  const ty0=Math.floor(state.y/TILE), ty1=Math.floor((state.y+yMove)/TILE);
+  if (ty0===ty1) return true;
+  const yB = yMove>0 ? ty0+1 : ty0;
+  return !m.edgesH[yB][tx] || state.hopping;
+}
+function resolvePlayerCollisions(nx, ny){
+  let x = nx, y = ny;
+  const myR = PLAYER_R * (state.scale || 3);
+  for (const r of remote.values()){
+    const rr = PLAYER_R * (r.scale || 3);
+    const minD = myR + rr;
+    const dx = x - r.x, dy = y - r.y;
+    const d = Math.hypot(dx,dy);
+    if (d > 0 && d < minD){
+      const push = (minD - d) + 0.5;
+      x += (dx / d) * push;
+      y += (dy / d) * push;
+    }
+  }
+  x = clamp(x, TILE*0.5, state.map.w*TILE - TILE*0.5);
+  y = clamp(y, TILE*0.5, state.map.h*TILE - TILE*0.5);
+  return {x,y};
+}
+function tryMove(dt, vx, vy){
+  const stepX = vx * SPEED * dt;
+  const stepY = vy * SPEED * dt;
+
+  if (stepX){
+    const oldX = state.x;
+    let newX = clamp(oldX + stepX, TILE*0.5, state.map.w*TILE - TILE*0.5);
+    const ty = Math.floor(state.y / TILE);
+    const tx0 = Math.floor(oldX / TILE);
+    const tx1 = Math.floor(newX / TILE);
+    if (tx1 !== tx0){
+      if (!canWalk(tx1, ty, state.map)){ newX = oldX; }
+      else {
+        const xB = stepX > 0 ? tx0+1 : tx0;
+        if (!state.hopping && state.map.edgesV[ty][xB]) newX = oldX;
+      }
+    }
+    state.x = newX;
+  }
+  if (stepY){
+    const oldY = state.y;
+    let newY = clamp(oldY + stepY, TILE*0.5, state.map.h*TILE - TILE*0.5);
+    const tx = Math.floor(state.x / TILE);
+    const ty0 = Math.floor(oldY / TILE);
+    const ty1 = Math.floor(newY / TILE);
+    if (ty1 !== ty0){
+      if (!canWalk(tx, ty1, state.map)){ newY = oldY; }
+      else {
+        const yB = stepY > 0 ? ty0+1 : ty0;
+        if (!state.hopping && state.map.edgesH[yB][tx]) newY = oldY;
+      }
+    }
+    state.y = newY;
+  }
+  const adj = resolvePlayerCollisions(state.x, state.y);
+  state.x = adj.x; state.y = adj.y;
+}
+function tryStartHop(){
+  if (!state.ready || state.hopping) return;
+  const cfg = CHARACTERS[selectedKey];
+  const strip = state.animMeta.hop?.[state.dir];
+  if (!cfg?.hop || !state.hopImg || !strip || strip.length === 0) return;
+
+  const {vx,vy} = getInputVec();
+  let dx = Math.sign(vx), dy = Math.sign(vy);
+  if (!dx && !dy){ const v = DIR_VECS[state.dir]; dx = v[0]; dy = v[1]; }
+
+  const tx0 = Math.floor(state.x / TILE);
+  const ty0 = Math.floor(state.y / TILE);
+  let tx = tx0 + dx, ty = ty0 + dy;
+  if (!canWalk(tx,ty,state.map)){ tx = tx0; ty = ty0; }
+
+  const start = {x: state.x, y: state.y};
+  const end   = tileCenter(tx,ty);
+
+  state.hopping = true;
+  sfx.jump.play(0.6, 1 + (Math.random()*0.08 - 0.04));
+
+  state.anim = "hop";
+  state.frameOrder = [...Array(cfg.hop.framesPerDir).keys()];
+  state.frameStep = 0; state.frameTime = 0;
+  state.hop = { sx:start.x, sy:start.y, tx:end.x, ty:end.y, t:0, dur: cfg.hop.framesPerDir / HOP_FPS, z:0 };
+  state.idleAccum = 0;
+}
+
+// ---------- Animation helpers ----------
 function currentFrame(){
   let meta, strip, idx;
   if (state.anim === "walk"){
@@ -847,11 +785,135 @@ function currentFrame(){
   meta = state.animMeta.idle; strip = meta?.[state.dir]; return strip ? strip[0] : null;
 }
 
-// ------- Update / Draw -------
-let frameDt = 1/60;
+// ---------- Draw helpers ----------
+const BG_FLOOR = "#08242b", BG_WALL  = "#12333c";
+function isOverGapWorld(x, y){
+  const m = state.map; if (!m) return false;
+  const ty = Math.floor(y / TILE);
+  const xbCandidates = [Math.round(x / TILE), Math.round(x / TILE) - 1];
+  for (const xb of xbCandidates){
+    if (ty >= 0 && ty < m.h && xb >= 1 && xb < m.w){
+      if (m.edgesV[ty][xb] && Math.abs(x - xb*TILE) < GAP_W * 0.5) return true;
+    }
+  }
+  const ybCandidates = [Math.round(y / TILE), Math.round(y / TILE) - 1];
+  for (const yb of ybCandidates){
+    if (yb >= 1 && yb < m.h){
+      const tx = Math.floor(x / TILE);
+      if (m.edgesH[yb][tx] && Math.abs(y - yb*TILE) < GAP_W * 0.5) return true;
+    }
+  }
+  return false;
+}
+function drawMap(){
+  const m = state.map; if (!m) return;
+  const xs = Math.max(0, Math.floor(state.cam.x / TILE));
+  const ys = Math.max(0, Math.floor(state.cam.y / TILE));
+  const xe = Math.min(m.w-1, Math.ceil((state.cam.x + canvas.width ) / TILE));
+  const ye = Math.min(m.h-1, Math.ceil((state.cam.y + canvas.height) / TILE));
 
+  if (TEX.floor){
+    for (let y=ys; y<=ye; y++){
+      for (let x=xs; x<=xe; x++){
+        ctx.drawImage(TEX.floor, 0,0, TEX.floor.width, TEX.floor.height,
+          x*TILE - state.cam.x, y*TILE - state.cam.y, TILE, TILE);
+      }
+    }
+  } else { ctx.fillStyle = BG_FLOOR; ctx.fillRect(0,0,canvas.width,canvas.height); }
+
+  for (let y=ys; y<=ye; y++){
+    for (let x=xs; x<=xe; x++){
+      if (!m.walls[y][x]) continue;
+      const dx = x*TILE - state.cam.x, dy = y*TILE - state.cam.y;
+      if (TEX.wall){
+        ctx.drawImage(TEX.wall, 0,0, TEX.wall.width, TEX.wall.height, dx, dy, TILE, TILE);
+      } else { ctx.fillStyle = BG_WALL; ctx.fillRect(dx, dy, TILE, TILE); }
+    }
+  }
+
+  for (let y=ys; y<=ye; y++){
+    for (let xb=Math.max(1,xs); xb<=Math.min(m.w-1, xe); xb++){
+      if (!m.edgesV[y][xb]) continue;
+      const cx = xb*TILE - state.cam.x, y0 = y*TILE - state.cam.y;
+      ctx.fillStyle = EDGE_DARK;   ctx.fillRect(Math.floor(cx - GAP_W/2), y0, GAP_W, TILE);
+      ctx.fillStyle = EDGE_DARKER; ctx.fillRect(Math.floor(cx - GAP_W/6), y0, Math.ceil(GAP_W/3), TILE);
+      ctx.fillStyle = EDGE_LIP;    ctx.fillRect(Math.floor(cx - GAP_W/2) - 1, y0, 1, TILE);
+                                   ctx.fillRect(Math.floor(cx + GAP_W/2),     y0, 1, TILE);
+    }
+  }
+  for (let yb=Math.max(1,ys); yb<=Math.min(m.h-1,ye); yb++){
+    for (let x=xs; x<=xe; x++){
+      if (!m.edgesH[yb][x]) continue;
+      const cy = yb*TILE - state.cam.y, x0 = x*TILE - state.cam.x;
+      ctx.fillStyle = EDGE_DARK;   ctx.fillRect(x0, Math.floor(cy - GAP_W/2), TILE, GAP_W);
+      ctx.fillStyle = EDGE_DARKER; ctx.fillRect(x0, Math.floor(cy - GAP_W/6), TILE, Math.ceil(GAP_W/3));
+      ctx.fillStyle = EDGE_LIP;    ctx.fillRect(x0, Math.floor(cy - GAP_W/2) - 1, TILE, 1);
+                                   ctx.fillRect(x0, Math.floor(cy + GAP_W/2),     TILE, 1);
+    }
+  }
+}
+function drawNameTagAbove(name, frame, wx, wy, z, scale){
+  if (!frame) return;
+  const topWorldY = wy - frame.oy * scale - (z || 0);
+  const sx = Math.round(wx - state.cam.x);
+  const sy = Math.round(topWorldY - state.cam.y) - 8;
+  ctx.font = '12px "Press Start 2P", monospace';
+  ctx.textAlign = "center";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(0,0,0,0.65)";
+  ctx.strokeText(name, sx, sy);
+  ctx.fillStyle = "#ffea7a";
+  ctx.fillText(name, sx, sy);
+}
+function drawShadow(wx, wy, z, scale, overGap){
+  const squash  = z ? 1 - 0.35*Math.sin(Math.min(1, z / (HOP_HEIGHT*scale)) * Math.PI) : 1;
+  const shw     = Math.max(6, Math.floor(12 * scale * squash));
+  const shh     = Math.max(3, Math.floor( 5 * scale * squash));
+  ctx.globalAlpha = overGap ? 0.08 : 0.25;
+  ctx.beginPath();
+  ctx.ellipse(Math.round(wx - state.cam.x), Math.round(wy - state.cam.y - 1), shw, shh, 0, 0, Math.PI*2);
+  ctx.fillStyle = "#000";
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+function drawChatBubble(text, typing, wx, wy, z, scale){
+  const padX = 6, padY = 4;
+  ctx.font = '12px "Press Start 2P", monospace';
+  const msg = typing ? "..." : text;
+  const textW = Math.ceil(ctx.measureText(msg).width);
+  const bw = textW + padX*2;
+  const bh = 18 + padY*2;
+  const x = Math.round(wx - state.cam.x - bw/2);
+  const y = Math.round(wy - state.cam.y - (z||0)) - 40;
+
+  ctx.globalAlpha = 0.65;
+  ctx.fillStyle = "#0b1c21";
+  ctx.fillRect(x, y, bw, bh);
+  ctx.globalAlpha = 0.9;
+  ctx.strokeStyle = "#2a6473";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x+0.5, y+0.5, bw-1, bh-1);
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = "#dff8ff";
+  if (typing){
+    const baseY = y + padY + 14;
+    for (let i=0;i<3;i++){
+      const phase = (chatTypingDots + i*0.25) % 3;
+      const up = Math.sin(phase / 3 * Math.PI*2) * 2;
+      ctx.beginPath();
+      ctx.arc(x + padX + 8 + i*10, baseY + up, 2, 0, Math.PI*2);
+      ctx.fill();
+    }
+  } else {
+    ctx.fillText(text, x + padX, y + padY + 14);
+  }
+}
+
+// ---------- Update / Draw loop ----------
+let frameDt = 1/60;
+let last = 0;
 function update(dt){
-  frameDt = dt;
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
@@ -916,125 +978,13 @@ function update(dt){
     net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing });
   }
 }
-
-const BG_FLOOR = "#08242b", BG_WALL  = "#12333c";
-
-function drawMap(){
-  const m = state.map; if (!m) return;
-  const xs = Math.max(0, Math.floor(state.cam.x / TILE));
-  const ys = Math.max(0, Math.floor(state.cam.y / TILE));
-  const xe = Math.min(m.w-1, Math.ceil((state.cam.x + canvas.width ) / TILE));
-  const ye = Math.min(m.h-1, Math.ceil((state.cam.y + canvas.height) / TILE));
-
-  if (TEX.floor){
-    for (let y=ys; y<=ye; y++){
-      for (let x=xs; x<=xe; x++){
-        ctx.drawImage(TEX.floor, 0,0, TEX.floor.width, TEX.floor.height,
-          x*TILE - state.cam.x, y*TILE - state.cam.y, TILE, TILE);
-      }
-    }
-  } else { ctx.fillStyle = BG_FLOOR; ctx.fillRect(0,0,canvas.width,canvas.height); }
-
-  for (let y=ys; y<=ye; y++){
-    for (let x=xs; x<=xe; x++){
-      if (!m.walls[y][x]) continue;
-      const dx = x*TILE - state.cam.x, dy = y*TILE - state.cam.y;
-      if (TEX.wall){
-        ctx.drawImage(TEX.wall, 0,0, TEX.wall.width, TEX.wall.height, dx, dy, TILE, TILE);
-      } else { ctx.fillStyle = BG_WALL; ctx.fillRect(dx, dy, TILE, TILE); }
-    }
-  }
-
-  for (let y=ys; y<=ye; y++){
-    for (let xb=Math.max(1,xs); xb<=Math.min(m.w-1, xe); xb++){
-      if (!m.edgesV[y][xb]) continue;
-      const cx = xb*TILE - state.cam.x, y0 = y*TILE - state.cam.y;
-      ctx.fillStyle = EDGE_DARK;   ctx.fillRect(Math.floor(cx - GAP_W/2), y0, GAP_W, TILE);
-      ctx.fillStyle = EDGE_DARKER; ctx.fillRect(Math.floor(cx - GAP_W/6), y0, Math.ceil(GAP_W/3), TILE);
-      ctx.fillStyle = EDGE_LIP;    ctx.fillRect(Math.floor(cx - GAP_W/2) - 1, y0, 1, TILE);
-                                   ctx.fillRect(Math.floor(cx + GAP_W/2),     y0, 1, TILE);
-    }
-  }
-  for (let yb=Math.max(1,ys); yb<=Math.min(m.h-1,ye); yb++){
-    for (let x=xs; x<=xe; x++){
-      if (!m.edgesH[yb][x]) continue;
-      const cy = yb*TILE - state.cam.y, x0 = x*TILE - state.cam.x;
-      ctx.fillStyle = EDGE_DARK;   ctx.fillRect(x0, Math.floor(cy - GAP_W/2), TILE, GAP_W);
-      ctx.fillStyle = EDGE_DARKER; ctx.fillRect(x0, Math.floor(cy - GAP_W/6), TILE, Math.ceil(GAP_W/3));
-      ctx.fillStyle = EDGE_LIP;    ctx.fillRect(x0, Math.floor(cy - GAP_W/2) - 1, TILE, 1);
-                                   ctx.fillRect(x0, Math.floor(cy + GAP_W/2),     TILE, 1);
-    }
-  }
-}
-
-function drawNameTagAbove(name, frame, wx, wy, z, scale){
-  if (!frame) return;
-  const topWorldY = wy - frame.oy * scale - (z || 0);
-  const sx = Math.round(wx - state.cam.x);
-  const sy = Math.round(topWorldY - state.cam.y) - 8;
-  ctx.font = '12px "Press Start 2P", monospace';
-  ctx.textAlign = "center";
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(0,0,0,0.65)";
-  ctx.strokeText(name, sx, sy);
-  ctx.fillStyle = "#ffea7a";
-  ctx.fillText(name, sx, sy);
-}
-
-function drawShadow(wx, wy, z, scale, overGap){
-  const squash  = z ? 1 - 0.35*Math.sin(Math.min(1, z / (HOP_HEIGHT*scale)) * Math.PI) : 1;
-  const shw     = Math.max(6, Math.floor(12 * scale * squash));
-  const shh     = Math.max(3, Math.floor( 5 * scale * squash));
-  ctx.globalAlpha = overGap ? 0.08 : 0.25;
-  ctx.beginPath();
-  ctx.ellipse(Math.round(wx - state.cam.x), Math.round(wy - state.cam.y - 1), shw, shh, 0, 0, Math.PI*2);
-  ctx.fillStyle = "#000";
-  ctx.fill();
-  ctx.globalAlpha = 1;
-}
-
-function drawChatBubble(text, typing, wx, wy, z, scale){
-  const padX = 6, padY = 4;
-  const font = '12px "Press Start 2P", monospace';
-  ctx.font = font;
-  const msg = typing ? "..." : text;
-  const textW = Math.ceil(ctx.measureText(msg).width);
-  const bw = textW + padX*2;
-  const bh = 18 + padY*2;
-  const x = Math.round(wx - state.cam.x - bw/2);
-  const y = Math.round(wy - state.cam.y - (z||0)) - 40;
-
-  ctx.globalAlpha = 0.65;
-  ctx.fillStyle = "#0b1c21";
-  ctx.fillRect(x, y, bw, bh);
-  ctx.globalAlpha = 0.9;
-  ctx.strokeStyle = "#2a6473";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(x+0.5, y+0.5, bw-1, bh-1);
-  ctx.globalAlpha = 1;
-
-  ctx.fillStyle = "#dff8ff";
-  if (typing){
-    const baseY = y + padY + 14;
-    for (let i=0;i<3;i++){
-      const phase = (chatTypingDots + i*0.25) % 3;
-      const up = Math.sin(phase / 3 * Math.PI*2) * 2;
-      ctx.beginPath();
-      ctx.arc(x + padX + 8 + i*10, baseY + up, 2, 0, Math.PI*2);
-      ctx.fill();
-    }
-  } else {
-    ctx.fillText(text, x + padX, y + padY + 14);
-  }
-}
-
 function draw(){
   drawMap();
 
-  // Build draw list for depth-sort
+  // collect actors
   const actors = [];
 
-  // Remote actors
+  // remote
   for (const r of remote.values()){
     const assets = r.assets; if (!assets) continue;
     const meta = r.anim === "walk" ? assets.meta.walk
@@ -1082,7 +1032,7 @@ function draw(){
     else r.say = null;
   }
 
-  // Local actor
+  // local
   const lf = currentFrame();
   if (state.ready && lf){
     const z = state.hopping ? state.hop.z : 0;
@@ -1094,10 +1044,8 @@ function draw(){
     });
   }
 
-  // Depth sort
+  // depth sort & draw
   actors.sort((a,b)=> (a.y - a.z*0.35) - (b.y - b.z*0.35));
-
-  // Draw
   for (const a of actors){
     const f = a.frame, scale = a.scale;
     const dw = f.sw * scale, dh = f.sh * scale;
@@ -1110,44 +1058,23 @@ function draw(){
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
     drawNameTagAbove(a.name, f, a.x, a.y, a.z, a.scale);
 
-    if (a.typing){
-      drawChatBubble("", true, a.x, a.y, a.z, a.scale);
-    } else if (a.say && a.sayTimer > 0){
-      drawChatBubble(a.say, false, a.x, a.y, a.z, a.scale);
-    }
-
-    if (state.showBoxes && a.kind === "local"){
-      ctx.fillStyle = "white";
-      ctx.fillRect(Math.round(a.x - state.cam.x)-1, Math.round(a.y - state.cam.y)-1, 3, 3);
-      ctx.strokeStyle = "rgba(255,255,0,.85)";
-      ctx.strokeRect(dx+0.5, dy+0.5, dw, dh);
-    }
-  }
-
-  if (state.showGrid){
-    const src = state.anim === "hop" ? state.hopImg : (state.moving ? state.walkImg : state.idleImg);
-    if (src){
-      const maxW = Math.min(canvas.width, src.width);
-      const scale = maxW / src.width;
-      ctx.globalAlpha = .9;
-      ctx.drawImage(src, 0,0, src.width, src.height, 0,0, src.width*scale, src.height*scale);
-      ctx.globalAlpha = 1;
-    }
+    if (a.typing)      drawChatBubble("", true,  a.x, a.y, a.z, a.scale);
+    else if (a.say)    drawChatBubble(a.say, false, a.x, a.y, a.z, a.scale);
   }
 }
-
-// ------- Loop -------
-let last = 0;
 function loop(ts){
-  const dt = Math.min(0.033, (ts - last)/1000);
-  last = ts;
+  const dt = Math.min(0.033, (ts - last)/1000); last = ts;
   if (state.ready) update(dt);
+  frameDt = dt;
   draw();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// ------- Utils -------
+// ---------- Chat subscription ----------
+function startChatSubscription(){ net.subscribeChat(()=>{}); } // handled in startNetListeners + chatLog creation
+
+// ---------- Utils ----------
 function loadImage(src){
   return new Promise((res, rej)=>{
     const im = new Image();

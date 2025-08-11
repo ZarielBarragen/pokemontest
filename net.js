@@ -1,6 +1,5 @@
 // net.js — Firebase + realtime lobby, players, chat helpers
 
-// Firebase v10 ESM imports
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
@@ -35,14 +34,8 @@ export class Net {
   }
 
   // ---------- Auth ----------
-  onAuth(cb){
-    return onAuthStateChanged(this.auth, user=>{
-      this.user = user;
-      cb(user);
-    });
-  }
+  onAuth(cb){ return onAuthStateChanged(this.auth, u=>{ this.user=u; cb(u); }); }
   async signUp(username, password){
-    // Use a fake email from username (email is required for email/password auth)
     const email = `${username}@example.local`;
     const cred = await createUserWithEmailAndPassword(this.auth, email, password);
     try { await updateProfile(cred.user, { displayName: username }); } catch {}
@@ -61,12 +54,13 @@ export class Net {
   playersCol(lobbyId){ return collection(this.db, "lobbies", lobbyId, "players"); }
   chatCol(lobbyId){ return collection(this.db, "lobbies", lobbyId, "chat"); }
 
-  async createLobby(name, map){
+  async createLobby(name, mapMeta){
+    // mapMeta must be ONLY {w,h,seed} — no 2D arrays in Firestore
     const res = await addDoc(this.lobbiesCol(), {
       name: name || "Lobby",
       createdAt: serverTimestamp(),
       playersCount: 0,
-      map
+      mapMeta
     });
     return res.id;
   }
@@ -76,12 +70,10 @@ export class Net {
     return { id: snap.id, ...snap.data() };
   }
   subscribeLobbies(cb){
-    // Clean up empty lobbies opportunistically
     this.cleanupEmptyLobbies().catch(()=>{});
-    const q = query(this.lobbiesCol(), orderBy("createdAt", "desc"), limit(50));
-    return onSnapshot(q, snap=>{
-      const arr = snap.docs.map(d=>({ id: d.id, ...d.data() }));
-      cb(arr);
+    const q = query(this.lobbiesCol(), orderBy("createdAt","desc"), limit(50));
+    return onSnapshot(q, s=>{
+      cb(s.docs.map(d=>({ id:d.id, ...d.data() })));
     });
   }
 
@@ -89,18 +81,16 @@ export class Net {
   async joinLobby(lobbyId){
     if (!this.user) throw new Error("Not signed in");
     this.lobbyId = lobbyId;
-    // create (or update) player doc
     const pref = doc(this.db, "lobbies", lobbyId, "players", this.user.uid);
     await setDoc(pref, {
       username: this.user.displayName || "player",
-      x: 0, y: 0, dir: "down", anim: "stand",
-      character: "sableye",
-      typing: false,
+      x:0, y:0, dir:"down", anim:"stand",
+      character:"sableye",
+      typing:false,
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    }, { merge:true });
     this.playerDocRef = pref;
 
-    // bump playersCount on lobby
     const lref = this.lobbyRef(lobbyId);
     const lsnap = await getDoc(lref);
     if (lsnap.exists()){
@@ -111,20 +101,14 @@ export class Net {
   async leaveLobby(){
     if (!this.lobbyId || !this.playerDocRef) return;
     const lobbyId = this.lobbyId;
-    const pref = this.playerDocRef;
-
-    try { await deleteDoc(pref); } catch {}
+    try { await deleteDoc(this.playerDocRef); } catch {}
     this.playerDocRef = null;
 
-    // decrement playersCount and delete lobby if empty
     try {
       const lref = this.lobbyRef(lobbyId);
       const ps = await getDocs(this.playersCol(lobbyId));
-      const count = ps.size;
-      if (count === 0){
-        // safe to delete lobby
-        await deleteDoc(lref);
-      } else {
+      if (ps.size === 0) await deleteDoc(lref);
+      else {
         const lsnap = await getDoc(lref);
         if (lsnap.exists()){
           const pc = Math.max(0, (lsnap.data().playersCount|0) - 1);
@@ -133,31 +117,23 @@ export class Net {
       }
     } catch {}
 
-    // stop listeners
     if (this.playersUnsub){ try{ this.playersUnsub(); }catch{} this.playersUnsub = null; }
     if (this.chatUnsub){ try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
-
     this.lobbyId = null;
   }
 
-  // Also run when opening lobby list, to scrub abandoned/empty lobbies
   async cleanupEmptyLobbies(){
     const ls = await getDocs(this.lobbiesCol());
     for (const d of ls.docs){
-      const pid = d.id;
-      const ps = await getDocs(this.playersCol(pid));
-      if (ps.size === 0){
-        try { await deleteDoc(this.lobbyRef(pid)); } catch {}
-      }
+      const ps = await getDocs(this.playersCol(d.id));
+      if (ps.size === 0){ try{ await deleteDoc(this.lobbyRef(d.id)); }catch{} }
     }
   }
 
   // ---------- Player state ----------
   async spawnLocal(init){
     if (!this.playerDocRef) throw new Error("Not in lobby");
-    await setDoc(this.playerDocRef, {
-      ...init, updatedAt: serverTimestamp(), typing: false
-    }, { merge: true });
+    await setDoc(this.playerDocRef, { ...init, updatedAt: serverTimestamp(), typing:false }, { merge:true });
   }
   async updateState(partial){
     if (!this.playerDocRef) return;
@@ -170,11 +146,10 @@ export class Net {
     const col = this.playersCol(this.lobbyId);
     this.playersUnsub = onSnapshot(col, snap=>{
       snap.docChanges().forEach(ch=>{
-        const uid = ch.doc.id;
-        const data = ch.doc.data();
-        if (ch.type === "added"){ onAdd && onAdd(uid, data); }
-        else if (ch.type === "modified"){ onChange && onChange(uid, data); }
-        else if (ch.type === "removed"){ onRemove && onRemove(uid); }
+        const uid = ch.doc.id, data = ch.doc.data();
+        if (ch.type === "added") onAdd && onAdd(uid, data);
+        else if (ch.type === "modified") onChange && onChange(uid, data);
+        else if (ch.type === "removed") onRemove && onRemove(uid);
       });
     });
     return this.playersUnsub;
@@ -185,35 +160,31 @@ export class Net {
     if (!this.lobbyId) throw new Error("No lobby");
     const qy = query(this.chatCol(this.lobbyId), orderBy("ts","asc"), limit(24));
     this.chatUnsub = onSnapshot(qy, snap=>{
-      const msgs = snap.docs.map(d=>({ id: d.id, ...d.data() }));
-      cb(msgs);
+      cb(snap.docs.map(d=>({ id:d.id, ...d.data() })));
     });
     return this.chatUnsub;
   }
   async sendChat(text){
     if (!this.lobbyId || !this.user) return;
-    const payload = {
+    await addDoc(this.chatCol(this.lobbyId), {
       uid: this.user.uid,
       username: this.user.displayName || "player",
       text,
       ts: serverTimestamp()
-    };
-    await addDoc(this.chatCol(this.lobbyId), payload);
-    // trim to last 24 (best-effort)
+    });
     await this.trimChat(24).catch(()=>{});
   }
   async trimChat(keep){
     if (!this.lobbyId) return;
-    // get newer first, then delete anything older than index keep-1
     const qy = query(this.chatCol(this.lobbyId), orderBy("ts","desc"));
     const snap = await getDocs(qy);
     if (snap.size <= keep) return;
     const batch = writeBatch(this.db);
-    let idx = 0;
+    let i = 0;
     for (const d of snap.docs){
-      if (idx >= keep) batch.delete(d.ref);
-      idx++;
-      if (idx > keep + 64) break; // cap deletions per call
+      if (i >= keep) batch.delete(d.ref);
+      i++;
+      if (i > keep + 64) break;
     }
     await batch.commit();
   }
