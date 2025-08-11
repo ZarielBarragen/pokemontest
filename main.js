@@ -332,7 +332,7 @@ function renderLobbyList(list){
 function showLobbies(){
   overlayLobbies.classList.remove("hidden");
   if (lobbyUnsub) try{ lobbyUnsub(); }catch{}
-  net.cleanupEmptyLobbies().catch(()=>{});
+  net.cleanupEmptyLobbies().catch(()=>{}).catch(()=>{});
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 }
 backBtn.onclick = ()=>{

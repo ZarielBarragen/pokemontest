@@ -128,6 +128,8 @@ export class Net {
     } catch { return 0; }
   }
 
+  softReconcileLater(lobbyId, ms=2500){ try{ setTimeout(()=>{ this._reconcilePlayersCount(lobbyId).catch(()=>{}); }, ms); }catch{} }
+
   async _reconcilePlayersCount(lobbyId){
     try {
       const actual = await this._countPlayersRTDB(lobbyId);
@@ -189,6 +191,13 @@ export class Net {
       this.currentLobbyOwner = s.exists() ? (s.data().owner || null) : null;
     } catch { this.currentLobbyOwner = null; }
 
+    // Best-effort increment (fire-and-forget). Joining must not block on Firestore.
+    try { this._guardFS(() => updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) })); } catch {}
+
+    // Reconcile later from RTDB (doesn't block)
+    this.softReconcileLater(lobbyId, 2500);
+  }
+
     // Increment playersCount (best effort) and reconcile to RTDB after
     try { await this._guardFS(() => updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) })); } catch {}
     try { await this._reconcilePlayersCount(lobbyId); } catch {}
@@ -205,9 +214,9 @@ export class Net {
       if (this._playerRef) { await remove(this._playerRef); this._playerRef = null; }
     } catch {}
 
-    // Decrement playersCount (best effort) and reconcile to RTDB actual
-    try { await this._guardFS(() => updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) })); } catch {}
-    try { await this._reconcilePlayersCount(lob); } catch {}
+    // Fire-and-forget decrement, then reconcile later
+    try { this._guardFS(() => updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) })); } catch {}
+    this.softReconcileLater(lob, 2500);
 
     // Unsub listeners
     this.playersUnsubs.forEach(u => { try{ u(); }catch{} });
