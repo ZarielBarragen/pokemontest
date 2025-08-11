@@ -445,7 +445,7 @@ function generateMap(w, h, seed=1234){
 
   
   // Corridor thickness (in tiles). Must be odd to stay centered.
-  const HALL_W = 3; // try 3 or 4 for wider halls
+  const HALL_W = 5; // try 3 or 4 for wider halls
   const HALF = Math.floor(HALL_W/2);
 
   function carveAt(cx, cy, dirChar){
