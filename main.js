@@ -27,12 +27,20 @@ const toggleEl       = document.getElementById("authToggle");
 const titleEl        = document.getElementById("authTitle");
 const errEl          = document.getElementById("authErr");
 
-// Chat HUD (insert if not present)
-let chatLogEl = document.getElementById("chatLog");
-if (!chatLogEl){
+// ---------- Chat HUD (mount/unmount inside lobbies only) ----------
+let chatLogEl = null;
+let chatUnsubLocal = null;
+
+function mountChatLog(){
+  if (chatLogEl) return;
   chatLogEl = document.createElement("div");
   chatLogEl.id = "chatLog";
   document.body.appendChild(chatLogEl);
+}
+
+function unmountChatLog(){
+  if (chatUnsubLocal){ try{ chatUnsubLocal(); }catch{} chatUnsubLocal = null; }
+  if (chatLogEl){ chatLogEl.remove(); chatLogEl = null; }
 }
 
 // ---------- Settings ----------
@@ -238,6 +246,7 @@ net.onAuth(user=>{
     authEl.classList.remove("hidden");
     overlaySelect.classList.add("hidden");
     overlayLobbies.classList.add("hidden");
+    unmountChatLog(); // ensure chat UI gone when signed out
   }
 });
 
@@ -331,7 +340,8 @@ createLobbyBtn.onclick = async ()=>{
     await net.joinLobby(lobbyId);
     await startWithCharacter(cfg, generateMap(w,h,seed));
     overlayLobbies.classList.add("hidden");
-    startChatSubscription();
+    mountChatLog();          // mount only after we're inside a lobby
+    startChatSubscription(); // subscribe now
   } catch(e){
     console.error("Create lobby failed:", e);
     alert("Create lobby failed: " + (e?.message || e));
@@ -350,6 +360,7 @@ async function joinLobbyFlow(lobbyId){
     await net.joinLobby(lobbyId);
     await startWithCharacter(cfg, generateMap(w||48,h||32,seed??1234));
     overlayLobbies.classList.add("hidden");
+    mountChatLog();
     startChatSubscription();
   } catch(e){
     console.error("Join lobby failed:", e);
@@ -404,7 +415,15 @@ window.addEventListener("keydown", e=>{
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); return; }
-  if (e.key === "Escape"){ remote.clear(); net.leaveLobby().catch(()=>{}); state.ready=false; overlayLobbies.classList.add("hidden"); overlaySelect.classList.remove("hidden"); return; }
+  if (e.key === "Escape"){
+    remote.clear();
+    net.leaveLobby().catch(()=>{});
+    state.ready=false;
+    unmountChatLog();
+    overlayLobbies.classList.add("hidden");
+    overlaySelect.classList.remove("hidden");
+    return;
+  }
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
   if (e.key.toLowerCase() === "b") state.showBoxes = !state.showBoxes;
   if (e.key.toLowerCase() === "e") tryStartHop();
@@ -446,7 +465,7 @@ function generateMap(w, h, seed=1234){
       const x0 = 1 + Math.floor(rnd()*(w-2));
       const len = 4 + Math.floor(rnd()*(w-4));
       for (let x=x0; x<Math.min(w-1, x0+len); x++){
-        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true;
+        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yb][x] = true;
       }
     }
   }
@@ -570,9 +589,11 @@ function startNetListeners(){
   });
 }
 
-// Single definition — updates chat log + bubbles
+// ---------- Chat subscription (only when mounted) ----------
 function startChatSubscription(){
-  net.subscribeChat((msgs)=>{
+  if (chatUnsubLocal){ try{ chatUnsubLocal(); }catch{} chatUnsubLocal = null; }
+  chatUnsubLocal = net.subscribeChat((msgs)=>{
+    if (!chatLogEl) return; // not mounted (e.g., outside a lobby)
     chatLogEl.innerHTML = "";
     msgs.slice(-24).forEach(m=>{
       const div = document.createElement("div");
@@ -1091,7 +1112,6 @@ function draw(){
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
     drawNameTagAbove(a.name, f, a.x, a.y, a.z, a.scale);
 
-    // UPDATED: pass current frame to bubble so it can anchor above the head + wrap text
     if (a.typing)      drawChatBubble("", true,  a.frame, a.x, a.y, a.z, a.scale);
     else if (a.say)    drawChatBubble(a.say, false, a.frame, a.x, a.y, a.z, a.scale);
   }
