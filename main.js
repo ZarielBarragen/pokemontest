@@ -71,6 +71,8 @@ function unmountChatLog(){
 const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
+// Per-character speed multiplier (1 = normal)
+function currentSpeedMult(){ try{ return CHARACTERS[selectedKey]?.speed || 1; }catch{ return 1; } }
 const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
@@ -193,26 +195,6 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  primarina:{ name:"Primarina", base:"assets/Primarina/", portrait:"portrait.png", scale:3,
-    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
-    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
-    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
-  },
-  dewgong:{ name:"Dewgong", base:"assets/Dewgong/", portrait:"portrait.png", scale:3,
-    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
-    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
-    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
-  },
-  scolipede:{ name:"Scolipede", base:"assets/Scolipede/", portrait:"portrait.png", scale:3,
-    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
-    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
-    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
-  },
-  lycanroc:{ name:"Lycanroc", base:"assets/Lycanroc/", portrait:"portrait.png", scale:3,
-    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
-    idle:{sheet:"Idle-Anim.png", cols:14, rows:8, framesPerDir:14, dirGrid:makeRowDirGrid()},
-    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
-  },
   jolteon:{ name:"Jolteon", base:"assets/Jolteon/", portrait:"portrait.png", scale:3,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
@@ -242,6 +224,30 @@ const CHARACTERS = {
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  }
+  ,primarina:{ name:"Primarina", base:"assets/Primarina/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    speed:1.02
+  }
+  ,dewgong:{ name:"Dewgong", base:"assets/Dewgong/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    speed:1.02
+  }
+  ,scolipede:{ name:"Scolipede", base:"assets/Scolipede/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    speed:1.12
+  }
+  ,lycanroc:{ name:"Lycanroc", base:"assets/Lycanroc/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:14, rows:8, framesPerDir:14, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    speed:1.08
   }
 };
 
@@ -785,8 +791,8 @@ function resolvePlayerCollisions(nx, ny){
   return {x,y};
 }
 function tryMove(dt, vx, vy){
-  const stepX = vx * SPEED * dt;
-  const stepY = vy * SPEED * dt;
+  const stepX = vx * SPEED * currentSpeedMult() * dt;
+  const stepY = vy * SPEED * currentSpeedMult() * dt;
 
   if (stepX){
     const oldX = state.x;
@@ -1166,23 +1172,7 @@ function draw(){
 
     const src = (r.anim === "hop" && assets.hop) ? assets.hop : (r.anim === "walk") ? assets.walk : assets.idle;
 
-    // --- BEGIN remote smoothing fix ---
-let smx = r.x, smy = r.y;
-if (r.history && r.history.length >= 2) {
-  const now = performance.now() / 1000;
-  const LAG = 0.12;
-  const target = now - LAG;
-  let a = r.history[0], b = r.history[r.history.length - 1];
-  for (let i = 1; i < r.history.length; i++) {
-    if (r.history[i].t >= target) { a = r.history[i - 1] || r.history[i]; b = r.history[i]; break; }
-  }
-  const denom = Math.max(0.0001, b.t - a.t);
-  const t = Math.max(0, Math.min(1, (target - a.t) / denom));
-  smx = a.x + (b.x - a.x) * t;
-  smy = a.y + (b.y - a.y) * t;
-}
-// --- END remote smoothing fix ---
-actors.push({
+    actors.push({
       kind:"remote", name: r.username || "player",
       x:smx, y:smy, z:r.z, frame:f, src, scale:r.scale,
       typing:r.typing, say:r.say, sayTimer:r.sayTimer
