@@ -507,7 +507,7 @@
       "base": "assets/Cyclizar/",
       "portrait": "portrait.png",
       "scale": 3.0,
-      "speed": 1.01,
+      "speed": 1.2,
       "idle": {
         "sheet": "Idle-Anim.png",
         "cols": 10,
