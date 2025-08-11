@@ -148,6 +148,35 @@ export class Net {
     }, (err)=>console.error("subscribeLobbies:", err));
   }
 
+  async cleanupEmptyLobbies(){
+    const uid = this.auth.currentUser?.uid;
+    if (!uid) return 0;
+    try {
+      const qy = query(
+        collection(this.db, "lobbies"),
+        where("owner","==",uid),
+        where("active","==",true),
+        limit(20)
+      );
+      const snap = await getDocs(qy);
+      let removed = 0;
+      for (const d of snap.docs) {
+        const id = d.id;
+        // Count RTDB players
+        let n = 0;
+        try { n = await this._countPlayersRTDB(id); } catch { n = 0; }
+        // Keep playersCount accurate
+        try { await this._guardFS(() => updateDoc(doc(this.db,"lobbies",id), { playersCount: n })); } catch {}
+        if (n === 0) {
+          try { await this._guardFS(() => deleteDoc(doc(this.db,"lobbies",id))); removed++; } catch {}
+        }
+      }
+      return removed;
+    } catch {
+      return 0;
+    }
+  }
+
   // -------------------- JOIN / LEAVE (RTDB + FS) --------------------
   async joinLobby(lobbyId){
     const uid = this.auth.currentUser?.uid;
