@@ -529,14 +529,23 @@ function generateMap(w, h, seed=1234){
 
     stepsSinceGap++;
     if (stepsSinceGap>=nextGap){
-      // place a jump gap crossing this edge (between previous cell and current)
-      const gx = x, gy = y;
+      // place a jump gap across the full hallway width between previous cell and current
       if (dir[2]==='h'){
-        // vertical edge between (x,y) and (x-1,y) is at column x
-        if (inside(x-1,y) && !walls[y][x-1] && !walls[y][x]) edgesV[y][x] = true;
-      } else {
-        // horizontal edge between (x,y) and (x,y-1) is at row y
-        if (inside(x,y-1) && !walls[y-1][x] && !walls[y][x]) edgesH[y][x] = true;
+        // vertical edge column at x, span rows y-HALF..y+HALF
+        for (let dy=-HALF; dy<=HALF; dy++){
+          const ry = y + dy;
+          if (inside(x-1,ry) && inside(x,ry) && !walls[ry][x-1] && !walls[ry][x]) {
+            edgesV[ry][x] = true;
+          }
+        }
+      } else { // 'v'
+        // horizontal edge row at y, span cols x-HALF..x+HALF
+        for (let dx=-HALF; dx<=HALF; dx++){
+          const rx = x + dx;
+          if (inside(rx,y-1) && inside(rx,y) && !walls[y-1][rx] && !walls[y][rx]) {
+            edgesH[y][rx] = true;
+          }
+        }
       }
       stepsSinceGap = 0;
       nextGap = GAP_EVERY + Math.floor((rnd()*2-1)*GAP_JITTER);
