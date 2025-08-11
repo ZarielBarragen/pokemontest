@@ -407,6 +407,24 @@ function watchdogEnsureGame(cfg, mapMeta){
 const keys = new Set();
 let chatMode=false, chatBuffer="", chatTypingDots=0, chatShowTime=4.5;
 
+
+// --- Net sync throttling ---
+let _netAccum = 0;
+const NET_INTERVAL = 0.12;   // ~8 Hz
+let _heartbeat = 0;
+let _lastSent = { x: NaN, y: NaN, dir: "", anim: "", character: "", typing: null };
+
+function _hasMeaningfulChange() {
+  const dx = Math.abs(state.x - _lastSent.x);
+  const dy = Math.abs(state.y - _lastSent.y);
+  const moved = (dx + dy) > 0.6;
+  return moved ||
+         state.dir !== _lastSent.dir ||
+         state.anim !== _lastSent.anim ||
+         selectedKey !== _lastSent.character ||
+         state.typing !== _lastSent.typing;
+}
+
 const state = {
   x:0, y:0, dir:"down",
   moving:false, prevMoving:false,
@@ -1060,7 +1078,15 @@ function update(dt){
   if (state.typing){ chatTypingDots = (chatTypingDots + dt*3) % 3; }
 
   if (selectedKey && state.ready){
-    net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing });
+    _netAccum += dt; _heartbeat += dt;
+    if (_netAccum >= NET_INTERVAL){
+      _netAccum = 0;
+      if (_hasMeaningfulChange() || _heartbeat >= 3){
+        net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing });
+        _lastSent = { x: state.x, y: state.y, dir: state.dir, anim: state.anim, character: selectedKey, typing: state.typing };
+        _heartbeat = 0;
+      }
+    }
   }
 }
 function draw(){

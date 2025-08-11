@@ -1,6 +1,6 @@
-// net.js — Firebase wiring for auth, lobbies, players, chat (Firestore-only, fixed)
+// net.js — Firebase wiring (auth, lobbies, players, chat) — Firestore only, lint‑clean
 
-// --- Firebase imports (ESM CDN) ---
+// Firebase ESM CDN
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
@@ -8,10 +8,11 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, getDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit, getCountFromServer, getDocs
+  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit,
+  limitToLast, getCountFromServer, getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// --- Your Firebase project config ---
+// Your Firebase project (unchanged)
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
   authDomain: "poketest-4d108.firebaseapp.com",
@@ -28,27 +29,30 @@ export class Net {
     this.auth = getAuth(this.app);
     this.db   = getFirestore(this.app);
 
+    // callbacks / unsub
     this._authCb = () => {};
     this._authUnsub = onAuthStateChanged(this.auth, (u) => this._authCb(u));
 
-    // Lobby state
+    // lobby state
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
     this.playersUnsub = null;
     this.chatUnsub = null;
 
-    // Leave cleanly
-    window.addEventListener("beforeunload", () => this.leaveLobby().catch(()=>{}));
-    window.addEventListener("unload",       () => this.leaveLobby().catch(()=>{}));
+    // best‑effort leave
+    window.addEventListener("beforeunload", () => { this.leaveLobby().catch(()=>{}); });
+    window.addEventListener("unload",       () => { this.leaveLobby().catch(()=>{}); });
   }
 
-  // -------------------- helpers for playersCount --------------------
+  // ------------ helpers (playersCount reconciliation) ------------
   async _countPlayers(lobbyId) {
     try {
       const col = collection(this.db, "lobbies", lobbyId, "players");
       const snap = await getCountFromServer(col);
       return snap.data().count || 0;
-    } catch (e) { return 0; }
+    } catch {
+      return 0;
+    }
   }
   async _reconcilePlayersCount(lobbyId) {
     try {
@@ -57,15 +61,12 @@ export class Net {
       const ds = await getDoc(dref);
       if (!ds.exists()) return;
       const current = Number(ds.data().playersCount || 0);
-      if (current !== actual) {
-        await updateDoc(dref, { playersCount: actual });
-      }
+      if (current !== actual) await updateDoc(dref, { playersCount: actual });
     } catch {}
   }
 
-  // -------------------- AUTH --------------------
+  // --------------------------- AUTH ---------------------------
   onAuth(cb) { this._authCb = cb; }
-
   _usernameToEmail(username) { return `${username}@poketest.local`; }
 
   async signUp(username, password) {
@@ -86,13 +87,12 @@ export class Net {
     return signOut(this.auth);
   }
 
-  // -------------------- LOBBIES --------------------
+  // ------------------------- LOBBIES -------------------------
   async createLobby(name, mapMeta) {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
-
     const ref = await addDoc(collection(this.db, "lobbies"), {
-      name: name || `Lobby ${Math.floor(Math.random()*9999)}`,
+      name: name || `Lobby ${Math.floor(Math.random() * 9999)}`,
       owner: uid,
       createdAt: serverTimestamp(),
       mapMeta: {
@@ -113,17 +113,13 @@ export class Net {
   }
 
   subscribeLobbies(cb) {
-    const q = query(
-      collection(this.db, "lobbies"),
-      orderBy("createdAt", "desc"),
-      limit(50)
-    );
+    const q = query(collection(this.db, "lobbies"), orderBy("createdAt", "desc"), limit(50));
     return onSnapshot(q, async (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       cb(list);
-      // Opportunistic reconciliation to fix stale counts
+      // opportunistic reconciliation
       try { await Promise.all(list.map(l => this._reconcilePlayersCount(l.id))); } catch {}
-    }, (err)=>console.error("subscribeLobbies:", err));
+    }, (err) => console.error("subscribeLobbies:", err));
   }
 
   async cleanupEmptyLobbies() {
@@ -131,57 +127,58 @@ export class Net {
     if (!uid) return;
     const q = query(
       collection(this.db, "lobbies"),
-      where("owner","==",uid),
-      where("playersCount","==",0),
-      where("active","==",true),
+      where("owner", "==", uid),
+      where("playersCount", "==", 0),
+      where("active", "==", true),
       limit(10)
     );
     const snap = await onSnapshotOnce(q);
     for (const d of snap.docs) {
-      try { await deleteDoc(doc(this.db,"lobbies",d.id)); } catch(e){ /* ignore */ }
+      try { await deleteDoc(doc(this.db, "lobbies", d.id)); } catch {}
     }
   }
 
-    async joinLobby(lobbyId) {
+  async joinLobby(lobbyId) {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
     try { await updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) }); } catch {}
-    // fetch lobby owner for permissions (chat cleanup)
+    // capture owner for chat cleanup permission
     try {
-      const snap = await getDoc(doc(this.db, "lobbies", lobbyId));
-      this.currentLobbyOwner = snap.exists() ? snap.data().owner || null : null;
+      const s = await getDoc(doc(this.db, "lobbies", lobbyId));
+      this.currentLobbyOwner = s.exists() ? (s.data().owner || null) : null;
     } catch { this.currentLobbyOwner = null; }
-  }async leaveLobby() {
+  }
+
+  async leaveLobby() {
     const uid = this.auth.currentUser?.uid;
     const lob = this.currentLobbyId;
     if (!lob) return;
 
     try { await deleteDoc(doc(this.db, "lobbies", lob, "players", uid)); } catch {}
-
     try { await updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) }); } catch {}
     try { const n = await this._countPlayers(lob); await updateDoc(doc(this.db, "lobbies", lob), { playersCount: n }); } catch {}
 
-    if (this.playersUnsub) { try{ this.playersUnsub(); }catch{} this.playersUnsub = null; }
-    if (this.chatUnsub)    { try{ this.chatUnsub(); }catch{} this.chatUnsub    = null; }
+    if (this.playersUnsub) { try { this.playersUnsub(); } catch {} this.playersUnsub = null; }
+    if (this.chatUnsub)    { try { this.chatUnsub(); } catch {} this.chatUnsub    = null; }
 
     this.currentLobbyId = null;
+    this.currentLobbyOwner = null;
   }
 
-  // -------------------- PLAYERS --------------------
+  // ------------------------- PLAYERS -------------------------
   async spawnLocal(state) {
     const uid = this.auth.currentUser?.uid;
     if (!uid || !this.currentLobbyId) throw new Error("No lobby joined");
-
     const ref = doc(this.db, "lobbies", this.currentLobbyId, "players", uid);
     await setDoc(ref, {
       username: state.username || "player",
       character: state.character,
-      x: Number(state.x)||0,
-      y: Number(state.y)||0,
+      x: Number(state.x) || 0,
+      y: Number(state.y) || 0,
       dir: state.dir || "down",
       anim: state.anim || "stand",
-      scale: Number(state.scale)||3,
+      scale: Number(state.scale) || 3,
       typing: !!state.typing,
       updatedAt: serverTimestamp()
     }, { merge: true });
@@ -202,39 +199,35 @@ export class Net {
     if (!this.currentLobbyId) return () => {};
     const uid = this.auth.currentUser?.uid;
     const col = collection(this.db, "lobbies", this.currentLobbyId, "players");
+    if (this.playersUnsub) { try { this.playersUnsub(); } catch {} }
 
-    if (this.playersUnsub) { try{ this.playersUnsub(); }catch{} }
     this.playersUnsub = onSnapshot(col, (snap) => {
       snap.docChanges().forEach((ch) => {
         const id = ch.doc.id;
-        if (id === uid) return;
+        if (id === uid) return; // local player drawn client-side
         if (ch.type === "added") onAdd && onAdd(id, ch.doc.data());
         else if (ch.type === "modified") onChange && onChange(id, ch.doc.data());
         else if (ch.type === "removed") onRemove && onRemove(id);
       });
-    }, (err)=>console.error("subscribePlayers:", err));
+    }, (err) => console.error("subscribePlayers:", err));
 
     return this.playersUnsub;
   }
 
-  // -------------------- CHAT --------------------
-
-  // Remove oldest chat messages so only the latest 24 remain.
+  // --------------------------- CHAT ---------------------------
   async cleanupChatIfNeeded() {
     if (!this.currentLobbyId) return;
     try {
       const chatCol = collection(this.db, "lobbies", this.currentLobbyId, "chat");
-      const countSnap = await getCountFromServer(chatCol);
-      const count = countSnap.data().count || 0;
-      if (count <= 24) return;
-      const toDelete = count - 24;
-      const q = query(chatCol, orderBy("createdAt", "asc"), limit(toDelete));
-      const snap = await getDocs(q);
-      for (const d of snap.docs) {
-        try { await deleteDoc(d.ref); } catch {}
+      // Keep newest 24 (desc), delete anything older than that window
+      const snap = await getDocs(query(chatCol, orderBy("createdAt", "desc"), limit(26)));
+      if (snap.size > 24) {
+        const old = snap.docs.slice(24);
+        for (const d of old) { try { await deleteDoc(d.ref); } catch {} }
       }
     } catch {}
   }
+
   async sendChat(text) {
     if (!this.currentLobbyId) return;
     const uid = this.auth.currentUser?.uid;
@@ -242,7 +235,9 @@ export class Net {
     const username = user?.displayName || (user?.email ? user.email.split("@")[0] : "player");
 
     const ref = collection(this.db, "lobbies", this.currentLobbyId, "chat");
-    await addDoc(ref, { uid, username, text: String(text).slice(0,200), createdAt: serverTimestamp() });
+    await addDoc(ref, { uid, username, text: String(text).slice(0, 200), createdAt: serverTimestamp() });
+
+    // Owner trims to 24 so clients stay in sync
     if (this.currentLobbyOwner && this.currentLobbyOwner === uid) {
       try { await this.cleanupChatIfNeeded(); } catch {}
     }
@@ -250,25 +245,24 @@ export class Net {
 
   subscribeChat(cb) {
     if (!this.currentLobbyId) return () => {};
-    const q = query(
+    const qy = query(
       collection(this.db, "lobbies", this.currentLobbyId, "chat"),
       orderBy("createdAt", "asc"),
-      limit(24)
+      limitToLast(24)
     );
-
-    if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} }
-    this.chatUnsub = onSnapshot(q, (snap)=>{
-      const msgs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+    if (this.chatUnsub) { try { this.chatUnsub(); } catch {} }
+    this.chatUnsub = onSnapshot(qy, (snap) => {
+      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       cb && cb(msgs);
-    }, (err)=>console.error("subscribeChat:", err));
-
+    }, (err) => console.error("subscribeChat:", err));
     return this.chatUnsub;
   }
 }
 
-// -------------------- Helper --------------------
+// One-shot query helper (no import needed)
 async function onSnapshotOnce(qry) {
   return new Promise((resolve, reject) => {
-    const unsub = onSnapshot(qry, (snap) => { unsub(); resolve(snap); }, (e)=>{ try{unsub();}catch{} reject(e); });
+    const unsub = onSnapshot(qry, (snap) => { try { unsub(); } catch {} resolve(snap); },
+                                 (err)  => { try { unsub(); } catch {} reject(err); });
   });
 }
