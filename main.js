@@ -30,12 +30,36 @@ const errEl          = document.getElementById("authErr");
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
 let chatLogEl = null;
 let chatUnsubLocal = null;
+let chatMessages = [];
+
+function renderChatLog(){
+  if (!chatLogEl) return;
+  chatLogEl.innerHTML = "";
+  const msgs = (chatMessages || []).slice(-24);
+  for (const m of msgs){
+    const div = document.createElement("div");
+    div.className = "chatItem";
+    div.textContent = `${m.username || "player"}: ${m.text}`;
+    chatLogEl.appendChild(div);
+  }
+  // Local draft while typing (not sent to Firestore)
+  if (chatMode){
+    const draft = document.createElement("div");
+    draft.className = "chatItem chatDraft";
+    draft.style.opacity = 0.7;
+    draft.style.fontStyle = "italic";
+    draft.textContent = `${localUsername||"you"} (typing): ${chatBuffer || ""}`;
+    chatLogEl.appendChild(draft);
+  }
+  chatLogEl.scrollTop = chatLogEl.scrollHeight;
+}
 
 function mountChatLog(){
   if (chatLogEl) return;
   chatLogEl = document.createElement("div");
   chatLogEl.id = "chatLog";
   document.body.appendChild(chatLogEl);
+  renderChatLog();
 }
 
 function unmountChatLog(){
@@ -400,21 +424,23 @@ window.addEventListener("keydown", e=>{
         state.say = clean; state.sayTimer = chatShowTime; net.sendChat(clean).catch(()=>{});
       }
       chatBuffer = "";
+      renderChatLog();
       return;
     }
     if (e.key === "Escape"){
       e.preventDefault();
       chatMode = false; chatBuffer = ""; state.typing = false; net.updateState({ typing:false }).catch(()=>{});
+      renderChatLog();
       return;
     }
-    if (e.key === "Backspace"){ e.preventDefault(); chatBuffer = chatBuffer.slice(0, -1); return; }
-    if (e.key.length === 1){ if (chatBuffer.length < 140) chatBuffer += e.key; return; }
+    if (e.key === "Backspace"){ e.preventDefault(); chatBuffer = chatBuffer.slice(0, -1); renderChatLog(); return; }
+    if (e.key.length === 1){ if (chatBuffer.length < 140) { chatBuffer += e.key; renderChatLog(); } return; }
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab"].includes(e.key)){ e.preventDefault(); return; }
   }
 
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
 
-  if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); return; }
+  if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
     remote.clear();
     net.leaveLobby().catch(()=>{});
@@ -593,16 +619,10 @@ function startNetListeners(){
 function startChatSubscription(){
   if (chatUnsubLocal){ try{ chatUnsubLocal(); }catch{} chatUnsubLocal = null; }
   chatUnsubLocal = net.subscribeChat((msgs)=>{
-    if (!chatLogEl) return; // not mounted (e.g., outside a lobby)
-    chatLogEl.innerHTML = "";
-    msgs.slice(-24).forEach(m=>{
-      const div = document.createElement("div");
-      div.className = "chatItem";
-      div.textContent = `${m.username || "player"}: ${m.text}`;
-      chatLogEl.appendChild(div);
-    });
+    chatMessages = msgs || [];
+    renderChatLog();
     const latest = new Map();
-    msgs.forEach(m=> latest.set(m.uid, m));
+    chatMessages.forEach(m=> latest.set(m.uid, m));
     for (const [uid, r] of remote){
       const m = latest.get(uid);
       if (m){ r.say = m.text; r.sayTimer = 4.5; }
@@ -852,7 +872,7 @@ function drawMap(){
   }
   for (let yb=Math.max(1,ys); yb<=Math.min(m.h-1,ye); yb++){
     for (let x=xs; x<=xe; x++){
-      if (!m.edgesH[yb][x]) continue;
+      if (!m.edgesH[yB][x]) continue;
       const cy = yb*TILE - state.cam.y, x0 = x*TILE - state.cam.x;
       ctx.fillStyle = EDGE_DARK;   ctx.fillRect(x0, Math.floor(cy - GAP_W/2), TILE, GAP_W);
       ctx.fillStyle = EDGE_DARKER; ctx.fillRect(x0, Math.floor(cy - GAP_W/6), TILE, Math.ceil(GAP_W/3));
