@@ -61,25 +61,19 @@ canvas.height = CANVAS_H;
 const keys = new Set();
 
 // ------- Chat State -------
-let chatMode = false;         // true while capturing keystrokes
-let chatBuffer = "";          // text being typed
-let chatShowTime = 4.5;       // seconds to show message bubble
-let chatTypingDots = 0;       // for three-dot animation
+let chatMode = false;
+let chatBuffer = "";
+let chatTypingDots = 0;
+const chatShowTime = 4.5;
 const MAX_CHAT_LEN = 140;
 
 // banned-word censor (patterns intentionally obfuscated; extend as needed)
 const BANNED_PATTERNS = [
-  // Slur #1 (starts with n, ends with r; catches leets and separators)
   new RegExp("\\b" + "n" + "[^a-z0-9]{0,3}" + "[i1!|l]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[e3]" + "[^a-z0-9]{0,3}" + "[r]" + "\\b", "i"),
-  // Slur #2 (starts with f, ends with t; catches leets and separators)
   new RegExp("\\b" + "f" + "[^a-z0-9]{0,3}" + "[a@4]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[gq9]" + "[^a-z0-9]{0,3}" + "[o0]" + "[^a-z0-9]{0,3}" + "[t+]" + "\\b", "i"),
 ];
 function normalizeForFilter(s){
-  return s
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")     // diacritics
-    .replace(/\u200b|\u200c|\u200d/g, ""); // zero-width
+  return s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/\u200b|\u200c|\u200d/g, "");
 }
 function censorMessage(text){
   const n = normalizeForFilter(text);
@@ -103,8 +97,8 @@ const state = {
   map:null, cam:{x:0,y:0},
   ready:false,
   showGrid:false, showBoxes:false,
-  say:null, sayTimer:0,     // last message + timer
-  typing:false              // typing indicator
+  say:null, sayTimer:0,
+  typing:false
 };
 
 // ------- SFX -------
@@ -125,14 +119,118 @@ const sfx = {
   jump:   makeAudioPool("assets/sfx/jump.wav"),
 };
 
-// ------- Character Config (truncated for brevity: keep yours; unchanged) -------
+// ------- Characters -------
 function makeRowDirGrid() {
   return {
     down:{row:0,start:0}, downRight:{row:1,start:0}, right:{row:2,start:0}, upRight:{row:3,start:0},
     up:{row:4,start:0},   upLeft:{row:5,start:0},    left:{row:6,start:0},   downLeft:{row:7,start:0},
   };
 }
-const CHARACTERS = { /* ... keep your full CHARACTERS object from previous step ... */ };
+const CHARACTERS = {
+  sableye:{ name:"Sableye", base:"assets/Sableye/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:8, rows:4, framesPerDir:4, dirGrid:{
+      down:{row:0,start:0}, downRight:{row:0,start:4}, right:{row:1,start:0}, upRight:{row:1,start:4},
+      up:{row:2,start:0}, upLeft:{row:2,start:4}, left:{row:3,start:0}, downLeft:{row:3,start:4},
+    }},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  ditto:{ name:"Ditto", base:"assets/Ditto/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:5, rows:8, framesPerDir:5, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  hisuianZoroark:{ name:"Hisuian Zoroark", base:"assets/Hisuian Zoroark/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  hypno:{ name:"Hypno", base:"assets/Hypno/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  mimikyu:{ name:"Mimikyu", base:"assets/Mimikyu/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  quagsire:{ name:"Quagsire", base:"assets/Quagsire/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  smeargle:{ name:"Smeargle", base:"assets/Smeargle/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  corviknight:{ name:"Corviknight", base:"assets/Corviknight/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  cacturne:{ name:"Cacturne", base:"assets/Cacturne/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  decidueye:{ name:"Decidueye", base:"assets/Decidueye/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  blaziken:{ name:"Blaziken", base:"assets/Blaziken/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  snorlax:{ name:"Snorlax", base:"assets/Snorlax/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  chandelure:{ name:"Chandelure", base:"assets/Chandelure/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  emoleon:{ name:"Emoleon", base:"assets/Emoleon/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  jolteon:{ name:"Jolteon", base:"assets/Jolteon/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  pangoro:{ name:"Pangoro", base:"assets/Pangoro/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  scrafty:{ name:"Scrafty", base:"assets/Scrafty/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  cyclizar:{ name:"Cyclizar", base:"assets/Cyclizar/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  axew:{ name:"Axew", base:"assets/Axew/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  obstagoon:{ name:"Obstagoon", base:"assets/Obstagoon/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10, rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  }
+};
 
 // ------- Auth wiring -------
 let authMode = "signup";
@@ -184,20 +282,26 @@ function buildSelectUI(){
     const btn = document.createElement("button");
     btn.className = "card small-card";
     btn.dataset.key = key;
+
     const img = document.createElement("img");
     img.src = c.base + c.portrait; img.alt = c.name;
+
     const span = document.createElement("span");
     span.textContent = c.name;
+
     btn.append(img, span);
+
     const hoverBlip = () => sfx.hover.play(0.35, 1 + (Math.random()*0.06 - 0.03));
     btn.addEventListener("mouseenter", hoverBlip);
     btn.addEventListener("focus", hoverBlip);
+
     btn.onclick = () => {
       selectedKey = key;
       sfx.select.play(0.5);
       overlaySelect.classList.add("hidden");
       showLobbies();
     };
+
     gridEl.appendChild(btn);
   });
 }
@@ -227,7 +331,6 @@ function renderLobbyList(list){
 function showLobbies(){
   overlayLobbies.classList.remove("hidden");
   if (lobbyUnsub) try{ lobbyUnsub(); }catch{}
-  // opportunistic cleanup
   net.cleanupEmptyLobbies().catch(()=>{});
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 }
@@ -282,7 +385,7 @@ async function joinLobbyFlow(lobbyId){
 
 // ------- Input -------
 window.addEventListener("keydown", e=>{
-  // If we're chatting, capture keys (no movement)
+  // Chat capture
   if (chatMode){
     if (e.key === "Enter"){
       e.preventDefault();
@@ -313,7 +416,6 @@ window.addEventListener("keydown", e=>{
       if (chatBuffer.length < MAX_CHAT_LEN) chatBuffer += e.key;
       return;
     }
-    // swallow arrows, etc.
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab"].includes(e.key)){
       e.preventDefault(); return;
     }
@@ -322,7 +424,6 @@ window.addEventListener("keydown", e=>{
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){
-    // start typing mode
     chatMode = true; chatBuffer = "";
     state.typing = true;
     net.updateState({ typing:true }).catch(()=>{});
@@ -330,7 +431,6 @@ window.addEventListener("keydown", e=>{
   }
 
   if (e.key === "Escape"){
-    // Exit to select
     remote.clear();
     net.leaveLobby().catch(()=>{});
     state.ready = false;
@@ -355,7 +455,6 @@ function makePingPong(n){ const f=[...Array(n).keys()], b=[...Array(Math.max(n-2
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a + (b-a)*t; }
 
-// Load assets for a character key
 async function loadCharacterAssets(key){
   if (charCache.has(key)) return charCache.get(key);
   const cfg = CHARACTERS[key]; if (!cfg) return null;
@@ -419,10 +518,8 @@ function startNetListeners(){
   return unsub;
 }
 
-// Chat subscription -> above-head bubbles + HUD log
 function startChatSubscription(){
   net.subscribeChat((msgs)=>{
-    // Update HUD log
     chatLogEl.innerHTML = "";
     msgs.slice(-24).forEach(m=>{
       const div = document.createElement("div");
@@ -431,15 +528,11 @@ function startChatSubscription(){
       div.textContent = `${who}: ${m.text}`;
       chatLogEl.appendChild(div);
     });
-
-    // Show recent messages over heads (start/refresh timers)
     const whoMap = new Map();
     msgs.forEach(m=> whoMap.set(m.uid, m));
     for (const [uid, r] of remote){
       const m = whoMap.get(uid);
-      if (m){
-        r.say = m.text; r.sayTimer = chatShowTime;
-      }
+      if (m){ r.say = m.text; r.sayTimer = chatShowTime; }
     }
   });
 }
@@ -601,7 +694,7 @@ const DIR_VECS = {
   up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1],
 };
 function getInputVec(){
-  if (chatMode) return {vx:0, vy:0}; // no movement while chatting
+  if (chatMode) return {vx:0, vy:0};
   const up = keys.has("w") || keys.has("ArrowUp");
   const down = keys.has("s") || keys.has("ArrowDown");
   const left = keys.has("a") || keys.has("ArrowLeft");
@@ -636,11 +729,9 @@ function tryMove(dt, vx, vy){
     const ty = Math.floor(state.y / TILE);
     const tx0 = Math.floor(oldX / TILE);
     const tx1 = Math.floor(newX / TILE);
-
     if (tx1 !== tx0){
-      if (!canWalk(tx1, ty, map)){
-        newX = oldX;
-      } else {
+      if (!canWalk(tx1, ty, map)){ newX = oldX; }
+      else {
         const xB = stepX > 0 ? tx0+1 : tx0;
         if (!state.hopping && map.edgesV[ty][xB]) newX = oldX;
       }
@@ -654,11 +745,9 @@ function tryMove(dt, vx, vy){
     const tx = Math.floor(state.x / TILE);
     const ty0 = Math.floor(oldY / TILE);
     const ty1 = Math.floor(newY / TILE);
-
     if (ty1 !== ty0){
-      if (!canWalk(tx, ty1, map)){
-        newY = oldY;
-      } else {
+      if (!canWalk(tx, ty1, map)){ newY = oldY; }
+      else {
         const yB = stepY > 0 ? ty0+1 : ty0;
         if (!state.hopping && map.edgesH[yB][tx]) newY = oldY;
       }
@@ -692,7 +781,7 @@ function tryStartHop(){
   sfx.jump.play(0.6, 1 + (Math.random()*0.08 - 0.04));
 
   state.anim = "hop";
-  state.frameOrder = [...Array(cfg.hop.framesPerDir).keys()]; // linear
+  state.frameOrder = [...Array(cfg.hop.framesPerDir).keys()];
   state.frameStep = 0; state.frameTime = 0;
   state.hop = { sx:start.x, sy:start.y, tx:end.x, ty:end.y, t:0, dur: cfg.hop.framesPerDir / HOP_FPS, z:0 };
   state.idleAccum = 0;
@@ -702,7 +791,6 @@ function sliceSheet(img, cols, rows, dirGrid, framesPerDir){
   const CELL_W = Math.floor(img.width / cols);
   const CELL_H = Math.floor(img.height / rows);
   const trimCell = (row, col) => analyzeBitmap(img, col*CELL_W, row*CELL_H, CELL_W, CELL_H);
-
   const metaByDir = {};
   for (const [dir, def] of Object.entries(dirGrid)){
     const arr = [];
@@ -784,7 +872,6 @@ function update(dt){
       while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep = (state.frameStep + 1) % state.frameOrder.length; }
     } else {
       const iFrames = CHARACTERS[selectedKey].idle.framesPerDir;
-
       if (state.prevMoving && !state.moving){
         state.anim = "stand"; state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
       }
@@ -928,7 +1015,6 @@ function drawChatBubble(text, typing, wx, wy, z, scale){
 
   ctx.fillStyle = "#dff8ff";
   if (typing){
-    // Three bouncing dots
     const baseY = y + padY + 14;
     for (let i=0;i<3;i++){
       const phase = (chatTypingDots + i*0.25) % 3;
@@ -945,7 +1031,7 @@ function drawChatBubble(text, typing, wx, wy, z, scale){
 function draw(){
   drawMap();
 
-  // Build draw list for depth-sort (local + remotes)
+  // Build draw list for depth-sort
   const actors = [];
 
   // Remote actors
@@ -961,8 +1047,7 @@ function draw(){
                  : r.anim === "hop"  ? (assets.cfg.hop?.framesPerDir || 1)
                  : assets.cfg.idle.framesPerDir;
     const fps = r.anim === "walk" ? WALK_FPS : r.anim === "hop" ? HOP_FPS : IDLE_FPS;
-    const order = (r.anim === "hop") ? [...Array(Math.max(frames,1)).keys()]
-                                     : makePingPong(Math.max(frames,1));
+    const order = (r.anim === "hop") ? [...Array(Math.max(frames,1)).keys()] : makePingPong(Math.max(frames,1));
 
     if ((r.anim === "walk") || (r.anim === "hop") || (r.anim === "idle" && r.idlePlaying)){
       r.frameTime += frameDt;
@@ -985,9 +1070,7 @@ function draw(){
       r.z = Math.sin(Math.PI * r.hopT) * (HOP_HEIGHT * r.scale);
     } else { r.hopT = 0; r.z = 0; }
 
-    const src = (r.anim === "hop" && assets.hop) ? assets.hop
-              : (r.anim === "walk") ? assets.walk
-              : assets.idle;
+    const src = (r.anim === "hop" && assets.hop) ? assets.hop : (r.anim === "walk") ? assets.walk : assets.idle;
 
     actors.push({
       kind:"remote", name: r.username || "player",
@@ -995,7 +1078,6 @@ function draw(){
       typing:r.typing, say:r.say, sayTimer:r.sayTimer
     });
 
-    // tick remote say timer
     if (r.sayTimer > 0) r.sayTimer = Math.max(0, r.sayTimer - frameDt);
     else r.say = null;
   }
@@ -1012,10 +1094,10 @@ function draw(){
     });
   }
 
-  // Depth sort: feet Y minus hop bias
+  // Depth sort
   actors.sort((a,b)=> (a.y - a.z*0.35) - (b.y - b.z*0.35));
 
-  // Draw actors (shadow -> sprite -> name -> chat)
+  // Draw
   for (const a of actors){
     const f = a.frame, scale = a.scale;
     const dw = f.sw * scale, dh = f.sh * scale;
@@ -1028,7 +1110,6 @@ function draw(){
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
     drawNameTagAbove(a.name, f, a.x, a.y, a.z, a.scale);
 
-    // typing bubble or chat bubble
     if (a.typing){
       drawChatBubble("", true, a.x, a.y, a.z, a.scale);
     } else if (a.say && a.sayTimer > 0){
@@ -1043,7 +1124,6 @@ function draw(){
     }
   }
 
-  // Optional sprite-sheet overlay
   if (state.showGrid){
     const src = state.anim === "hop" ? state.hopImg : (state.moving ? state.walkImg : state.idleImg);
     if (src){
