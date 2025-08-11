@@ -1,6 +1,15 @@
 // main.js — select → lobby list → create/join → multiplayer + chat (seeded maps)
 // global to avoid strict-mode ReferenceError on auth
 let localUsername = "";
+let lobbyUnsub = null; // unsubscribe fn for lobby snapshot
+
+// Safe unsubscribe wrapper for lobby snapshot
+function unsubscribeLobby(){
+  if (typeof lobbyUnsub === 'function'){
+    try { unsubscribeLobby(); } catch(e){ console.warn('lobbyUnsub threw during unsubscribe', e); }
+    lobbyUnsub = null;
+  }
+}
 // global selected character key for select screen
 let selectedKey = null;
 
@@ -265,7 +274,7 @@ function renderLobbyList(list){
 
 function showLobbies(){
   overlayLobbies.classList.remove("hidden");
-  if (lobbyUnsub) try{ lobbyUnsub(); }catch{}
+  if (lobbyUnsub) try{ unsubscribeLobby(); }catch{}
   net.cleanupEmptyLobbies().catch(()=>{}).catch(()=>{});
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 }
@@ -274,7 +283,7 @@ backBtn.onclick = ()=>{
   overlaySelect.classList.remove("hidden");
 };
 refreshBtn.onclick = ()=>{
-  if (lobbyUnsub) { try{ lobbyUnsub(); }catch{} lobbyUnsub = null; }
+  if (lobbyUnsub) { try{ unsubscribeLobby(); }catch{} lobbyUnsub = null; }
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 };
 
