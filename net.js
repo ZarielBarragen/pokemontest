@@ -8,7 +8,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, getDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit
+  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit, getCountFromServer
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // --- Your Firebase project config ---
@@ -22,6 +22,29 @@ export const firebaseConfig = {
   measurementId: "G-HFXK2J605R"
 };
 
+export class Net {
+  // Count docs in lobbies/{lobbyId}/players (server-side aggregate)
+  async _countPlayers(lobbyId) {
+    try {
+      const col = collection(this.db, "lobbies", lobbyId, "players");
+      const snap = await getCountFromServer(col);
+      return snap.data().count || 0;
+    } catch (e) { return 0; }
+  }
+
+  // Compare stored playersCount with actual and fix if different
+  async _reconcilePlayersCount(lobbyId) {
+    try {
+      const actual = await this._countPlayers(lobbyId);
+      const dref = doc(this.db, "lobbies", lobbyId);
+      const ds = await getDoc(dref);
+      if (!ds.exists()) return;
+      const current = Number(ds.data().playersCount||0);
+      if (current !== actual) {
+        await updateDoc(dref, { playersCount: actual });
+      }
+    } catch {}
+  }
 export class Net {
   constructor(cfg = firebaseConfig) {
     this.app  = initializeApp(cfg);
@@ -102,9 +125,11 @@ export class Net {
       orderBy("createdAt", "desc"),
       limit(50)
     );
-    return onSnapshot(q, (snap) => {
+    return onSnapshot(q, async (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       cb(list);
+      // Opportunistic fix of stale counts
+      try { await Promise.all(list.map(l => this._reconcilePlayersCount(l.id))); } catch {}
     }, (err)=>console.error("subscribeLobbies:", err));
   }
 
@@ -150,9 +175,10 @@ export class Net {
     } catch {}
 
     try {
-      // Decrement playersCount; ignore failures if rules block
       await updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) });
     } catch {}
+    // Ensure exact count even if decrement failed earlier
+    try { const n = await this._countPlayers(lob); await updateDoc(doc(this.db, "lobbies", lob), { playersCount: n }); } catch {}
 
     // Stop listeners
     if (this.playersUnsub) { try{ this.playersUnsub(); }catch{} this.playersUnsub = null; }
