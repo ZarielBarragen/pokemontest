@@ -1,6 +1,9 @@
 // main.js — select → lobby list → create/join → multiplayer + chat (seeded maps)
 // global to avoid strict-mode ReferenceError on auth
 let localUsername = "";
+// global selected character key for select screen
+let selectedKey = null;
+
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
 
@@ -128,7 +131,10 @@ let CHARACTERS = {};
 // ---- Optional JSON character override ----
 (async function loadCharactersJSON(){
   try {
-    const res = await fetch('assets/characters.json', { cache: 'no-store' });
+    const res = await fetch('assets/characters.json', { cache: 'no-store' }
+// alias for backward compatibility
+async function loadCharacters(){ return await loadCharactersJSON(); }
+);
     if (!res.ok) return;
     const data = await res.json();
     const def = data.defaults || {};
