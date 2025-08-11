@@ -129,12 +129,9 @@ function makeRowDirGrid() {
 }
 let CHARACTERS = {};
 // ---- Optional JSON character override ----
-(async function loadCharactersJSON(){
+async function loadCharactersJSON(){
   try {
-    const res = await fetch('assets/characters.json', { cache: 'no-store' }
-// alias for backward compatibility
-async function loadCharacters(){ return await loadCharactersJSON(); }
-);
+    const res = await fetch('assets/characters.json', { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     const def = data.defaults || {};
@@ -166,7 +163,7 @@ async function loadCharacters(){ return await loadCharactersJSON(); }
   } catch (e) {
     console.warn('characters.json load failed:', e);
   }
-})();
+
 formEl.addEventListener("submit", async (e)=>{
   e.preventDefault();
   errEl.textContent = "";
@@ -1138,3 +1135,6 @@ function loadImage(src){
 
 // Kick off character loading
 loadCharacters().catch(console.error);
+
+// alias for backward compatibility
+async function loadCharacters(){ return await loadCharactersJSON(); }
