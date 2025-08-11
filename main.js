@@ -31,6 +31,7 @@ const errEl          = document.getElementById("authErr");
 let chatLogEl = null;
 let chatUnsubLocal = null;
 let chatMessages = [];
+let localUsername = "";
 
 function renderChatLog(){
   if (!chatLogEl) return;
