@@ -443,10 +443,37 @@ function generateMap(w, h, seed=1234){
   const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
   const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
 
-  // Carve a main corridor from left-middle to right side
+  
+  // Corridor thickness (in tiles). Must be odd to stay centered.
+  const HALL_W = 3; // try 3 or 4 for wider halls
+  const HALF = Math.floor(HALL_W/2);
+
+  function carveAt(cx, cy, dirChar){
+    if (!inside(cx,cy)) return;
+    walls[cy][cx] = false;
+    // widen perpendicular to direction
+    if (HALL_W > 1){
+      if (dirChar === 'h'){ // moving horizontally -> widen vertically
+        for (let dy=-HALF; dy<=HALF; dy++){
+          const ay = cy + dy;
+          if (inside(cx, ay)) walls[ay][cx] = false;
+        }
+      } else if (dirChar === 'v'){ // moving vertically -> widen horizontally
+        for (let dx=-HALF; dx<=HALF; dx++){
+          const ax = cx + dx;
+          if (inside(ax, cy)) walls[cy][ax] = false;
+        }
+      } else {
+        // unknown, just carve a plus
+        for (let dx=-HALF; dx<=HALF; dx++) if (inside(cx+dx, cy)) walls[cy][cx+dx] = false;
+        for (let dy=-HALF; dy<=HALF; dy++) if (inside(cx, cy+dy)) walls[cy+dy][cx] = false;
+      }
+    }
+  }
+// Carve a main corridor from left-middle to right side
   const start = { x:1, y: Math.floor(h/2) };
   let x = start.x, y = start.y;
-  walls[y][x] = false;
+  carveAt(x, y, dir[2]);
 
   const DIRS = [[1,0,'h'], [0,1,'v'], [-1,0,'h'], [0,-1,'v']];
   let dir = DIRS[0]; // start moving right
@@ -465,7 +492,7 @@ function generateMap(w, h, seed=1234){
     if (inside(nx-1,ny) && !walls[ny][nx-1]) n++;
     if (inside(nx,ny+1) && !walls[ny+1][nx]) n++;
     if (inside(nx,ny-1) && !walls[ny-1][nx]) n++;
-    return n<=1;
+    return n<=2;
   }
   function turnLeft(d){ return d[0] ? [0, d[0],'v'] : [-d[1],0,'h']; }
   function turnRight(d){ return d[0] ? [0,-d[0],'v'] : [ d[1],0,'h']; }
@@ -498,7 +525,7 @@ function generateMap(w, h, seed=1234){
     }
     // carve
     x += dir[0]; y += dir[1];
-    walls[y][x] = false;
+    carveAt(x, y, dir[2]);
 
     stepsSinceGap++;
     if (stepsSinceGap>=nextGap){
