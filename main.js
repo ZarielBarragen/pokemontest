@@ -521,7 +521,7 @@ function generateMap(w, h, seed=1234){
   for (let ix=0; ix<w; ix++){ walls[0][ix]=true; walls[h-1][ix]=true; }
   for (let iy=0; iy<h; iy++){ walls[iy][0]=true; walls[iy][w-1]=true; }
 
-  return { w, h, walls, edgesV, edgesH };
+  return { w, h, walls, edgesV, edgesH, spawn: {x:start.x, y:start.y} };
 }
 
 function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
