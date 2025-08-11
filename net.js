@@ -1,6 +1,6 @@
-// net.js — Firebase wiring (auth, lobbies, players, chat) — Firestore only, lint‑clean
+// net.js — Firebase wiring for auth, lobbies, players, chat (Firestore-only, fixed)
 
-// Firebase ESM CDN
+// --- Firebase imports (ESM CDN) ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
@@ -8,11 +8,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, getDoc, setDoc, updateDoc, deleteDoc,
-  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit,
-  limitToLast, getCountFromServer, getDocs
+  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit, limitToLast, getCountFromServer, getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// Your Firebase project (unchanged)
+// --- Your Firebase project config ---
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
   authDomain: "poketest-4d108.firebaseapp.com",
@@ -24,35 +23,48 @@ export const firebaseConfig = {
 };
 
 export class Net {
+  _backoffUntil = 0;
+  _now() { return Date.now(); }
+  _shouldBackoff() { return this._now() < this._backoffUntil; }
+  _noteError(e) {
+    const code = (e && (e.code || e.message)) || "";
+    if (typeof code === "string" && (code.includes("resource-exhausted") || code.includes("unavailable"))) {
+      // Pause writes for ~30s to respect backend backoff
+      this._backoffUntil = this._now() + 30000;
+    }
+  }
+  async _guardWrite(fn) {
+    if (this._shouldBackoff()) throw new Error("backoff");
+    try { return await fn(); }
+    catch (e) { this._noteError(e); throw e; }
+  }
+export class Net {
   constructor(cfg = firebaseConfig) {
     this.app  = initializeApp(cfg);
     this.auth = getAuth(this.app);
     this.db   = getFirestore(this.app);
 
-    // callbacks / unsub
     this._authCb = () => {};
     this._authUnsub = onAuthStateChanged(this.auth, (u) => this._authCb(u));
 
-    // lobby state
+    // Lobby state
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
     this.playersUnsub = null;
     this.chatUnsub = null;
 
-    // best‑effort leave
-    window.addEventListener("beforeunload", () => { this.leaveLobby().catch(()=>{}); });
-    window.addEventListener("unload",       () => { this.leaveLobby().catch(()=>{}); });
+    // Leave cleanly
+    window.addEventListener("beforeunload", () => this.leaveLobby().catch(()=>{}));
+    window.addEventListener("unload",       () => this.leaveLobby().catch(()=>{}));
   }
 
-  // ------------ helpers (playersCount reconciliation) ------------
+  // -------------------- helpers for playersCount --------------------
   async _countPlayers(lobbyId) {
     try {
       const col = collection(this.db, "lobbies", lobbyId, "players");
       const snap = await getCountFromServer(col);
       return snap.data().count || 0;
-    } catch {
-      return 0;
-    }
+    } catch (e) { return 0; }
   }
   async _reconcilePlayersCount(lobbyId) {
     try {
@@ -61,12 +73,15 @@ export class Net {
       const ds = await getDoc(dref);
       if (!ds.exists()) return;
       const current = Number(ds.data().playersCount || 0);
-      if (current !== actual) await updateDoc(dref, { playersCount: actual });
+      if (current !== actual) {
+        await updateDoc(dref, { playersCount: actual });
+      }
     } catch {}
   }
 
-  // --------------------------- AUTH ---------------------------
+  // -------------------- AUTH --------------------
   onAuth(cb) { this._authCb = cb; }
+
   _usernameToEmail(username) { return `${username}@poketest.local`; }
 
   async signUp(username, password) {
@@ -87,12 +102,13 @@ export class Net {
     return signOut(this.auth);
   }
 
-  // ------------------------- LOBBIES -------------------------
+  // -------------------- LOBBIES --------------------
   async createLobby(name, mapMeta) {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
+
     const ref = await addDoc(collection(this.db, "lobbies"), {
-      name: name || `Lobby ${Math.floor(Math.random() * 9999)}`,
+      name: name || `Lobby ${Math.floor(Math.random()*9999)}`,
       owner: uid,
       createdAt: serverTimestamp(),
       mapMeta: {
@@ -113,13 +129,17 @@ export class Net {
   }
 
   subscribeLobbies(cb) {
-    const q = query(collection(this.db, "lobbies"), orderBy("createdAt", "desc"), limit(50));
+    const q = query(
+      collection(this.db, "lobbies"),
+      orderBy("createdAt", "desc"),
+      limit(50)
+    );
     return onSnapshot(q, async (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       cb(list);
-      // opportunistic reconciliation
+      // Opportunistic reconciliation to fix stale counts
       try { await Promise.all(list.map(l => this._reconcilePlayersCount(l.id))); } catch {}
-    }, (err) => console.error("subscribeLobbies:", err));
+    }, (err)=>console.error("subscribeLobbies:", err));
   }
 
   async cleanupEmptyLobbies() {
@@ -127,61 +147,60 @@ export class Net {
     if (!uid) return;
     const q = query(
       collection(this.db, "lobbies"),
-      where("owner", "==", uid),
-      where("playersCount", "==", 0),
-      where("active", "==", true),
+      where("owner","==",uid),
+      where("playersCount","==",0),
+      where("active","==",true),
       limit(10)
     );
     const snap = await onSnapshotOnce(q);
     for (const d of snap.docs) {
-      try { await deleteDoc(doc(this.db, "lobbies", d.id)); } catch {}
+      try { await deleteDoc(doc(this.db,"lobbies",d.id)); } catch(e){ /* ignore */ }
     }
   }
 
-  async joinLobby(lobbyId) {
+    async joinLobby(lobbyId) {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
-    try { await updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) }); } catch {}
-    // capture owner for chat cleanup permission
+    try { await this._guardWrite(() => updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) })); } catch {}
+    // fetch lobby owner for permissions (chat cleanup)
     try {
-      const s = await getDoc(doc(this.db, "lobbies", lobbyId));
-      this.currentLobbyOwner = s.exists() ? (s.data().owner || null) : null;
+      const snap = await getDoc(doc(this.db, "lobbies", lobbyId));
+      this.currentLobbyOwner = snap.exists() ? snap.data().owner || null : null;
     } catch { this.currentLobbyOwner = null; }
-  }
-
-  async leaveLobby() {
+  }async leaveLobby() {
     const uid = this.auth.currentUser?.uid;
     const lob = this.currentLobbyId;
     if (!lob) return;
 
     try { await deleteDoc(doc(this.db, "lobbies", lob, "players", uid)); } catch {}
-    try { await updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) }); } catch {}
+
+    try { await this._guardWrite(() => updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) })); } catch {}
     try { const n = await this._countPlayers(lob); await updateDoc(doc(this.db, "lobbies", lob), { playersCount: n }); } catch {}
 
-    if (this.playersUnsub) { try { this.playersUnsub(); } catch {} this.playersUnsub = null; }
-    if (this.chatUnsub)    { try { this.chatUnsub(); } catch {} this.chatUnsub    = null; }
+    if (this.playersUnsub) { try{ this.playersUnsub(); }catch{} this.playersUnsub = null; }
+    if (this.chatUnsub)    { try{ this.chatUnsub(); }catch{} this.chatUnsub    = null; }
 
     this.currentLobbyId = null;
-    this.currentLobbyOwner = null;
   }
 
-  // ------------------------- PLAYERS -------------------------
+  // -------------------- PLAYERS --------------------
   async spawnLocal(state) {
     const uid = this.auth.currentUser?.uid;
     if (!uid || !this.currentLobbyId) throw new Error("No lobby joined");
+
     const ref = doc(this.db, "lobbies", this.currentLobbyId, "players", uid);
-    await setDoc(ref, {
+    await this._guardWrite(() => setDoc(ref, {
       username: state.username || "player",
       character: state.character,
-      x: Number(state.x) || 0,
-      y: Number(state.y) || 0,
+      x: Number(state.x)||0,
+      y: Number(state.y)||0,
       dir: state.dir || "down",
       anim: state.anim || "stand",
-      scale: Number(state.scale) || 3,
+      scale: Number(state.scale)||3,
       typing: !!state.typing,
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    }, { merge: true }));
   }
 
   async updateState(partial) {
@@ -189,9 +208,9 @@ export class Net {
     if (!uid || !this.currentLobbyId) return;
     const ref = doc(this.db, "lobbies", this.currentLobbyId, "players", uid);
     try {
-      await updateDoc(ref, { ...partial, updatedAt: serverTimestamp() });
+      await this._guardWrite(() => updateDoc(ref, { ...partial, updatedAt: serverTimestamp() }));
     } catch {
-      try { await setDoc(ref, { ...partial, updatedAt: serverTimestamp() }, { merge: true }); } catch {}
+      try { await this._guardWrite(() => setDoc(ref, { ...partial, updatedAt: serverTimestamp() }, { merge: true })); } catch {}
     }
   }
 
@@ -199,35 +218,39 @@ export class Net {
     if (!this.currentLobbyId) return () => {};
     const uid = this.auth.currentUser?.uid;
     const col = collection(this.db, "lobbies", this.currentLobbyId, "players");
-    if (this.playersUnsub) { try { this.playersUnsub(); } catch {} }
 
+    if (this.playersUnsub) { try{ this.playersUnsub(); }catch{} }
     this.playersUnsub = onSnapshot(col, (snap) => {
       snap.docChanges().forEach((ch) => {
         const id = ch.doc.id;
-        if (id === uid) return; // local player drawn client-side
+        if (id === uid) return;
         if (ch.type === "added") onAdd && onAdd(id, ch.doc.data());
         else if (ch.type === "modified") onChange && onChange(id, ch.doc.data());
         else if (ch.type === "removed") onRemove && onRemove(id);
       });
-    }, (err) => console.error("subscribePlayers:", err));
+    }, (err)=>console.error("subscribePlayers:", err));
 
     return this.playersUnsub;
   }
 
-  // --------------------------- CHAT ---------------------------
+  // -------------------- CHAT --------------------
+
+  // Remove oldest chat messages so only the latest 24 remain.
   async cleanupChatIfNeeded() {
     if (!this.currentLobbyId) return;
     try {
       const chatCol = collection(this.db, "lobbies", this.currentLobbyId, "chat");
-      // Keep newest 24 (desc), delete anything older than that window
-      const snap = await getDocs(query(chatCol, orderBy("createdAt", "desc"), limit(26)));
+      // Read at most 26 newest; if >24, delete everything older than the newest 24.
+      const snap = await getDocs(query(chatCol, orderBy("createdAt","desc"), limit(26)));
       if (snap.size > 24) {
         const old = snap.docs.slice(24);
-        for (const d of old) { try { await deleteDoc(d.ref); } catch {} }
+        for (const d of old) { try { await this._guardWrite(() => deleteDoc(d.ref)); } catch {} }
+      }
+    } catch {}
+  } catch {}
       }
     } catch {}
   }
-
   async sendChat(text) {
     if (!this.currentLobbyId) return;
     const uid = this.auth.currentUser?.uid;
@@ -235,9 +258,7 @@ export class Net {
     const username = user?.displayName || (user?.email ? user.email.split("@")[0] : "player");
 
     const ref = collection(this.db, "lobbies", this.currentLobbyId, "chat");
-    await addDoc(ref, { uid, username, text: String(text).slice(0, 200), createdAt: serverTimestamp() });
-
-    // Owner trims to 24 so clients stay in sync
+    await addDoc(ref, { uid, username, text: String(text).slice(0,200), createdAt: serverTimestamp() });
     if (this.currentLobbyOwner && this.currentLobbyOwner === uid) {
       try { await this.cleanupChatIfNeeded(); } catch {}
     }
@@ -245,24 +266,23 @@ export class Net {
 
   subscribeChat(cb) {
     if (!this.currentLobbyId) return () => {};
-    const qy = query(
+    const q = query(
       collection(this.db, "lobbies", this.currentLobbyId, "chat"),
       orderBy("createdAt", "asc"),
       limitToLast(24)
     );
-    if (this.chatUnsub) { try { this.chatUnsub(); } catch {} }
-    this.chatUnsub = onSnapshot(qy, (snap) => {
-      const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} }
+    this.chatUnsub = onSnapshot(q, (snap)=>{
+      const msgs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
       cb && cb(msgs);
-    }, (err) => console.error("subscribeChat:", err));
+    }, (err)=>console.error("subscribeChat:", err));
     return this.chatUnsub;
   }
 }
 
-// One-shot query helper (no import needed)
+// -------------------- Helper --------------------
 async function onSnapshotOnce(qry) {
   return new Promise((resolve, reject) => {
-    const unsub = onSnapshot(qry, (snap) => { try { unsub(); } catch {} resolve(snap); },
-                                 (err)  => { try { unsub(); } catch {} reject(err); });
+    const unsub = onSnapshot(qry, (snap) => { unsub(); resolve(snap); }, (e)=>{ try{unsub();}catch{} reject(e); });
   });
 }
