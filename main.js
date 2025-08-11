@@ -188,9 +188,29 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:8, rows:8, framesPerDir:8, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-  emoleon:{ name:"Emoleon", base:"assets/Emoleon/", portrait:"portrait.png", scale:3,
+  empoleon:{ name:"Empoleon", base:"assets/Empoleon/", portrait:"portrait.png", scale:3,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  primarina:{ name:"Primarina", base:"assets/Primarina/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  dewgong:{ name:"Dewgong", base:"assets/Dewgong/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:7, rows:8, framesPerDir:7, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  scolipede:{ name:"Scolipede", base:"assets/Scolipede/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
+  },
+  lycanroc:{ name:"Lycanroc", base:"assets/Lycanroc/", portrait:"portrait.png", scale:3,
+    walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
+    idle:{sheet:"Idle-Anim.png", cols:14, rows:8, framesPerDir:14, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
   jolteon:{ name:"Jolteon", base:"assets/Jolteon/", portrait:"portrait.png", scale:3,
@@ -1146,8 +1166,7 @@ function draw(){
 
     const src = (r.anim === "hop" && assets.hop) ? assets.hop : (r.anim === "walk") ? assets.walk : assets.idle;
 
-
-// --- FIX: define smx/smy to prevent ReferenceError and smooth remote movement ---
+    // --- BEGIN remote smoothing fix ---
 let smx = r.x, smy = r.y;
 if (r.history && r.history.length >= 2) {
   const now = performance.now() / 1000;
@@ -1162,8 +1181,8 @@ if (r.history && r.history.length >= 2) {
   smx = a.x + (b.x - a.x) * t;
   smy = a.y + (b.y - a.y) * t;
 }
-// --- END FIX ---
-    actors.push({
+// --- END remote smoothing fix ---
+actors.push({
       kind:"remote", name: r.username || "player",
       x:smx, y:smy, z:r.z, frame:f, src, scale:r.scale,
       typing:r.typing, say:r.say, sayTimer:r.sayTimer
