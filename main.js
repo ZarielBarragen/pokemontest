@@ -29,6 +29,7 @@ const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
 const BASELINE_NUDGE_Y = 0;
 
+const PLAYER_R = 12; // base radius in px; scaled per-character
 const GAP_W       = Math.round(TILE * 0.38);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
@@ -163,40 +164,32 @@ const CHARACTERS = {
     idle:{sheet:"Idle-Anim.png", cols:2, rows:8, framesPerDir:2, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-    pangoro:{ name:"Pangoro", base:"assets/Pangoro/", portrait:"portrait.png", scale:3,
-    // Normal walk (4×8), idle is 6×8, hop is normal (10×8)
+  // New 5
+  pangoro:{ name:"Pangoro", base:"assets/Pangoro/", portrait:"portrait.png", scale:3,
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-
   scrafty:{ name:"Scrafty", base:"assets/Scrafty/", portrait:"portrait.png", scale:3,
-    // Normal walk (4×8), idle is 6×8, hop is normal (10×8)
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-
   cyclizar:{ name:"Cyclizar", base:"assets/Cyclizar/", portrait:"portrait.png", scale:3,
-    // Walk is 6×8, idle is 10×8, hop normal (10×8)
     walk:{sheet:"walk.png", cols:6, rows:8, framesPerDir:6, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-
   axew:{ name:"Axew", base:"assets/Axew/", portrait:"portrait.png", scale:3,
-    // Normal walk (4×8), idle is 4×8, hop normal (10×8)
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
   },
-
   obstagoon:{ name:"Obstagoon", base:"assets/Obstagoon/", portrait:"portrait.png", scale:3,
-    // Normal walk (4×8), idle is 4×8, hop normal (10×8)
     walk:{sheet:"walk.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     idle:{sheet:"Idle-Anim.png", cols:4, rows:8, framesPerDir:4, dirGrid:makeRowDirGrid()},
     hop:{sheet:"Hop-Anim.png",  cols:10,rows:8, framesPerDir:10, dirGrid:makeRowDirGrid()}
-  },
+  }
 };
 
 // ------- Auth overlay wiring -------
@@ -256,7 +249,8 @@ function buildSelectUI(){
   gridEl.innerHTML = "";
   Object.entries(CHARACTERS).forEach(([key, c])=>{
     const btn = document.createElement("button");
-    btn.className = "card"; btn.dataset.key = key;
+    btn.className = "card small-card"; // smaller card
+    btn.dataset.key = key;
 
     const img = document.createElement("img");
     img.src = c.base + c.portrait; img.alt = c.name;
@@ -420,6 +414,7 @@ function startNetListeners(){
         scale: assets.cfg.scale ?? 3,
         frameTime: 0, frameStep: 0,
         idlePlaying: data.anim === "idle",
+        hopT: 0, hopDur: (assets.cfg.hop?.framesPerDir || 1)/HOP_FPS, z: 0,
         assets
       });
     },
@@ -428,15 +423,24 @@ function startNetListeners(){
       r.x = data.x ?? r.x; r.y = data.y ?? r.y;
       r.dir = data.dir ?? r.dir;
 
-      // Edge-detect anim changes
       if (typeof data.anim === "string" && data.anim !== r.anim){
         r.anim = data.anim;
         r.frameTime = 0; r.frameStep = 0;
         r.idlePlaying = (r.anim === "idle");
+        if (r.anim === "hop") { // start hop timeline locally
+          r.hopT = 0;
+          r.hopDur = (r.assets?.cfg?.hop?.framesPerDir || 1)/HOP_FPS;
+          r.z = 0;
+        } else {
+          r.hopT = 0; r.z = 0;
+        }
       }
 
       if (data.character && data.character !== r.character){
-        loadCharacterAssets(data.character).then(a=>{ r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3; });
+        loadCharacterAssets(data.character).then(a=>{
+          r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3;
+          r.hopDur = (a.cfg.hop?.framesPerDir || 1)/HOP_FPS;
+        });
       }
       r.username = data.username ?? r.username;
     },
@@ -457,7 +461,7 @@ function generateMap(w, h){
     const rx = 1 + Math.floor(Math.random()*(w-rw-2));
     const ry = 1 + Math.floor(Math.random()*(h-rh-2));
     for (let y=ry; y<ry+rh; y++){
-      for (let x=rx; x<w && x<rx+rw; x++){
+      for (let x=rx; x<rx+rw && x<w; x++){
         walls[y][x] = true;
       }
     }
@@ -520,6 +524,27 @@ function isOverGapWorld(x, y){
     }
   }
   return false;
+}
+
+// Resolve collision against other players after moving
+function resolvePlayerCollisions(nx, ny){
+  let x = nx, y = ny;
+  const myR = PLAYER_R * (state.scale || 3);
+  for (const r of remote.values()){
+    const rr = PLAYER_R * (r.scale || 3);
+    const minD = myR + rr;
+    const dx = x - r.x, dy = y - r.y;
+    const d = Math.hypot(dx,dy);
+    if (d > 0 && d < minD){
+      const push = (minD - d) + 0.5;
+      x += (dx / d) * push;
+      y += (dy / d) * push;
+    }
+  }
+  // keep in bounds
+  x = clamp(x, TILE*0.5, state.map.w*TILE - TILE*0.5);
+  y = clamp(y, TILE*0.5, state.map.h*TILE - TILE*0.5);
+  return {x,y};
 }
 
 // ------- Boot character inside a lobby map -------
@@ -649,6 +674,10 @@ function tryMove(dt, vx, vy){
     }
     state.y = newY;
   }
+
+  // collide with other players
+  const adj = resolvePlayerCollisions(state.x, state.y);
+  state.x = adj.x; state.y = adj.y;
 }
 
 function tryStartHop(){
@@ -800,6 +829,9 @@ function update(dt){
       state.hopping = false; state.anim = state.moving ? "walk" : "stand";
       state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
     }
+    // collision while hopping too (soft)
+    const adj = resolvePlayerCollisions(state.x, state.y);
+    state.x = adj.x; state.y = adj.y;
   }
 
   if (selectedKey && state.ready){
@@ -871,10 +903,25 @@ function drawNameTagAbove(name, frame, wx, wy, z, scale){
   ctx.fillText(name, sx, sy);
 }
 
+function drawShadow(wx, wy, z, scale, overGap){
+  const squash  = z ? 1 - 0.35*Math.sin(Math.min(1, z / (HOP_HEIGHT*scale)) * Math.PI) : 1;
+  const shw     = Math.max(6, Math.floor(12 * scale * squash));
+  const shh     = Math.max(3, Math.floor( 5 * scale * squash));
+  ctx.globalAlpha = overGap ? 0.08 : 0.25;
+  ctx.beginPath();
+  ctx.ellipse(Math.round(wx - state.cam.x), Math.round(wy - state.cam.y - 1), shw, shh, 0, 0, Math.PI*2);
+  ctx.fillStyle = "#000";
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
 function draw(){
   drawMap();
 
-  // Remote players
+  // Build draw list for depth-sort (local + remotes)
+  const actors = [];
+
+  // Remote actors (animate, compute z & frame)
   for (const r of remote.values()){
     const assets = r.assets; if (!assets) continue;
     const meta = r.anim === "walk" ? assets.meta.walk
@@ -883,80 +930,88 @@ function draw(){
     const strip = meta[r.dir] || meta.down || Object.values(meta)[0];
     if (!strip || !strip.length) continue;
 
-    // Advance remote animation using real dt and per-anim FPS
     const frames = r.anim === "walk" ? assets.cfg.walk.framesPerDir
                  : r.anim === "hop"  ? (assets.cfg.hop?.framesPerDir || 1)
                  : assets.cfg.idle.framesPerDir;
     const fps = r.anim === "walk" ? WALK_FPS : r.anim === "hop" ? HOP_FPS : IDLE_FPS;
-    const order = (r.anim === "hop") ? [...Array(Math.max(frames,1)).keys()] // linear for hops
+    const order = (r.anim === "hop") ? [...Array(Math.max(frames,1)).keys()]
                                      : makePingPong(Math.max(frames,1));
 
-    const shouldAdvance =
-      (r.anim === "walk") ||
-      (r.anim === "hop")  ||
-      (r.anim === "idle" && r.idlePlaying);
-
-    let idx = 0;
-    if (shouldAdvance && order.length){
+    // Advance remote animation using real dt; hops are linear, non-looping
+    if ((r.anim === "walk") || (r.anim === "hop") || (r.anim === "idle" && r.idlePlaying)){
       r.frameTime += frameDt;
       const tpf = 1 / fps;
       while (r.frameTime >= tpf){
         r.frameTime -= tpf;
-        r.frameStep = (r.frameStep + 1) % order.length;
-        if (r.anim === "idle" && r.idlePlaying && r.frameStep === 0){
-          r.idlePlaying = false; // one-shot finished
+        if (r.anim === "hop"){
+          if (r.frameStep < order.length - 1) r.frameStep += 1; // don't wrap
+        } else {
+          r.frameStep = (r.frameStep + 1) % order.length;
+          if (r.anim === "idle" && r.idlePlaying && r.frameStep === 0) r.idlePlaying = false;
         }
       }
-      idx = order[r.frameStep % order.length] % strip.length;
+    }
+    const frameIdx = order.length ? order[Math.min(r.frameStep, order.length-1)] % strip.length : 0;
+    const f = strip[frameIdx];
+
+    // Hop elevation timeline for remotes (client-side)
+    if (r.anim === "hop"){
+      r.hopT = Math.min(1, r.hopT + (frameDt / Math.max(0.001, r.hopDur)));
+      r.z = Math.sin(Math.PI * r.hopT) * (HOP_HEIGHT * r.scale);
     } else {
-      idx = 0; // hold still on stand/idle-after-one-shot
+      r.hopT = 0; r.z = 0;
     }
 
-    const f = strip[idx], scale = r.scale;
-    const dw = f.sw * scale, dh = f.sh * scale;
-    const dx = Math.round(r.x - f.ox * scale - state.cam.x);
-    const dy = Math.round(r.y - f.oy * scale - state.cam.y);
     const src = (r.anim === "hop" && assets.hop) ? assets.hop
               : (r.anim === "walk") ? assets.walk
               : assets.idle;
-    ctx.drawImage(src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
-    drawNameTagAbove(r.username || "player", f, r.x, r.y, 0, r.scale);
+    actors.push({
+      kind:"remote", name: r.username || "player",
+      x:r.x, y:r.y, z:r.z, frame:f, src, scale:r.scale
+    });
   }
 
-  // Local
-  const f = currentFrame();
-  if (state.ready && f){
-    const scale = state.scale;
+  // Local actor
+  const lf = currentFrame();
+  if (state.ready && lf){
     const z = state.hopping ? state.hop.z : 0;
-    const dw = f.sw * scale, dh = f.sh * scale;
-    const dx = Math.round(state.x - f.ox * scale - state.cam.x);
-    const dy = Math.round(state.y - f.oy * scale - state.cam.y - z);
-
-    const overGap = isOverGapWorld(state.x, state.y);
-    const squash  = state.hopping ? 1 - 0.35*Math.sin(Math.PI*state.hop.t) : 1;
-    const shw     = Math.max(6, Math.floor(12 * scale * squash));
-    const shh     = Math.max(3, Math.floor( 5 * scale * squash));
-    ctx.globalAlpha = overGap ? 0.08 : 0.25;
-    ctx.beginPath();
-    ctx.ellipse(Math.round(state.x - state.cam.x), Math.round(state.y - state.cam.y - 1), shw, shh, 0, 0, Math.PI*2);
-    ctx.fillStyle = "#000";
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
     const src = state.anim === "hop" ? state.hopImg : (state.moving ? state.walkImg : state.idleImg);
-    ctx.drawImage(src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
+    actors.push({
+      kind:"local", name: localUsername || "you",
+      x:state.x, y:state.y, z, frame:lf, src, scale:state.scale
+    });
+  }
 
-    drawNameTagAbove(localUsername || "you", f, state.x, state.y, z, state.scale);
+  // Depth sort: draw by feet Y, with hop Z bias (higher jump draws in front)
+  actors.sort((a,b)=>{
+    const ka = a.y - a.z * 0.35;
+    const kb = b.y - b.z * 0.35;
+    return ka - kb;
+  });
 
-    if (state.showBoxes){
+  // Draw actors (shadow -> sprite -> name)
+  for (const a of actors){
+    const f = a.frame, scale = a.scale;
+    const dw = f.sw * scale, dh = f.sh * scale;
+    const dx = Math.round(a.x - f.ox * scale - state.cam.x);
+    const dy = Math.round(a.y - f.oy * scale - state.cam.y - a.z);
+
+    const overGap = isOverGapWorld(a.x, a.y);
+    drawShadow(a.x, a.y, a.z, a.scale, overGap);
+
+    ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
+    drawNameTagAbove(a.name, f, a.x, a.y, a.z, a.scale);
+
+    if (state.showBoxes && a.kind === "local"){
       ctx.fillStyle = "white";
-      ctx.fillRect(Math.round(state.x - state.cam.x)-1, Math.round(state.y - state.cam.y)-1, 3, 3);
+      ctx.fillRect(Math.round(a.x - state.cam.x)-1, Math.round(a.y - state.cam.y)-1, 3, 3);
       ctx.strokeStyle = "rgba(255,255,0,.85)";
       ctx.strokeRect(dx+0.5, dy+0.5, dw, dh);
     }
   }
 
+  // Optional sprite-sheet overlay for debugging
   if (state.showGrid){
     const src = state.anim === "hop" ? state.hopImg : (state.moving ? state.walkImg : state.idleImg);
     if (src){

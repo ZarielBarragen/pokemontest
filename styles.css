@@ -164,3 +164,24 @@ body::after{
   #charGrid{ grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); }
   .card img{ width:100px; height:100px; }
 }
+
+/* Smaller character cards – keeps the grid tidy with many mons */
+#charGrid {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+#charGrid .small-card {
+  width: 120px;
+  height: 120px;
+  padding: 8px;
+}
+#charGrid .small-card img {
+  width: 64px;
+  height: auto;
+  image-rendering: pixelated;
+}
+#charGrid .small-card span {
+  font-size: 10px;
+  margin-top: 6px;
+  line-height: 1.1;
+}
