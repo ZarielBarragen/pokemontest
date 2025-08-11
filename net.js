@@ -1,30 +1,24 @@
-// net.js — Firestore for lobbies+chat, Realtime Database (RTDB) for player state/presence
-// ESM, drop-in replacement
+// net.js — Firestore for lobbies+chat, Realtime DB for players (clean)
 
-// --- Firebase base ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 
-// --- Auth ---
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, updateProfile, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-// --- Firestore (lobbies + chat) ---
 import {
   getFirestore, collection, doc, addDoc, getDoc, setDoc, updateDoc, deleteDoc,
   onSnapshot, serverTimestamp as fsServerTimestamp, increment, query, orderBy, where, limit,
-  limitToLast, getCountFromServer, getDocs
+  limitToLast, getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// --- Realtime Database (players) ---
 import {
   getDatabase, ref, set, update, remove, onDisconnect,
   onChildAdded, onChildChanged, onChildRemoved, get, child,
   serverTimestamp as rtdbServerTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-// --- Project config ---
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
   authDomain: "poketest-4d108.firebaseapp.com",
@@ -33,7 +27,6 @@ export const firebaseConfig = {
   messagingSenderId: "874372031897",
   appId: "1:874372031897:web:bd7bdfe8338d36d086df08",
   measurementId: "G-HFXK2J605R",
-  // RTDB requires db URL; if you created the RTDB instance, set it here.
   databaseURL: "https://poketest-4d108-default-rtdb.firebaseio.com"
 };
 
@@ -47,32 +40,29 @@ export class Net {
     this._authCb = () => {};
     this._authUnsub = onAuthStateChanged(this.auth, (u) => this._authCb(u));
 
-    // State
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
 
-    // RTDB presence
     this._playerRef = null;
     this._playerOnDisconnect = null;
 
-    // Subscriptions
-    this.playersUnsubs = [];   // rtdb listeners
+    this.playersUnsubs = [];
     this.chatUnsub = null;
 
-    // Backoff for Firestore writes
+    // soft FS backoff for quota
     this._backoffUntil = 0;
 
     window.addEventListener("beforeunload", () => { this.leaveLobby().catch(()=>{}); });
     window.addEventListener("unload",       () => { this.leaveLobby().catch(()=>{}); });
   }
 
-  // ------------ Backoff helpers (Firestore writes) ------------
+  // --------- Backoff helpers for Firestore writes ---------
   _now(){ return Date.now(); }
   _shouldBackoff(){ return this._now() < this._backoffUntil; }
   _noteError(e){
     const code = (e && (e.code || e.message)) || "";
     if (typeof code === "string" && (code.includes("resource-exhausted") || code.includes("unavailable"))) {
-      this._backoffUntil = this._now() + 30000; // 30s
+      this._backoffUntil = this._now() + 30000;
     }
   }
   async _guardFS(fn){
@@ -80,7 +70,7 @@ export class Net {
     try { return await fn(); } catch(e){ this._noteError(e); throw e; }
   }
 
-  // --------------------------- AUTH ---------------------------
+  // ----------------------------- AUTH -----------------------------
   onAuth(cb){ this._authCb = cb; }
   _usernameToEmail(username){ return `${username}@poketest.local`; }
 
@@ -100,7 +90,7 @@ export class Net {
     return signOut(this.auth);
   }
 
-  // ------------------------- LOBBIES (FS) -------------------------
+  // --------------------------- LOBBIES (FS) ---------------------------
   async createLobby(name, mapMeta){
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
@@ -128,8 +118,6 @@ export class Net {
     } catch { return 0; }
   }
 
-  softReconcileLater(lobbyId, ms=2500){ try{ setTimeout(()=>{ this._reconcilePlayersCount(lobbyId).catch(()=>{}); }, ms); }catch{} }
-
   async _reconcilePlayersCount(lobbyId){
     try {
       const actual = await this._countPlayersRTDB(lobbyId);
@@ -137,9 +125,10 @@ export class Net {
       const ds   = await getDoc(dref);
       if (!ds.exists()) return;
       const current = Number(ds.data().playersCount || 0);
-      if (current !== actual) await this._guardFS(() => updateDoc(dref, { playersCount: actual }));
+      if (current !== actual) { try { await this._guardFS(() => updateDoc(dref, { playersCount: actual })); } catch {} }
     } catch {}
   }
+  softReconcileLater(lobbyId, ms=2500){ try{ setTimeout(()=>{ this._reconcilePlayersCount(lobbyId).catch(()=>{}); }, ms); }catch{} }
 
   subscribeLobbies(cb){
     const qy = query(collection(this.db, "lobbies"), orderBy("createdAt","desc"), limit(50));
@@ -164,43 +153,31 @@ export class Net {
       let removed = 0;
       for (const d of snap.docs) {
         const id = d.id;
-        // Count RTDB players
         let n = 0;
         try { n = await this._countPlayersRTDB(id); } catch { n = 0; }
-        // Keep playersCount accurate
         try { await this._guardFS(() => updateDoc(doc(this.db,"lobbies",id), { playersCount: n })); } catch {}
         if (n === 0) {
           try { await this._guardFS(() => deleteDoc(doc(this.db,"lobbies",id))); removed++; } catch {}
         }
       }
       return removed;
-    } catch {
-      return 0;
-    }
+    } catch { return 0; }
   }
 
-  // -------------------- JOIN / LEAVE (RTDB + FS) --------------------
+  // -------------------- JOIN / LEAVE (non-blocking FS) --------------------
   async joinLobby(lobbyId){
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
 
-    // cache owner (for chat trimming permissions)
     try {
       const s = await getDoc(doc(this.db, "lobbies", lobbyId));
       this.currentLobbyOwner = s.exists() ? (s.data().owner || null) : null;
     } catch { this.currentLobbyOwner = null; }
 
-    // Best-effort increment (fire-and-forget). Joining must not block on Firestore.
+    // do not await; reconcile later
     try { this._guardFS(() => updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) })); } catch {}
-
-    // Reconcile later from RTDB (doesn't block)
     this.softReconcileLater(lobbyId, 2500);
-  }
-
-    // Increment playersCount (best effort) and reconcile to RTDB after
-    try { await this._guardFS(() => updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) })); } catch {}
-    try { await this._reconcilePlayersCount(lobbyId); } catch {}
   }
 
   async leaveLobby(){
@@ -208,17 +185,17 @@ export class Net {
     const lob = this.currentLobbyId;
     if (!lob) return;
 
-    // Remove RTDB presence & cancel onDisconnect
+    // RTDB presence removal
     try {
       if (this._playerOnDisconnect) { try { await this._playerOnDisconnect.cancel(); } catch {} this._playerOnDisconnect = null; }
       if (this._playerRef) { await remove(this._playerRef); this._playerRef = null; }
     } catch {}
 
-    // Fire-and-forget decrement, then reconcile later
+    // non-blocking decrement
     try { this._guardFS(() => updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) })); } catch {}
     this.softReconcileLater(lob, 2500);
 
-    // Unsub listeners
+    // unsubscribe
     this.playersUnsubs.forEach(u => { try{ u(); }catch{} });
     this.playersUnsubs = [];
     if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
@@ -227,14 +204,13 @@ export class Net {
     this.currentLobbyOwner = null;
   }
 
-  // ------------------------- PLAYERS (RTDB) -------------------------
+  // --------------------------- PLAYERS (RTDB) ---------------------------
   _playerPath(){ return `lobbies/${this.currentLobbyId}/players/${this.auth.currentUser?.uid}`; }
 
   async spawnLocal(state){
     const uid = this.auth.currentUser?.uid;
     if (!uid || !this.currentLobbyId) throw new Error("No lobby joined");
     this._playerRef = ref(this.rtdb, this._playerPath());
-    // Put presence with onDisconnect remove
     const payload = {
       username: state.username || "player",
       character: state.character,
@@ -279,7 +255,7 @@ export class Net {
     return unsub;
   }
 
-  // --------------------------- CHAT (FS) ---------------------------
+  // ----------------------------- CHAT (FS) -----------------------------
   async cleanupChatIfNeeded(){
     if (!this.currentLobbyId) return;
     try {
@@ -322,7 +298,7 @@ export class Net {
   }
 }
 
-// One-shot snapshot with Firestore query
+// One-shot Firestore query
 async function onSnapshotOnce(qry){
   return new Promise((resolve, reject) => {
     const unsub = onSnapshot(qry, (snap) => { try{unsub();}catch{} resolve(snap); },
