@@ -864,37 +864,82 @@ function drawShadow(wx, wy, z, scale, overGap){
   ctx.fill();
   ctx.globalAlpha = 1;
 }
-function drawChatBubble(text, typing, wx, wy, z, scale){
-  const padX = 6, padY = 4;
-  ctx.font = '12px "Press Start 2P", monospace';
-  const msg = typing ? "..." : text;
-  const textW = Math.ceil(ctx.measureText(msg).width);
-  const bw = textW + padX*2;
-  const bh = 18 + padY*2;
-  const x = Math.round(wx - state.cam.x - bw/2);
-  const y = Math.round(wy - state.cam.y - (z||0)) - 40;
 
+// NEW chat bubble (anchored to top of current frame + word wrap)
+function drawChatBubble(text, typing, frame, wx, wy, z, scale){
+  const topWorldY = wy - frame.oy * scale - (z || 0);
+  const sxCenter  = Math.round(wx - state.cam.x);
+  const topScreenY= Math.round(topWorldY - state.cam.y);
+
+  ctx.font = '12px "Press Start 2P", monospace';
+  ctx.textAlign = "left";
+  const lineH = 14;
+  const padX = 6, padY = 6;
+  const MAX_W = 200;
+
+  let lines = [];
+  if (typing) {
+    lines = ["..."];
+  } else {
+    const words = String(text).split(/\s+/);
+    let line = "";
+    for (const w of words) {
+      const test = line.length ? line + " " + w : w;
+      if (ctx.measureText(test).width <= MAX_W) {
+        line = test;
+      } else {
+        if (line) lines.push(line);
+        if (ctx.measureText(w).width > MAX_W) {
+          let cur = "";
+          for (const ch of w) {
+            const t2 = cur + ch;
+            if (ctx.measureText(t2).width > MAX_W) { lines.push(cur); cur = ch; }
+            else cur = t2;
+          }
+          if (cur) lines.push(cur);
+          line = "";
+        } else {
+          line = w;
+        }
+      }
+    }
+    if (line) lines.push(line);
+  }
+
+  const textW = lines.reduce((m, s)=>Math.max(m, ctx.measureText(s).width), 0);
+  const bw = Math.ceil(textW) + padX*2;
+  const bh = lines.length * lineH + padY*2;
+
+  const bx = Math.round(sxCenter - bw/2);
+  const by = Math.round(topScreenY - 10 - bh);
+
+  ctx.save();
   ctx.globalAlpha = 0.65;
   ctx.fillStyle = "#0b1c21";
-  ctx.fillRect(x, y, bw, bh);
+  ctx.fillRect(bx, by, bw, bh);
   ctx.globalAlpha = 0.9;
   ctx.strokeStyle = "#2a6473";
   ctx.lineWidth = 2;
-  ctx.strokeRect(x+0.5, y+0.5, bw-1, bh-1);
-  ctx.globalAlpha = 1;
+  ctx.strokeRect(bx+0.5, by+0.5, bw-1, bh-1);
+  ctx.restore();
 
   ctx.fillStyle = "#dff8ff";
   if (typing){
-    const baseY = y + padY + 14;
+    const cx = bx + bw/2;
+    const baseY = by + padY + lineH - 4;
     for (let i=0;i<3;i++){
       const phase = (chatTypingDots + i*0.25) % 3;
       const up = Math.sin(phase / 3 * Math.PI*2) * 2;
       ctx.beginPath();
-      ctx.arc(x + padX + 8 + i*10, baseY + up, 2, 0, Math.PI*2);
+      ctx.arc(cx - 10 + i*10, baseY + up, 2.5, 0, Math.PI*2);
       ctx.fill();
     }
   } else {
-    ctx.fillText(text, x + padX, y + padY + 14);
+    let y = by + padY + 12;
+    for (const s of lines){
+      ctx.fillText(s, bx + padX, y);
+      y += lineH;
+    }
   }
 }
 
@@ -1046,8 +1091,9 @@ function draw(){
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
     drawNameTagAbove(a.name, f, a.x, a.y, a.z, a.scale);
 
-    if (a.typing)      drawChatBubble("", true,  a.x, a.y, a.z, a.scale);
-    else if (a.say)    drawChatBubble(a.say, false, a.x, a.y, a.z, a.scale);
+    // UPDATED: pass current frame to bubble so it can anchor above the head + wrap text
+    if (a.typing)      drawChatBubble("", true,  a.frame, a.x, a.y, a.z, a.scale);
+    else if (a.say)    drawChatBubble(a.say, false, a.frame, a.x, a.y, a.z, a.scale);
   }
 }
 function loop(ts){
