@@ -619,12 +619,16 @@ function startNetListeners(){
         idlePlaying: data.anim === "idle",
         hopT: 0, hopDur: (assets.cfg.hop?.framesPerDir || 1)/HOP_FPS, z: 0,
         say:null, sayTimer:0,
-        assets
+        assets,
+        history: [{ t: performance.now()/1000, x: data.x, y: data.y }]
       });
     },
     onChange: (uid, data)=>{
       const r = remote.get(uid); if (!r) return;
       r.x = data.x ?? r.x; r.y = data.y ?? r.y;
+      if (!r.history) r.history=[];
+      r.history.push({ t: performance.now()/1000, x: r.x, y: r.y });
+      if (r.history.length>40) r.history.shift();
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
       if (typeof data.anim === "string" && data.anim !== r.anim){
@@ -1144,7 +1148,7 @@ function draw(){
 
     actors.push({
       kind:"remote", name: r.username || "player",
-      x:r.x, y:r.y, z:r.z, frame:f, src, scale:r.scale,
+      x:smx, y:smy, z:r.z, frame:f, src, scale:r.scale,
       typing:r.typing, say:r.say, sayTimer:r.sayTimer
     });
 
