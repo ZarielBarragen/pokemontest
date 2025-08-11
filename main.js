@@ -569,6 +569,8 @@ function startNetListeners(){
     onRemove: (uid)=> remote.delete(uid)
   });
 }
+
+// Single definition — updates chat log + bubbles
 function startChatSubscription(){
   net.subscribeChat((msgs)=>{
     chatLogEl.innerHTML = "";
@@ -733,8 +735,7 @@ function tryStartHop(){
 
   const {vx,vy} = getInputVec();
   let dx = Math.sign(vx), dy = Math.sign(vy);
-  if (!dx && !dy){ const v = [0,0]; const d = DIRS[state.dir]; }
-  if (!dx && !dy){ const v = {down:[0,1],downRight:[1,1],right:[1,0],upRight:[1,-1],up:[0,-1],upLeft:[-1,-1],left:[-1,0],downLeft:[1,1]}[state.dir]; dx=v[0]; dy=v[1]; }
+  if (!dx && !dy){ const v = DIR_VECS[state.dir]; dx=v[0]; dy=v[1]; }
 
   const tx0 = Math.floor(state.x / TILE);
   const ty0 = Math.floor(state.y / TILE);
@@ -1058,14 +1059,7 @@ function loop(ts){
 }
 requestAnimationFrame(loop);
 
-// ---------- Chat subscription (single definition) ----------
-function startChatSubscription(){
-  net.subscribeChat(()=>{}); // actual bubble/log updates handled in startNetListeners() above
-}
-
 // ---------- Utils ----------
-function randSeed(){ return (Math.random()*0xFFFFFFFF)>>>0; }
-function mulberry32(a){ return function(){ let t=a+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
 function loadImage(src){
   return new Promise((res, rej)=>{
     const im = new Image();
