@@ -92,7 +92,7 @@ const HOP_HEIGHT = Math.round(TILE * 0.55);
 const BASELINE_NUDGE_Y = 0;
 
 const PLAYER_R = 12;
-const GAP_W       = Math.round(TILE * 0.38);
+const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
 const EDGE_LIP    = "rgba(255,255,255,0.08)";
@@ -833,7 +833,10 @@ function drawMap(){
       const dx = x*TILE - state.cam.x, dy = y*TILE - state.cam.y;
       if (TEX.wall){
         const wx = dx - (BG_TILE_SCALE-1)*TILE/2; const wy = dy - (BG_TILE_SCALE-1)*TILE/2;
+        ctx.save();
+        ctx.beginPath(); ctx.rect(dx, dy, TILE, TILE); ctx.clip();
         ctx.drawImage(TEX.wall, 0,0, TEX.wall.width, TEX.wall.height, wx, wy, TILE*BG_TILE_SCALE, TILE*BG_TILE_SCALE);
+        ctx.restore();
       } else { ctx.fillStyle = BG_WALL; ctx.fillRect(dx, dy, TILE, TILE); }
     }
   }
