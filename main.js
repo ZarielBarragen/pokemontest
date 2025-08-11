@@ -473,7 +473,7 @@ function generateMap(w, h, seed=1234){
 // Carve a main corridor from left-middle to right side
   const start = { x:1, y: Math.floor(h/2) };
   let x = start.x, y = start.y;
-  carveAt(x, y, dir[2]);
+  carveAt(x, y, 'h');
 
   const DIRS = [[1,0,'h'], [0,1,'v'], [-1,0,'h'], [0,-1,'v']];
   let dir = DIRS[0]; // start moving right
@@ -525,7 +525,7 @@ function generateMap(w, h, seed=1234){
     }
     // carve
     x += dir[0]; y += dir[1];
-    carveAt(x, y, dir[2]);
+    carveAt(x, y, 'h');
 
     stepsSinceGap++;
     if (stepsSinceGap>=nextGap){
