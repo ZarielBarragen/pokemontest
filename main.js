@@ -1227,6 +1227,23 @@ function draw(){
     } else { r.hopT = 0; r.z = 0; }
 
     const src = (r.anim === "hop" && assets.hop) ? assets.hop : (r.anim === "walk") ? assets.walk : assets.idle;
+    // --- REMOTE POSITION SMOOTHING (persistent) ---
+    let smx = r.x, smy = r.y;
+    if (r.history && r.history.length >= 2) {
+      const now = performance.now() / 1000;
+      const LAG = 0.12; // ~120ms interpolation buffer
+      const target = now - LAG;
+      let a = r.history[0], b = r.history[r.history.length - 1];
+      for (let i = 1; i < r.history.length; i++) {
+        if (r.history[i].t >= target) { a = r.history[i - 1] || r.history[i]; b = r.history[i]; break; }
+      }
+      const denom = Math.max(0.0001, b.t - a.t);
+      const t = Math.max(0, Math.min(1, (target - a.t) / denom));
+      smx = a.x + (b.x - a.x) * t;
+      smy = a.y + (b.y - a.y) * t;
+    }
+    // --- END REMOTE POSITION SMOOTHING ---
+
 
     actors.push({
       kind:"remote", name: r.username || "player",
