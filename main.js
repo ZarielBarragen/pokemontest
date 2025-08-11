@@ -638,7 +638,7 @@ async function startWithCharacter(cfg, map){
 // ---------- Movement / hop / camera ----------
 const DIR_VECS = {
   down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
-  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1],
+  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[1,1],
 };
 function getInputVec(){
   if (chatMode) return {vx:0, vy:0};
@@ -669,20 +669,6 @@ function updateCamera(){
   const mapPxH = state.map.h * TILE;
   state.cam.x = clamp(state.x - canvas.width  /2, 0, Math.max(0, mapPxW - canvas.width));
   state.cam.y = clamp(state.y - canvas.height /2, 0, Math.max(0, mapPxH - canvas.height));
-}
-function canCrossVGap(xMove){
-  const m=state.map; const ty=Math.floor(state.y/TILE);
-  const tx0=Math.floor(state.x/TILE), tx1=Math.floor((state.x+xMove)/TILE);
-  if (tx0===tx1) return true;
-  const xB = xMove>0 ? tx0+1 : tx0;
-  return !m.edgesV[ty][xB] || state.hopping;
-}
-function canCrossHGap(yMove){
-  const m=state.map; const tx=Math.floor(state.x/TILE);
-  const ty0=Math.floor(state.y/TILE), ty1=Math.floor((state.y+yMove)/TILE);
-  if (ty0===ty1) return true;
-  const yB = yMove>0 ? ty0+1 : ty0;
-  return !m.edgesH[yB][tx] || state.hopping;
 }
 function resolvePlayerCollisions(nx, ny){
   let x = nx, y = ny;
@@ -747,7 +733,8 @@ function tryStartHop(){
 
   const {vx,vy} = getInputVec();
   let dx = Math.sign(vx), dy = Math.sign(vy);
-  if (!dx && !dy){ const v = DIR_VECS[state.dir]; dx = v[0]; dy = v[1]; }
+  if (!dx && !dy){ const v = [0,0]; const d = DIRS[state.dir]; }
+  if (!dx && !dy){ const v = {down:[0,1],downRight:[1,1],right:[1,0],upRight:[1,-1],up:[0,-1],upLeft:[-1,-1],left:[-1,0],downLeft:[1,1]}[state.dir]; dx=v[0]; dy=v[1]; }
 
   const tx0 = Math.floor(state.x / TILE);
   const ty0 = Math.floor(state.y / TILE);
@@ -1071,10 +1058,14 @@ function loop(ts){
 }
 requestAnimationFrame(loop);
 
-// ---------- Chat subscription ----------
-function startChatSubscription(){ net.subscribeChat(()=>{}); } // handled in startNetListeners + chatLog creation
+// ---------- Chat subscription (single definition) ----------
+function startChatSubscription(){
+  net.subscribeChat(()=>{}); // actual bubble/log updates handled in startNetListeners() above
+}
 
 // ---------- Utils ----------
+function randSeed(){ return (Math.random()*0xFFFFFFFF)>>>0; }
+function mulberry32(a){ return function(){ let t=a+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
 function loadImage(src){
   return new Promise((res, rej)=>{
     const im = new Image();
