@@ -430,51 +430,100 @@ window.addEventListener("keydown", e=>{
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
 
 // ---------- Map generation (seeded) ----------
+
 function generateMap(w, h, seed=1234){
-  const rnd = mulberry32(seed>>>0);
-  const walls = Array.from({length:h}, (_,y)=>
-    Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1)));
-  const rects = 12 + Math.floor(rnd()*8);
-  for (let i=0;i<rects;i++){
-    const rw = 2 + Math.floor(rnd()*5);
-    const rh = 2 + Math.floor(rnd()*4);
-    const rx = 1 + Math.floor(rnd()*(w-rw-2));
-    const ry = 1 + Math.floor(rnd()*(h-rh-2));
-    for (let y=ry; y<ry+rh; y++){
-      for (let x=rx; x<Math.min(w, rx+rw); x++){
-        walls[y][x] = true;
-      }
-    }
-  }
+  // Maze-like generator: long straights, occasional turns. Produces:
+  // { w,h, walls[rows][cols] boolean, edgesV[h][w+1], edgesH[h+1][w] }
+  const rnd = mulberry32((seed>>>0));
+  const inside = (x,y)=> x>=0 && y>=0 && x<w && y<h;
+
+  // Start with all walls (true)
+  const walls = Array.from({length:h}, ()=> Array(w).fill(true));
+  // edges mark jump gaps along grid lines
   const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
   const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
-  const edgeSegments = 20 + Math.floor(rnd()*12);
-  for (let i=0;i<edgeSegments;i++){
-    const vertical = rnd() < 0.5;
-    if (vertical){
-      const xB = 1 + Math.floor(rnd()*(w-1));
-      const y0 = 1 + Math.floor(rnd()*(h-2));
-      const len = 3 + Math.floor(rnd()*(h-4));
-      for (let y=y0; y<Math.min(h-1, y0+len); y++){
-        if (!walls[y][xB-1] && !walls[y][xB]) edgesV[y][xB] = true;
+
+  // Carve a main corridor from left-middle to right side
+  const start = { x:1, y: Math.floor(h/2) };
+  let x = start.x, y = start.y;
+  walls[y][x] = false;
+
+  const DIRS = [[1,0,'h'], [0,1,'v'], [-1,0,'h'], [0,-1,'v']];
+  let dir = DIRS[0]; // start moving right
+  const STRAIGHT_BIAS = 0.78;
+  const GAP_EVERY = 9;
+  const GAP_JITTER = 3;
+  let stepsSinceGap = 0;
+  let nextGap = GAP_EVERY + Math.floor((rnd()*2-1)*GAP_JITTER);
+
+  function canCarve(nx,ny){
+    if (!inside(nx,ny)) return false;
+    if (!walls[ny][nx]) return false; // already carved
+    // keep corridors thin by avoiding cells with 2+ carved neighbors
+    let n=0;
+    if (inside(nx+1,ny) && !walls[ny][nx+1]) n++;
+    if (inside(nx-1,ny) && !walls[ny][nx-1]) n++;
+    if (inside(nx,ny+1) && !walls[ny+1][nx]) n++;
+    if (inside(nx,ny-1) && !walls[ny-1][nx]) n++;
+    return n<=1;
+  }
+  function turnLeft(d){ return d[0] ? [0, d[0],'v'] : [-d[1],0,'h']; }
+  function turnRight(d){ return d[0] ? [0,-d[0],'v'] : [ d[1],0,'h']; }
+  function reverse(d){ return [-d[0], -d[1], d[2]]; }
+
+  const MAX = w*h*2;
+  for (let step=0; step<MAX; step++){
+    // choose direction
+    const fwdOk = canCarve(x+dir[0], y+dir[1]);
+    if (!fwdOk || rnd()>STRAIGHT_BIAS){
+      const choices = [turnLeft(dir), turnRight(dir), reverse(dir)];
+      // pick first that can carve
+      let picked = null;
+      for (const c of choices){
+        if (canCarve(x+c[0], y+c[1])) { picked=c; break; }
       }
-    } else {
-      const yB = 1 + Math.floor(rnd()*(h-1));
-      const x0 = 1 + Math.floor(rnd()*(w-2));
-      const len = 4 + Math.floor(rnd()*(w-4));
-      for (let x=x0; x<Math.min(w-1, x0+len); x++){
-        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true;
-      }
+      if (picked) dir=picked;
     }
+    const nx = x+dir[0], ny = y+dir[1];
+    if (!inside(nx,ny)) break;
+    if (!canCarve(nx,ny)) {
+      // try turning once more
+      const choices = [turnLeft(dir), turnRight(dir), reverse(dir)];
+      let found=false;
+      for (const c of choices){
+        const tx=x+c[0], ty=y+c[1];
+        if (canCarve(tx,ty)){ dir=c; found=true; break; }
+      }
+      if (!found) break;
+    }
+    // carve
+    x += dir[0]; y += dir[1];
+    walls[y][x] = false;
+
+    stepsSinceGap++;
+    if (stepsSinceGap>=nextGap){
+      // place a jump gap crossing this edge (between previous cell and current)
+      const gx = x, gy = y;
+      if (dir[2]==='h'){
+        // vertical edge between (x,y) and (x-1,y) is at column x
+        if (inside(x-1,y) && !walls[y][x-1] && !walls[y][x]) edgesV[y][x] = true;
+      } else {
+        // horizontal edge between (x,y) and (x,y-1) is at row y
+        if (inside(x,y-1) && !walls[y-1][x] && !walls[y][x]) edgesH[y][x] = true;
+      }
+      stepsSinceGap = 0;
+      nextGap = GAP_EVERY + Math.floor((rnd()*2-1)*GAP_JITTER);
+    }
+    if (x>=w-2) break; // reached right side
   }
-  let sx=1, sy=1;
-  for (let tries=0; tries<400; tries++){
-    const tx = 1 + Math.floor(rnd()*(w-2));
-    const ty = 1 + Math.floor(rnd()*(h-2));
-    if (!walls[ty][tx]){ sx=tx; sy=ty; break; }
-  }
-  return { w, h, walls, edgesV, edgesH, spawn:{x:sx, y:sy} };
+
+  // Ensure borders remain walls
+  for (let ix=0; ix<w; ix++){ walls[0][ix]=true; walls[h-1][ix]=true; }
+  for (let iy=0; iy<h; iy++){ walls[iy][0]=true; walls[iy][w-1]=true; }
+
+  return { w, h, walls, edgesV, edgesH };
 }
+
 function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
 function tileCenter(tx,ty){ return {x: tx*TILE + TILE/2, y: ty*TILE + TILE/2}; }
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
