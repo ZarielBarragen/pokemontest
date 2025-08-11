@@ -1,16 +1,17 @@
-// net.js — Firebase + realtime lobby, players, chat helpers
+// net.js — Firebase wiring for auth, lobbies, players, chat (Firestore-only)
 
+// --- Firebase imports (ESM CDN) ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
-  signInWithEmailAndPassword, signOut, updateProfile
+  signInWithEmailAndPassword, updateProfile, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot,
-  collection, addDoc, serverTimestamp, query, orderBy, limit, getDocs,
-  writeBatch
+  getFirestore, collection, doc, addDoc, getDoc, setDoc, updateDoc, deleteDoc,
+  onSnapshot, serverTimestamp, increment, query, orderBy, where, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+// --- Your Firebase project config ---
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
   authDomain: "poketest-4d108.firebaseapp.com",
@@ -22,170 +23,238 @@ export const firebaseConfig = {
 };
 
 export class Net {
-  constructor(cfg){
-    this.app = initializeApp(cfg);
+  constructor(cfg = firebaseConfig) {
+    this.app  = initializeApp(cfg);
     this.auth = getAuth(this.app);
     this.db   = getFirestore(this.app);
-    this.user = null;
-    this.lobbyId = null;
-    this.playerDocRef = null;
+
+    this._authCb = () => {};
+    this._authUnsub = onAuthStateChanged(this.auth, (u) => this._authCb(u));
+
+    // Lobby state
+    this.currentLobbyId = null;
     this.playersUnsub = null;
     this.chatUnsub = null;
+
+    // Make sure we leave cleanly
+    window.addEventListener("beforeunload", () => this.leaveLobby().catch(()=>{}));
+    window.addEventListener("unload",       () => this.leaveLobby().catch(()=>{}));
   }
 
-  // ---------- Auth ----------
-  onAuth(cb){ return onAuthStateChanged(this.auth, u=>{ this.user=u; cb(u); }); }
-  async signUp(username, password){
-    const email = `${username}@example.local`;
-    const cred = await createUserWithEmailAndPassword(this.auth, email, password);
+  // -------------------- AUTH --------------------
+  onAuth(cb) { this._authCb = cb; }
+
+  // We synthesize an email from the username so we can use email/password auth.
+  _usernameToEmail(username) {
+    return `${username}@poketest.local`;
+  }
+
+  async signUp(username, password) {
+    const email = this._usernameToEmail(username);
+    const cred  = await createUserWithEmailAndPassword(this.auth, email, password);
+    // store displayName = username
     try { await updateProfile(cred.user, { displayName: username }); } catch {}
     return cred.user;
   }
-  async logIn(username, password){
-    const email = `${username}@example.local`;
-    const cred = await signInWithEmailAndPassword(this.auth, email, password);
+
+  async logIn(username, password) {
+    const email = this._usernameToEmail(username);
+    const cred  = await signInWithEmailAndPassword(this.auth, email, password);
     return cred.user;
   }
-  async logOut(){ return signOut(this.auth); }
 
-  // ---------- Lobbies ----------
-  lobbiesCol(){ return collection(this.db, "lobbies"); }
-  lobbyRef(id){ return doc(this.db, "lobbies", id); }
-  playersCol(lobbyId){ return collection(this.db, "lobbies", lobbyId, "players"); }
-  chatCol(lobbyId){ return collection(this.db, "lobbies", lobbyId, "chat"); }
-
-  async createLobby(name, mapMeta){
-    // mapMeta must be ONLY {w,h,seed} — no 2D arrays in Firestore
-    const res = await addDoc(this.lobbiesCol(), {
-      name: name || "Lobby",
-      createdAt: serverTimestamp(),
-      playersCount: 0,
-      mapMeta
-    });
-    return res.id;
+  async logOut() {
+    try { await this.leaveLobby(); } catch {}
+    return signOut(this.auth);
   }
-  async getLobby(id){
-    const snap = await getDoc(this.lobbyRef(id));
+
+  // -------------------- LOBBIES --------------------
+  async createLobby(name, mapMeta) {
+    const uid = this.auth.currentUser?.uid;
+    if (!uid) throw new Error("Not signed in");
+
+    // Must match Firestore rules keys: name, owner, createdAt, mapMeta, playersCount, active
+    const ref = await addDoc(collection(this.db, "lobbies"), {
+      name: name || `Lobby ${Math.floor(Math.random()*9999)}`,
+      owner: uid,
+      createdAt: serverTimestamp(),
+      mapMeta: {
+        w: Number(mapMeta?.w) || 48,
+        h: Number(mapMeta?.h) || 32,
+        seed: Number(mapMeta?.seed) || 1234
+      },
+      playersCount: 0,
+      active: true
+    });
+    return ref.id;
+  }
+
+  async getLobby(lobbyId) {
+    const snap = await getDoc(doc(this.db, "lobbies", lobbyId));
     if (!snap.exists()) throw new Error("Lobby not found");
     return { id: snap.id, ...snap.data() };
   }
-  subscribeLobbies(cb){
-    this.cleanupEmptyLobbies().catch(()=>{});
-    const q = query(this.lobbiesCol(), orderBy("createdAt","desc"), limit(50));
-    return onSnapshot(q, s=>{
-      cb(s.docs.map(d=>({ id:d.id, ...d.data() })));
-    });
+
+  subscribeLobbies(cb) {
+    // newest first; you’ll see playersCount & mapMeta
+    const q = query(
+      collection(this.db, "lobbies"),
+      orderBy("createdAt", "desc"),
+      limit(50)
+    );
+    return onSnapshot(q, (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      cb(list);
+    }, (err)=>console.error("subscribeLobbies:", err));
   }
 
-  // ---------- Join / Leave ----------
-  async joinLobby(lobbyId){
-    if (!this.user) throw new Error("Not signed in");
-    this.lobbyId = lobbyId;
-    const pref = doc(this.db, "lobbies", lobbyId, "players", this.user.uid);
-    await setDoc(pref, {
-      username: this.user.displayName || "player",
-      x:0, y:0, dir:"down", anim:"stand",
-      character:"sableye",
-      typing:false,
-      updatedAt: serverTimestamp()
-    }, { merge:true });
-    this.playerDocRef = pref;
-
-    const lref = this.lobbyRef(lobbyId);
-    const lsnap = await getDoc(lref);
-    if (lsnap.exists()){
-      const pc = (lsnap.data().playersCount|0) + 1;
-      await updateDoc(lref, { playersCount: pc });
+  // Only delete your own empty lobbies (rules restrict delete to owner)
+  async cleanupEmptyLobbies() {
+    const uid = this.auth.currentUser?.uid;
+    if (!uid) return;
+    const q = query(
+      collection(this.db, "lobbies"),
+      where("owner","==",uid),
+      where("playersCount","==",0),
+      where("active","==",true),
+      limit(10)
+    );
+    const snap = await onSnapshotOnce(q);
+    for (const d of snap.docs) {
+      try { await deleteDoc(doc(this.db,"lobbies",d.id)); } catch(e){ /* ignore permission errors */ }
     }
   }
-  async leaveLobby(){
-    if (!this.lobbyId || !this.playerDocRef) return;
-    const lobbyId = this.lobbyId;
-    try { await deleteDoc(this.playerDocRef); } catch {}
-    this.playerDocRef = null;
+
+  async joinLobby(lobbyId) {
+    const uid = this.auth.currentUser?.uid;
+    if (!uid) throw new Error("Not signed in");
+
+    // Set current lobby id and bump count
+    this.currentLobbyId = lobbyId;
+    try {
+      await updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(1) });
+    } catch (e) {
+      // If the lobby was just created and count field missing, ensure it exists
+      try { await updateDoc(doc(this.db, "lobbies", lobbyId), { playersCount: increment(0) }); } catch {}
+    }
+  }
+
+  async leaveLobby() {
+    const uid = this.auth.currentUser?.uid;
+    const lob = this.currentLobbyId;
+    if (!lob) return;
 
     try {
-      const lref = this.lobbyRef(lobbyId);
-      const ps = await getDocs(this.playersCol(lobbyId));
-      if (ps.size === 0) await deleteDoc(lref);
-      else {
-        const lsnap = await getDoc(lref);
-        if (lsnap.exists()){
-          const pc = Math.max(0, (lsnap.data().playersCount|0) - 1);
-          await updateDoc(lref, { playersCount: pc });
-        }
-      }
+      // Remove my player doc
+      await deleteDoc(doc(this.db, "lobbies", lob, "players", uid));
     } catch {}
 
-    if (this.playersUnsub){ try{ this.playersUnsub(); }catch{} this.playersUnsub = null; }
-    if (this.chatUnsub){ try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
-    this.lobbyId = null;
+    try {
+      // Decrement playersCount; ignore failures if rules block
+      await updateDoc(doc(this.db, "lobbies", lob), { playersCount: increment(-1) });
+    } catch {}
+
+    // Stop listeners
+    if (this.playersUnsub) { try{ this.playersUnsub(); }catch{} this.playersUnsub = null; }
+    if (this.chatUnsub)    { try{ this.chatUnsub(); }catch{} this.chatUnsub    = null; }
+
+    this.currentLobbyId = null;
   }
 
-  async cleanupEmptyLobbies(){
-    const ls = await getDocs(this.lobbiesCol());
-    for (const d of ls.docs){
-      const ps = await getDocs(this.playersCol(d.id));
-      if (ps.size === 0){ try{ await deleteDoc(this.lobbyRef(d.id)); }catch{} }
+  // -------------------- PLAYERS --------------------
+  async spawnLocal(state) {
+    const uid = this.auth.currentUser?.uid;
+    if (!uid || !this.currentLobbyId) throw new Error("No lobby joined");
+
+    // players/{uid} inside the lobby
+    const ref = doc(this.db, "lobbies", this.currentLobbyId, "players", uid);
+    await setDoc(ref, {
+      username: state.username || "player",
+      character: state.character,
+      x: Number(state.x)||0,
+      y: Number(state.y)||0,
+      dir: state.dir || "down",
+      anim: state.anim || "stand",
+      scale: Number(state.scale)||3,
+      typing: !!state.typing,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
+
+  // Partial updates from the game loop
+  async updateState(partial) {
+    const uid = this.auth.currentUser?.uid;
+    if (!uid || !this.currentLobbyId) return;
+    const ref = doc(this.db, "lobbies", this.currentLobbyId, "players", uid);
+    try {
+      await updateDoc(ref, { ...partial, updatedAt: serverTimestamp() });
+    } catch (e) {
+      // If the doc doesn't exist yet (rare race), fall back to setDoc
+      try { await setDoc(ref, { ...partial, updatedAt: serverTimestamp() }, { merge: true }); } catch {}
     }
   }
 
-  // ---------- Player state ----------
-  async spawnLocal(init){
-    if (!this.playerDocRef) throw new Error("Not in lobby");
-    await setDoc(this.playerDocRef, { ...init, updatedAt: serverTimestamp(), typing:false }, { merge:true });
-  }
-  async updateState(partial){
-    if (!this.playerDocRef) return;
-    await updateDoc(this.playerDocRef, { ...partial, updatedAt: serverTimestamp() });
-  }
+  // Subscribe to all players in the current lobby
+  subscribePlayers({ onAdd, onChange, onRemove }) {
+    if (!this.currentLobbyId) return () => {};
+    const uid = this.auth.currentUser?.uid;
+    const col = collection(this.db, "lobbies", this.currentLobbyId, "players");
 
-  subscribePlayers(handlers){
-    if (!this.lobbyId) throw new Error("No lobby");
-    const { onAdd, onChange, onRemove } = handlers;
-    const col = this.playersCol(this.lobbyId);
-    this.playersUnsub = onSnapshot(col, snap=>{
-      snap.docChanges().forEach(ch=>{
-        const uid = ch.doc.id, data = ch.doc.data();
-        if (ch.type === "added") onAdd && onAdd(uid, data);
-        else if (ch.type === "modified") onChange && onChange(uid, data);
-        else if (ch.type === "removed") onRemove && onRemove(uid);
+    if (this.playersUnsub) { try{ this.playersUnsub(); }catch{} }
+    this.playersUnsub = onSnapshot(col, (snap) => {
+      snap.docChanges().forEach((ch) => {
+        const id = ch.doc.id;
+        // Skip our own doc for remote list; main.js draws the local player itself
+        if (id === uid) return;
+
+        if (ch.type === "added") {
+          onAdd && onAdd(id, ch.doc.data());
+        } else if (ch.type === "modified") {
+          onChange && onChange(id, ch.doc.data());
+        } else if (ch.type === "removed") {
+          onRemove && onRemove(id);
+        }
       });
-    });
+    }, (err)=>console.error("subscribePlayers:", err));
+
     return this.playersUnsub;
   }
 
-  // ---------- Chat ----------
-  subscribeChat(cb){
-    if (!this.lobbyId) throw new Error("No lobby");
-    const qy = query(this.chatCol(this.lobbyId), orderBy("ts","asc"), limit(24));
-    this.chatUnsub = onSnapshot(qy, snap=>{
-      cb(snap.docs.map(d=>({ id:d.id, ...d.data() })));
+  // -------------------- CHAT --------------------
+  async sendChat(text) {
+    if (!this.currentLobbyId) return;
+    const uid = this.auth.currentUser?.uid;
+    const user = this.auth.currentUser;
+    const username = user?.displayName || (user?.email ? user.email.split("@")[0] : "player");
+
+    const ref = collection(this.db, "lobbies", this.currentLobbyId, "chat");
+    await addDoc(ref, {
+      uid, username, text: String(text).slice(0,200),
+      createdAt: serverTimestamp()
     });
+  }
+
+  subscribeChat(cb) {
+    if (!this.currentLobbyId) return () => {};
+    const q = query(
+      collection(this.db, "lobbies", this.currentLobbyId, "chat"),
+      orderBy("createdAt", "asc"),
+      limit(24)
+    );
+
+    if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} }
+    this.chatUnsub = onSnapshot(q, (snap)=>{
+      const msgs = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+      cb && cb(msgs);
+    }, (err)=>console.error("subscribeChat:", err));
+
     return this.chatUnsub;
   }
-  async sendChat(text){
-    if (!this.lobbyId || !this.user) return;
-    await addDoc(this.chatCol(this.lobbyId), {
-      uid: this.user.uid,
-      username: this.user.displayName || "player",
-      text,
-      ts: serverTimestamp()
-    });
-    await this.trimChat(24).catch(()=>{});
-  }
-  async trimChat(keep){
-    if (!this.lobbyId) return;
-    const qy = query(this.chatCol(this.lobbyId), orderBy("ts","desc"));
-    const snap = await getDocs(qy);
-    if (snap.size <= keep) return;
-    const batch = writeBatch(this.db);
-    let i = 0;
-    for (const d of snap.docs){
-      if (i >= keep) batch.delete(d.ref);
-      i++;
-      if (i > keep + 64) break;
-    }
-    await batch.commit();
-  }
+}
+
+// -------------------- Helpers --------------------
+async function onSnapshotOnce(qry) {
+  return new Promise((resolve, reject) => {
+    const unsub = onSnapshot(qry, (snap) => { unsub(); resolve(snap); }, (e)=>{ try{unsub();}catch{} reject(e); });
+  });
 }
