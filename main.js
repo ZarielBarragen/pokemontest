@@ -129,16 +129,23 @@ function makeRowDirGrid() {
 }
 let CHARACTERS = {};
 // ---- Optional JSON character override ----
+// ---- Optional JSON character override ----
 async function loadCharactersJSON(){
   try {
     const res = await fetch('assets/characters.json', { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
     const def = data.defaults || {};
-    function mergeAnim(defAnim, chAnim){
+    function mergeAnim(defAnim={}, chAnim={}){
       const d = defAnim || {};
       const c = chAnim || {};
-      return { sheet: c.sheet || d.sheet, cols: c.cols ?? d.cols, rows: c.rows ?? d.rows, framesPerDir: c.framesPerDir ?? d.framesPerDir, dirGrid: makeRowDirGrid() };
+      return { 
+        sheet: c.sheet || d.sheet, 
+        cols: (c.cols ?? d.cols), 
+        rows: (c.rows ?? d.rows), 
+        framesPerDir: (c.framesPerDir ?? d.framesPerDir), 
+        dirGrid: makeRowDirGrid() 
+      };
     }
     const out = {};
     for (const [key, ch] of Object.entries(data.characters || {})) {
@@ -150,7 +157,7 @@ async function loadCharactersJSON(){
         speed: ch.speed ?? def.speed ?? 1.0,
         idle: mergeAnim(def.idle, ch.idle),
         walk: mergeAnim(def.walk, ch.walk),
-        hop:  mergeAnim(def.hop,  ch.hop)
+        hop:  mergeAnim(def.hop,  ch.hop),
       };
     }
     // Only override if we actually loaded entries
@@ -163,6 +170,7 @@ async function loadCharactersJSON(){
   } catch (e) {
     console.warn('characters.json load failed:', e);
   }
+}
 
 formEl.addEventListener("submit", async (e)=>{
   e.preventDefault();
