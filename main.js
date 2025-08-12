@@ -472,6 +472,32 @@ function analyzeBitmap(sheet, sx, sy, sw, sh){
   const anchorX = (minX + maxX) / 2;
   const anchorY = maxY + BASELINE_NUDGE_Y;
   return { sx:sx+minX, sy:sy+minY, sw:cropW, sh:cropH, ox:anchorX-minX, oy:anchorY-minY };
+
+// Slice a sprite sheet into direction -> frames[] using a row-based grid.
+// cols: number of columns in the sheet, rows: number of rows
+// dirGrid: {dir: {row, start}}, framesPerDir: frames along the row starting at 'start'.
+function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
+  const out = {};
+  if (!sheet || !cols || !rows || !dirGrid || !framesPerDir) return out;
+  const cw = Math.floor(sheet.width / Math.max(1, cols));
+  const ch = Math.floor(sheet.height / Math.max(1, rows));
+
+  for (const [dir, info] of Object.entries(dirGrid)){
+    const r = Math.max(0, Math.min(rows-1, info.row|0));
+    const start = Math.max(0, Math.min(cols-1, info.start|0));
+    const strip = [];
+    for (let i=0; i<framesPerDir; i++){
+      const c = Math.min(cols-1, start + i);
+      const sx = c * cw;
+      const sy = r * ch;
+      // analyzeBitmap crops to the non-transparent pixels and returns anchor (ox,oy)
+      const frame = analyzeBitmap(sheet, sx, sy, cw, ch);
+      strip.push(frame);
+    }
+    out[dir] = strip;
+  }
+  return out;
+}
 }
 
 // ---------- Net listeners ----------
