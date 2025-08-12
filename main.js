@@ -29,6 +29,7 @@ const CANVAS_W = 960, CANVAS_H = 640;
 canvas.width = CANVAS_W; canvas.height = CANVAS_H;
 
 // ---------- Overlays / UI ----------
+const playerHudEl = document.getElementById("player-hud");
 const overlaySelect  = document.getElementById("select");
 const gridEl         = document.getElementById("charGrid");
 const overlayLobbies = document.getElementById("lobbies");
@@ -98,6 +99,7 @@ function unmountChatLog(){
   if (inputMode === 'touch') {
       mobileControls.classList.add("hidden");
   }
+  playerHudEl.classList.add("hidden");
 }
 
 // ---------- Settings ----------
@@ -156,12 +158,41 @@ function makeRowDirGrid() {
   };
 }
 let CHARACTERS = {};
-// ---- Optional JSON character override ----
-async function loadCharactersJSON(){
-  try {
-    const res = await fetch('assets/characters.json', { cache: 'no-store' });
-    if (!res.ok) return;
-    const data = await res.json();
+
+// **FIX**: Embed character data directly to prevent 404 errors.
+const CHARACTERS_DATA = {
+  "$schemaVersion": 1,
+  "defaults": { "scale": 3, "speed": 1.0, "hp": 100, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+  "characters": {
+    "Sableye": { "name": "Sableye", "base": "assets/Sableye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 150, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" } },
+    "Ditto": { "name": "Ditto", "base": "assets/Ditto/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 120, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 5, "rows": 8, "framesPerDir": 5, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Hisuian Zoroark": { "name": "Hisuian Zoroark", "base": "assets/Hisuian Zoroark/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.0, "hp": 160, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Hypno": { "name": "Hypno", "base": "assets/Hypno/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 185, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Mimikyu": { "name": "Mimikyu", "base": "assets/Mimikyu/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 155, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Quagsire": { "name": "Quagsire", "base": "assets/Quagsire/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "idle": { "sheet": "Idle-Anim.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Smeargle": { "name": "Smeargle", "base": "assets/Smeargle/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 155, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Corviknight": { "name": "Corviknight", "base": "assets/Corviknight/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 198, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Cacturne": { "name": "Cacturne", "base": "assets/Cacturne/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Decidueye": { "name": "Decidueye", "base": "assets/Decidueye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 178, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Blaziken": { "name": "Blaziken", "base": "assets/Blaziken/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 180, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Snorlax": { "name": "Snorlax", "base": "assets/Snorlax/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 260, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Chandelure": { "name": "Chandelure", "base": "assets/Chandelure/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 160, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Empoleon": { "name": "Empoleon", "base": "assets/Empoleon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 184, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Jolteon": { "name": "Jolteon", "base": "assets/Jolteon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Pangoro": { "name": "Pangoro", "base": "assets/Pangoro/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Scrafty": { "name": "Scrafty", "base": "assets/Scrafty/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Cyclizar": { "name": "Cyclizar", "base": "assets/Cyclizar/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Axew": { "name": "Axew", "base": "assets/Axew/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 146, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Obstagoon": { "name": "Obstagoon", "base": "assets/Obstagoon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 193, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Primarina": { "name": "Primarina", "base": "assets/Primarina/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.02, "hp": 180, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Dewgong": { "name": "Dewgong", "base": "assets/Dewgong/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 190, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Scolipede": { "name": "Scolipede", "base": "assets/Scolipede/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.12, "hp": 160, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Lycanroc": { "name": "Lycanroc", "base": "assets/Lycanroc/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.08, "hp": 185, "idle": { "sheet": "Idle-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } }
+  }
+};
+
+function processCharacterData() {
+    const data = CHARACTERS_DATA;
     const def = data.defaults || {};
     function mergeAnim(defAnim={}, chAnim={}){
       const d = defAnim || {};
@@ -182,22 +213,18 @@ async function loadCharactersJSON(){
         portrait: ch.portrait || (def.portrait || 'portrait.png'),
         scale: ch.scale ?? def.scale ?? 3,
         speed: ch.speed ?? def.speed ?? 1.0,
+        hp: ch.hp ?? def.hp ?? 100,
         idle: mergeAnim(def.idle, ch.idle),
         walk: mergeAnim(def.walk, ch.walk),
         hop:  mergeAnim(def.hop,  ch.hop),
       };
     }
-    // Only override if we actually loaded entries
+    
     if (Object.keys(out).length) {
       CHARACTERS = out;
-      if (typeof buildSelectUI === 'function') {
-        try { buildSelectUI(); } catch {}
-      }
     }
-  } catch (e) {
-    console.warn('characters.json load failed:', e);
-  }
 }
+
 
 let authMode = "signup";
 toggleEl.onclick = ()=>{
@@ -350,7 +377,6 @@ function buildSelectUI(){
     gridEl.appendChild(btn);
   });
 }
-buildSelectUI();
 
 // ---------- Lobbies ----------
 function renderLobbyList(list){
@@ -381,10 +407,9 @@ function showLobbies(){
   net.cleanupEmptyLobbies().catch(()=>{}).catch(()=>{});
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 }
-// **FIX**: Desktop back button from lobby screen
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
-  overlaySelect.classList.remove("hidden"); // Show character select again
+  overlaySelect.classList.remove("hidden"); 
   if (inputMode === 'touch') {
       mobileControls.classList.add("hidden");
   }
@@ -417,6 +442,7 @@ createLobbyBtn.onclick = async ()=>{
     overlayLobbies.classList.add("hidden");
     mountChatLog();
     startChatSubscription();
+    playerHudEl.classList.remove("hidden");
   } catch(e){
     console.error("Create lobby failed:", e);
     alert("Create lobby failed: " + (e?.message || e));
@@ -438,6 +464,7 @@ async function joinLobbyFlow(lobbyId){
     overlayLobbies.classList.add("hidden");
     mountChatLog();
     startChatSubscription();
+    playerHudEl.classList.remove("hidden");
   } catch(e){
     console.error("Join lobby failed:", e);
     alert("Join lobby failed: " + (e?.message || e));
@@ -462,7 +489,7 @@ let chatMode=false, chatBuffer="", chatTypingDots=0, chatShowTime=4.5;
 let _netAccum = 0;
 const NET_INTERVAL = 0.12;   // ~8 Hz
 let _heartbeat = 0;
-let _lastSent = { x: NaN, y: NaN, dir: "", anim: "", character: "", typing: null };
+let _lastSent = { x: NaN, y: NaN, dir: "", anim: "", character: "", typing: null, hp: 100, maxHp: 100 };
 
 function _hasMeaningfulChange() {
   const dx = Math.abs(state.x - _lastSent.x);
@@ -472,7 +499,8 @@ function _hasMeaningfulChange() {
          state.dir !== _lastSent.dir ||
          state.anim !== _lastSent.anim ||
          selectedKey !== _lastSent.character ||
-         state.typing !== _lastSent.typing;
+         state.typing !== _lastSent.typing ||
+         state.hp !== _lastSent.hp;
 }
 
 function makePingPong(n){
@@ -498,12 +526,12 @@ const state = {
   ready:false,
   showGrid:false, showBoxes:false,
   say:null, sayTimer:0,
-  typing:false
+  typing:false,
+  hp: 100,
+  maxHp: 100
 };
 
 // ---------- Input ----------
-// This function handles leaving the game and returning to the character select screen.
-// It's used by both the ESC key and the mobile "BACK" button.
 function goBackToSelect() {
     remote.clear();
     net.leaveLobby().catch(()=>{});
@@ -513,7 +541,6 @@ function goBackToSelect() {
     overlaySelect.classList.remove("hidden");
     mobileControls.classList.add("hidden");
     mobileChatOverlay.classList.add("hidden");
-    // Ensure chat input is blurred to hide mobile keyboard if it was open
     mobileChatInput.blur();
 }
 
@@ -556,14 +583,10 @@ window.addEventListener("keydown", e=>{
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
 
-// **FIX**: Mobile back button functionality
 backBtnMobile.onclick = goBackToSelect;
 
-// **FIX**: Mobile chat button brings up keyboard
 chatBtnMobile.onclick = () => {
   mobileChatOverlay.classList.remove("hidden");
-  // Calling focus() directly inside a user-initiated event handler (like 'onclick')
-  // is the most reliable way to trigger the mobile keyboard.
   mobileChatInput.focus();
 };
 
@@ -580,7 +603,7 @@ mobileChatForm.addEventListener("submit", (e) => {
     
     mobileChatInput.value = "";
     mobileChatOverlay.classList.add("hidden");
-    mobileChatInput.blur(); // Hide keyboard on submit
+    mobileChatInput.blur();
 });
 
 
@@ -653,10 +676,11 @@ async function loadCharacterAssets(key) {
   }
 
   try {
-    const [wRes, iRes, hRes] = await Promise.allSettled([
+    const [wRes, iRes, hRes, pRes] = await Promise.allSettled([
       loadImage(cfg.base + cfg.walk.sheet),
       loadImage(cfg.base + cfg.idle.sheet),
-      loadImage(cfg.base + cfg.hop.sheet)
+      loadImage(cfg.base + cfg.hop.sheet),
+      loadImage(cfg.base + cfg.portrait)
     ]);
 
     if (wRes.status !== "fulfilled" || iRes.status !== "fulfilled") {
@@ -666,6 +690,7 @@ async function loadCharacterAssets(key) {
     const walkImg = wRes.value;
     const idleImg = iRes.value;
     const hopImg = (hRes.status === "fulfilled") ? hRes.value : null;
+    const portraitImg = (pRes.status === "fulfilled") ? pRes.value : null;
 
     const meta = {
       walk: sliceSheet(walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir),
@@ -673,7 +698,7 @@ async function loadCharacterAssets(key) {
       hop: hopImg ? sliceSheet(hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {}
     };
 
-    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, meta };
+    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, portrait: portraitImg, meta };
     _assetCache.set(key, assets);
     return assets;
 
@@ -690,6 +715,7 @@ function startNetListeners(){
       const assets = await loadCharacterAssets(data.character);
       if (!assets) return;
       remote.set(uid, {
+        uid: uid,
         username: data.username, character: data.character,
         x:data.x, y:data.y, dir:data.dir, anim:data.anim || "stand",
         typing: !!data.typing,
@@ -698,6 +724,8 @@ function startNetListeners(){
         idlePlaying: data.anim === "idle",
         hopT: 0, hopDur: (assets.cfg.hop?.framesPerDir || 1)/HOP_FPS, z: 0,
         say:null, sayTimer:0,
+        hp: data.hp ?? assets.cfg.hp,
+        maxHp: assets.cfg.hp,
         assets,
         history: [{ t: performance.now()/1000, x: data.x, y: data.y }]
       });
@@ -710,6 +738,7 @@ function startNetListeners(){
       if (r.history.length>40) r.history.shift();
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
+      r.hp = data.hp ?? r.hp;
       if (typeof data.anim === "string" && data.anim !== r.anim){
         r.anim = data.anim; r.frameTime = 0; r.frameStep = 0;
         r.idlePlaying = (r.anim === "idle");
@@ -719,6 +748,8 @@ function startNetListeners(){
       if (data.character && data.character !== r.character){
         loadCharacterAssets(data.character).then(a=>{
           r.assets=a; r.character=data.character; r.scale=a.cfg.scale??3; r.hopDur=(a.cfg.hop?.framesPerDir||1)/HOP_FPS;
+          r.maxHp = a.cfg.hp;
+          if (r.hp > r.maxHp) r.hp = r.maxHp;
         });
       }
       r.username = data.username ?? r.username;
@@ -748,23 +779,17 @@ async function startWithCharacter(cfg, map){
   state.animMeta = { walk:{}, idle:{}, hop:{} };
   state.scale = cfg.scale ?? 3;
   state.map = map;
+  state.maxHp = cfg.hp;
+  state.hp = cfg.hp;
 
   try{
-    const [wRes,iRes,hRes] = await Promise.allSettled([
-      loadImage(cfg.base + cfg.walk.sheet),
-      loadImage(cfg.base + cfg.idle.sheet),
-      loadImage(cfg.base + cfg.hop.sheet)
-    ]);
-    if (wRes.status!=="fulfilled") throw new Error("walk sheet missing");
-    if (iRes.status!=="fulfilled") throw new Error("idle sheet missing");
+    const assets = await loadCharacterAssets(selectedKey);
+    if (!assets) throw new Error("Failed to load character assets");
 
-    state.walkImg = wRes.value;
-    state.idleImg = iRes.value;
-    state.hopImg  = (hRes.status==="fulfilled") ? hRes.value : null;
-
-    state.animMeta.walk = sliceSheet(state.walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir);
-    state.animMeta.idle = sliceSheet(state.idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir);
-    state.animMeta.hop  = state.hopImg ? sliceSheet(state.hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {};
+    state.walkImg = assets.walk;
+    state.idleImg = assets.idle;
+    state.hopImg  = assets.hop;
+    state.animMeta = assets.meta;
 
     const spawn = tileCenter(map.spawn.x, map.spawn.y);
     state.x = spawn.x + (Math.random()*8 - 4);
@@ -781,7 +806,8 @@ async function startWithCharacter(cfg, map){
       username: localUsername || "player",
       character: selectedKey,
       x: state.x, y: state.y, dir: state.dir,
-      anim: state.anim, scale: state.scale, typing:false
+      anim: state.anim, scale: state.scale, typing:false,
+      hp: state.hp, maxHp: state.maxHp
     });
     startNetListeners();
   } catch (err){
@@ -1104,6 +1130,62 @@ function drawChatBubble(text, typing, frame, wx, wy, z, scale){
 // ---------- Update / Draw loop ----------
 let frameDt = 1/60;
 let last = 0;
+
+function updatePlayerHUD() {
+    if (!state.ready || !net.auth.currentUser) {
+        playerHudEl.innerHTML = '';
+        return;
+    }
+
+    playerHudEl.innerHTML = ''; // Clear previous state
+
+    // **FIX**: Only create the HUD for the local player
+    const p = {
+        uid: net.auth.currentUser.uid,
+        username: localUsername,
+        character: selectedKey,
+        hp: state.hp,
+        maxHp: state.maxHp,
+        assets: { cfg: CHARACTERS[selectedKey] }
+    };
+
+    if (!p.assets?.cfg) return;
+
+    const card = document.createElement('div');
+    card.className = 'player-card';
+    card.dataset.uid = p.uid;
+
+    const portrait = document.createElement('img');
+    portrait.className = 'portrait';
+    const charCfg = CHARACTERS[p.character];
+    if (charCfg) {
+        portrait.src = charCfg.base + charCfg.portrait;
+    }
+    
+    const info = document.createElement('div');
+    info.className = 'info';
+
+    const usernameEl = document.createElement('div');
+    usernameEl.className = 'username';
+    usernameEl.textContent = p.username;
+
+    const hpBarBg = document.createElement('div');
+    hpBarBg.className = 'hp-bar-bg';
+    
+    const hpBar = document.createElement('div');
+    hpBar.className = 'hp-bar';
+    const hpPercent = (p.hp / p.maxHp) * 100;
+    hpBar.style.width = `${hpPercent}%`;
+
+    hpBarBg.appendChild(hpBar);
+    info.appendChild(usernameEl);
+    info.appendChild(hpBarBg);
+    card.appendChild(portrait);
+    card.appendChild(info);
+    playerHudEl.appendChild(card);
+}
+
+
 function update(dt){
   if (keys.has("e") || keys.has("E") || keys.has(" ")) {
     tryStartHop();
@@ -1175,8 +1257,8 @@ function update(dt){
     if (_netAccum >= NET_INTERVAL){
       _netAccum = 0;
       if (_hasMeaningfulChange() || _heartbeat >= 3){
-        net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing });
-        _lastSent = { x: state.x, y: state.y, dir: state.dir, anim: state.anim, character: selectedKey, typing: state.typing };
+        net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing, hp: state.hp });
+        _lastSent = { x: state.x, y: state.y, dir: state.dir, anim: state.anim, character: selectedKey, typing: state.typing, hp: state.hp };
         _heartbeat = 0;
       }
     }
@@ -1193,6 +1275,7 @@ function draw(){
     return;
   }
   drawMap();
+  updatePlayerHUD();
 
   const actors = [];
 
@@ -1298,7 +1381,16 @@ function loop(ts){
   draw();
   requestAnimationFrame(loop);
 }
-requestAnimationFrame(loop);
+
+// ---------- Init ----------
+function init() {
+    processCharacterData();
+    buildSelectUI();
+    requestAnimationFrame(loop);
+}
+
+init();
+
 
 // ---------- Utils ----------
 function loadImage(src){
@@ -1326,11 +1418,6 @@ function canWalk(tx, ty, map) {
   return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[ty][tx];
 }
 
-// Kick off character loading
-loadCharacters().catch(console.error);
-
-// alias for backward compatibility
-async function loadCharacters(){ return await loadCharactersJSON(); }
 function generateMap(w, h, seed=1234){
   const rnd = mulberry32((seed>>>0) ^ 0x9E3779B9);
   const walls = Array.from({length:h}, ()=> Array(w).fill(true));
