@@ -1127,6 +1127,22 @@ function loadImage(src){
   });
 }
 
+function clamp(val, min, max) {
+  return Math.max(min, Math.min(val, max));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function tileCenter(tx, ty) {
+  return { x: tx * TILE + TILE / 2, y: ty * TILE + TILE / 2 };
+}
+
+function canWalk(tx, ty, map) {
+  return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[ty][tx];
+}
+
 // Kick off character loading
 loadCharacters().catch(console.error);
 
