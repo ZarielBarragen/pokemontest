@@ -82,7 +82,6 @@ export class Net {
       active: true
     };
     await set(ref(this.db, `lobbies/${id}/meta`), meta);
-    // players & chat containers will be created on demand
     return id;
   }
 
@@ -90,7 +89,6 @@ export class Net {
     const s = await get(child(ref(this.db), `lobbies/${lobbyId}/meta`));
     if (!s.exists()) throw new Error("Lobby not found");
     const meta = s.val();
-    // compute playersCount quickly
     let playersCount = 0;
     try {
       const ps = await get(child(ref(this.db), `lobbies/${lobbyId}/players`));
@@ -100,7 +98,6 @@ export class Net {
   }
 
   subscribeLobbies(cb){
-    // Listen to whole lobbies tree and map to array
     const base = ref(this.db, "lobbies");
     if (this.lobbiesUnsub) { try{ this.lobbiesUnsub(); }catch{} this.lobbiesUnsub = null; }
     const handler = onValue(base, (snap)=>{
@@ -186,6 +183,8 @@ export class Net {
       anim: state.anim || "stand",
       typing: !!state.typing,
       scale: Number(state.scale)||3,
+      hp: Number(state.hp) || 100,
+      maxHp: Number(state.maxHp) || 100,
       ts: rtdbServerTimestamp()
     };
     await set(this._playerRef, payload);
@@ -221,7 +220,34 @@ export class Net {
     return unsub;
   }
 
-  // ---------- CHAT (RTDB) ----------
+  // ---------- PVP & CHAT (RTDB) ----------
+  async dealDamage(targetUid, damage) {
+    if (!this.currentLobbyId || !targetUid) return;
+    const hitsRef = ref(this.db, `lobbies/${this.currentLobbyId}/players/${targetUid}/hits`);
+    const newHitRef = push(hitsRef);
+    await set(newHitRef, {
+      damage: damage,
+      from: this.auth.currentUser?.uid,
+      ts: this.serverTimestamp()
+    });
+  }
+
+  subscribeToHits(onHit) {
+    const uid = this.auth.currentUser?.uid;
+    if (!this.currentLobbyId || !uid) return () => {};
+
+    const hitsRef = ref(this.db, `lobbies/${this.currentLobbyId}/players/${uid}/hits`);
+
+    const unsub = onChildAdded(hitsRef, (snap) => {
+      onHit(snap.val());
+      // Remove the hit after processing to prevent re-triggering on reload
+      remove(snap.ref).catch(e => console.error("Failed to remove hit", e));
+    });
+
+    this.playersUnsubs.push(unsub); // Add to cleanup array
+    return unsub;
+  }
+
   async sendChat(text){
     if (!this.currentLobbyId) return;
     const uid = this.auth.currentUser?.uid;
@@ -230,7 +256,6 @@ export class Net {
     const msgRef = push(ref(this.db, `lobbies/${this.currentLobbyId}/chat`));
     await set(msgRef, { uid, username, text: String(text).slice(0,200), ts: rtdbServerTimestamp() });
 
-    // Trim to last 24 (owner only) by timestamp order
     if (this.currentLobbyOwner && this.currentLobbyOwner === uid){
       try {
         const chatQ = query(ref(this.db, `lobbies/${this.currentLobbyId}/chat`), orderByChild("ts"));
@@ -248,16 +273,14 @@ export class Net {
 
   subscribeChat(cb){
     if (!this.currentLobbyId) return () => {};
-    // Keep an array with limitToLast(24) and stable ordering
     const qy = query(ref(this.db, `lobbies/${this.currentLobbyId}/chat`), orderByChild("ts"), limitToLast(24));
-    const items = new Map(); // key -> message
     if (this.chatUnsub) { try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
     const unsub = onValue(qy, (snap)=>{
       const arr = [];
       snap.forEach((child)=>{
         arr.push({ id: child.key, ...(child.val() || {}) });
       });
-      cb(arr); // ascending by ts
+      cb(arr);
     }, (err)=>console.error("subscribeChat:", err));
     this.chatUnsub = unsub;
     return unsub;
