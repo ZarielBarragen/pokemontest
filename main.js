@@ -13,6 +13,9 @@ function unsubscribeLobby(){
 // global selected character key for select screen
 let selectedKey = null;
 
+
+// Remote players registry
+const remote = new Map();
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
 
