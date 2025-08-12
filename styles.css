@@ -295,25 +295,26 @@ body::after{
 
 
 /* ==== Responsive niceties ==== */
+/* **FIX**: Further reduce character select card size on mobile */
 @media (max-width: 720px){
-  /* Make character select cards smaller on mobile */
   #charGrid {
-    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(85px, 1fr));
     gap: 8px;
   }
   .small-card {
-    width: 90px;
-    height: 90px;
-    padding: 6px;
-    gap: 4px;
+    width: 85px;
+    height: 85px;
+    padding: 5px;
+    gap: 3px;
   }
   .small-card img {
-    width: 48px;
-    height: 48px;
+    width: 42px;
+    height: 42px;
   }
   .small-card span {
     font-size: 8px;
-    padding: 3px 4px;
+    line-height: 1;
+    padding: 2px 3px;
   }
 }
 

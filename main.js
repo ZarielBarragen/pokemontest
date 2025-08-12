@@ -381,9 +381,10 @@ function showLobbies(){
   net.cleanupEmptyLobbies().catch(()=>{}).catch(()=>{});
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
 }
+// **FIX**: Desktop back button from lobby screen
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
-  overlaySelect.classList.add("hidden");
+  overlaySelect.classList.remove("hidden"); // Show character select again
   if (inputMode === 'touch') {
       mobileControls.classList.add("hidden");
   }
@@ -501,6 +502,8 @@ const state = {
 };
 
 // ---------- Input ----------
+// This function handles leaving the game and returning to the character select screen.
+// It's used by both the ESC key and the mobile "BACK" button.
 function goBackToSelect() {
     remote.clear();
     net.leaveLobby().catch(()=>{});
@@ -510,6 +513,8 @@ function goBackToSelect() {
     overlaySelect.classList.remove("hidden");
     mobileControls.classList.add("hidden");
     mobileChatOverlay.classList.add("hidden");
+    // Ensure chat input is blurred to hide mobile keyboard if it was open
+    mobileChatInput.blur();
 }
 
 window.addEventListener("keydown", e=>{
@@ -551,10 +556,14 @@ window.addEventListener("keydown", e=>{
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
 
+// **FIX**: Mobile back button functionality
 backBtnMobile.onclick = goBackToSelect;
 
+// **FIX**: Mobile chat button brings up keyboard
 chatBtnMobile.onclick = () => {
   mobileChatOverlay.classList.remove("hidden");
+  // Calling focus() directly inside a user-initiated event handler (like 'onclick')
+  // is the most reliable way to trigger the mobile keyboard.
   mobileChatInput.focus();
 };
 
@@ -571,6 +580,7 @@ mobileChatForm.addEventListener("submit", (e) => {
     
     mobileChatInput.value = "";
     mobileChatOverlay.classList.add("hidden");
+    mobileChatInput.blur(); // Hide keyboard on submit
 });
 
 
