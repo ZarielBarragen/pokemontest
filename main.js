@@ -13,9 +13,6 @@ function unsubscribeLobby(){
 // global selected character key for select screen
 let selectedKey = null;
 
-
-// Remote players registry
-const remote = new Map();
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
 
@@ -371,15 +368,6 @@ function _hasMeaningfulChange() {
          state.typing !== _lastSent.typing;
 }
 
-function makePingPong(n){
-  // produce [0..n-1, n-2..1] for ping-pong frame order
-  n = Math.max(1, n|0);
-  const seq = [];
-  for (let i=0;i<n;i++) seq.push(i);
-  for (let i=n-2;i>0;i--) seq.push(i);
-  return seq;
-}
-
 const state = {
   x:0, y:0, dir:"down",
   moving:false, prevMoving:false,
@@ -442,7 +430,191 @@ window.addEventListener("keydown", e=>{
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
 
 // ---------- Map generation (seeded) ----------
+function generateMap(w, h, seed=1234){
+  const rnd = mulberry32((seed>>>0) ^ 0x9E3779B9);
+  // Initialize all walls solid (true), border walls stay true
+  const walls = Array.from({length:h}, (_,y)=>
+    Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1) ? true : true));
+  const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
+  const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
 
+  // Parameters
+  const hallW = Math.max(4, Math.floor((Math.min(w,h))/12));
+  const radius = Math.floor(hallW/2);
+  const margin = Math.max(3, radius+2);
+  const cellStep = Math.max(hallW + 3, Math.floor(Math.min(w,h)/8));
+
+  const gx0 = margin, gy0 = margin;
+  const gx1 = w - margin - 1, gy1 = h - margin - 1;
+  const cols = Math.max(2, Math.floor((gx1 - gx0) / cellStep));
+  const rows = Math.max(2, Math.floor((gy1 - gy0) / cellStep));
+
+  const nodes = [];
+  for (let r=0; r<=rows; r++){
+    for (let c=0; c<=cols; c++){
+      const jitterX = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
+      const jitterY = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
+      const x = gx0 + Math.floor(c * ((gx1-gx0)/Math.max(1,cols))) + jitterX;
+      const y = gy0 + Math.floor(r * ((gy1-gy0)/Math.max(1,rows))) + jitterY;
+      nodes.push({x: Math.max(margin, Math.min(w-margin-1, x)),
+                  y: Math.max(margin, Math.min(h-margin-1, y)),
+                  ix: c, iy: r, i: r*(cols+1)+c});
+    }
+  }
+  const idx = (c,r)=> r*(cols+1)+c;
+
+  // DFS maze on 4-neighborhood
+  const visited = new Set();
+  const stack = [];
+  const startC = Math.floor(rnd()*(cols+1));
+  const startR = Math.floor(rnd()*(rows+1));
+  stack.push([startC, startR]);
+  const links = new Set();
+
+  const dirs4 = [[0,-1],[1,0],[0,1],[-1,0]];
+
+  while (stack.length){
+    const [c,r] = stack[stack.length-1];
+    const here = idx(c,r);
+    visited.add(here);
+
+    const nbs = [];
+    for (const [dx,dy] of dirs4){
+      const nc = c+dx, nr = r+dy;
+      if (nc<0||nr<0||nc>cols||nr>rows) continue;
+      const j = idx(nc,nr);
+      if (!visited.has(j)) nbs.push([nc,nr]);
+    }
+    for (let i=nbs.length-1;i>0;i--){
+      const j = Math.floor(rnd()*(i+1)); const t = nbs[i]; nbs[i] = nbs[j]; nbs[j] = t;
+    }
+    if (nbs.length){
+      const [nc,nr] = nbs[0];
+      const a = Math.min(here, idx(nc,nr));
+      const b = Math.max(here, idx(nc,nr));
+      links.add(a+"-"+b);
+      stack.push([nc,nr]);
+    } else {
+      stack.pop();
+    }
+  }
+
+  // Add a few 45° connections
+  const diagDirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
+  const extraDiags = Math.floor((cols+1)*(rows+1)*0.15);
+  for (let k=0;k<extraDiags;k++){
+    const c = Math.floor(rnd()*(cols+1));
+    const r = Math.floor(rnd()*(rows+1));
+    const [dx,dy] = diagDirs[Math.floor(rnd()*diagDirs.length)];
+    const nc = c+dx, nr = r+dy;
+    if (nc<0||nr<0||nc>cols||nr>rows) continue;
+    const a = Math.min(idx(c,r), idx(nc,nr));
+    const b = Math.max(idx(c,r), idx(nc,nr));
+    links.add(a+"-"+b);
+  }
+
+  function carveDisk(cx, cy, rad){
+    for (let yy = cy-rad; yy<=cy+rad; yy++){
+      if (yy<=0 || yy>=h-1) continue;
+      for (let xx = cx-rad; xx<=cx+rad; xx++){
+        if (xx<=0 || xx>=w-1) continue;
+        const dx = xx-cx, dy = yy-cy;
+        if (dx*dx + dy*dy <= rad*rad) walls[yy][xx] = false;
+      }
+    }
+  }
+  function carveLine(x0,y0,x1,y1, rad){
+    x0|=0; y0|=0; x1|=0; y1|=0;
+    let dx = Math.abs(x1-x0), sx = x0<x1 ? 1 : -1;
+    let dy = -Math.abs(y1-y0), sy = y0<y1 ? 1 : -1;
+    let err = dx + dy;
+    while (true){
+      carveDisk(x0, y0, rad);
+      if (x0===x1 && y0===y1) break;
+      const e2 = 2*err;
+      if (e2 >= dy){ err += dy; x0 += sx; }
+      if (e2 <= dx){ err += dx; y0 += sy; }
+    }
+  }
+
+  const nodeRadius = Math.max(2, radius+1);
+  nodes.forEach(n => carveDisk(n.x, n.y, nodeRadius));
+  for (const key of links){
+    const [a,b] = key.split("-").map(s=>+s);
+    const na = nodes[a], nb = nodes[b];
+    carveLine(na.x, na.y, nb.x, nb.y, radius);
+  }
+
+  // open up tiny pinches
+  for (let pass=0; pass<2; pass++){
+    for (let y=1; y<h-1; y++){
+      for (let x=1; x<w-1; x++){
+        if (walls[y][x]){
+          let floorN=0;
+          for (let yy=y-1; yy<=y+1; yy++)
+            for (let xx=x-1; xx<=x+1; xx++)
+              if (!(xx===x&&yy===y) && !walls[yy][xx]) floorN++;
+          if (floorN >= 6) walls[y][x] = false;
+        }
+      }
+    }
+  }
+
+  // choose a spawn on floor
+  let sx = 1, sy = 1;
+  for (let tries=0; tries<500; tries++){
+    const tx = 1 + Math.floor(rnd()*(w-2));
+    const ty = 1 + Math.floor(rnd()*(h-2));
+    if (!walls[ty][tx]){ sx=tx; sy=ty; break; }
+  }
+
+  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy} };
+}
+function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
+function tileCenter(tx,ty){ return {x: tx*TILE + TILE/2, y: ty*TILE + TILE/2}; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+
+// ---------- Character assets / anim ----------
+function makePingPong(n){ const f=[...Array(n).keys()], b=[...Array(Math.max(n-2,0)).keys()].reverse().map(i=>i+1); return f.concat(b); }
+const remote = new Map();
+// Cache for character sprite assets
+const charCache = new Map();
+
+async function loadCharacterAssets(key, cfg) {
+  if (charCache.has(key)) return charCache.get(key);
+
+  const [walk, idle, hop] = await Promise.all([
+    loadImage(cfg.base + cfg.walk.sheet),
+    loadImage(cfg.base + cfg.idle.sheet),
+    cfg.hop ? loadImage(cfg.base + cfg.hop.sheet) : Promise.resolve(null),
+  ]);
+
+  const assets = {
+    cfg, walk, idle, hop,
+    meta: {
+      walk: sliceSheet(walk, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir),
+      idle: sliceSheet(idle, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir),
+      hop:  hop ? sliceSheet(hop,  cfg.hop.cols,  cfg.hop.rows,  cfg.hop.dirGrid,  cfg.hop.framesPerDir) : {}
+    }
+  };
+
+  charCache.set(key, assets);
+  return assets;
+}
+
+function sliceSheet(img, cols, rows, dirGrid, framesPerDir){
+  const CELL_W = Math.floor(img.width / cols);
+  const CELL_H = Math.floor(img.height / rows);
+  const trimCell = (row, col) => analyzeBitmap(img, col*CELL_W, row*CELL_H, CELL_W, CELL_H);
+  const metaByDir = {};
+  for (const [dir, def] of Object.entries(dirGrid)){
+    const arr = [];
+    for (let i=0; i<framesPerDir; i++) arr.push(trimCell(def.row, def.start + i));
+    metaByDir[dir] = arr;
+  }
+  return metaByDir;
+}
 function analyzeBitmap(sheet, sx, sy, sw, sh){
   const tmp = document.createElement("canvas");
   tmp.width = sw; tmp.height = sh;
@@ -472,32 +644,6 @@ function analyzeBitmap(sheet, sx, sy, sw, sh){
   const anchorX = (minX + maxX) / 2;
   const anchorY = maxY + BASELINE_NUDGE_Y;
   return { sx:sx+minX, sy:sy+minY, sw:cropW, sh:cropH, ox:anchorX-minX, oy:anchorY-minY };
-
-// Slice a sprite sheet into direction -> frames[] using a row-based grid.
-// cols: number of columns in the sheet, rows: number of rows
-// dirGrid: {dir: {row, start}}, framesPerDir: frames along the row starting at 'start'.
-function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
-  const out = {};
-  if (!sheet || !cols || !rows || !dirGrid || !framesPerDir) return out;
-  const cw = Math.floor(sheet.width / Math.max(1, cols));
-  const ch = Math.floor(sheet.height / Math.max(1, rows));
-
-  for (const [dir, info] of Object.entries(dirGrid)){
-    const r = Math.max(0, Math.min(rows-1, info.row|0));
-    const start = Math.max(0, Math.min(cols-1, info.start|0));
-    const strip = [];
-    for (let i=0; i<framesPerDir; i++){
-      const c = Math.min(cols-1, start + i);
-      const sx = c * cw;
-      const sy = r * ch;
-      // analyzeBitmap crops to the non-transparent pixels and returns anchor (ox,oy)
-      const frame = analyzeBitmap(sheet, sx, sy, cw, ch);
-      strip.push(frame);
-    }
-    out[dir] = strip;
-  }
-  return out;
-}
 }
 
 // ---------- Net listeners ----------
@@ -1131,137 +1277,3 @@ loadCharacters().catch(console.error);
 
 // alias for backward compatibility
 async function loadCharacters(){ return await loadCharactersJSON(); }
-function generateMap(w, h, seed=1234){
-  const rnd = mulberry32((seed>>>0) ^ 0x9E3779B9);
-  const walls = Array.from({length:h}, (_,y)=>
-    Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1)));
-  const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
-  const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
-
-  const hallW = Math.max(4, Math.floor((Math.min(w,h))/12));
-  const radius = Math.floor(hallW/2);
-  const margin = Math.max(3, radius+2);
-  const cellStep = Math.max(hallW + 3, Math.floor(Math.min(w,h)/8));
-
-  const gx0 = margin, gy0 = margin;
-  const gx1 = w - margin - 1, gy1 = h - margin - 1;
-  const cols = Math.max(2, Math.floor((gx1 - gx0) / cellStep));
-  const rows = Math.max(2, Math.floor((gy1 - gy0) / cellStep));
-
-  const nodes = [];
-  for (let r=0; r<=rows; r++){
-    for (let c=0; c<=cols; c++){
-      const jitterX = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
-      const jitterY = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
-      const x = gx0 + Math.floor(c * ((gx1-gx0)/Math.max(1,cols))) + jitterX;
-      const y = gy0 + Math.floor(r * ((gy1-gy0)/Math.max(1,rows))) + jitterY;
-      nodes.push({x: Math.max(margin, Math.min(w-margin-1, x)),
-                  y: Math.max(margin, Math.min(h-margin-1, y)),
-                  ix: c, iy: r, i: r*(cols+1)+c});
-    }
-  }
-  const idx = (c,r)=> r*(cols+1)+c;
-
-  const visited = new Set();
-  const stack = [];
-  const startC = Math.floor(rnd()*(cols+1));
-  const startR = Math.floor(rnd()*(rows+1));
-  stack.push([startC, startR]);
-  const links = new Set();
-
-  const dirs4 = [[0,-1],[1,0],[0,1],[-1,0]];
-  while (stack.length){
-    const [c,r] = stack[stack.length-1];
-    const here = idx(c,r);
-    visited.add(here);
-    const nbs = [];
-    for (const [dx,dy] of dirs4){
-      const nc = c+dx, nr = r+dy;
-      if (nc<0||nr<0||nc>cols||nr>rows) continue;
-      const j = idx(nc,nr);
-      if (!visited.has(j)) nbs.push([nc,nr]);
-    }
-    for (let i=nbs.length-1;i>0;i--){
-      const j = Math.floor(rnd()*(i+1)); const t = nbs[i]; nbs[i] = nbs[j]; nbs[j] = t;
-    }
-    if (nbs.length){
-      const [nc,nr] = nbs[0];
-      const a = Math.min(here, idx(nc,nr));
-      const b = Math.max(here, idx(nc,nr));
-      links.add(a+"-"+b);
-      stack.push([nc,nr]);
-    } else {
-      stack.pop();
-    }
-  }
-
-  const diagDirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
-  const extraDiags = Math.floor((cols+1)*(rows+1)*0.15);
-  for (let k=0;k<extraDiags;k++){
-    const c = Math.floor(rnd()*(cols+1));
-    const r = Math.floor(rnd()*(rows+1));
-    const [dx,dy] = diagDirs[Math.floor(rnd()*diagDirs.length)];
-    const nc = c+dx, nr = r+dy;
-    if (nc<0||nr<0||nc>cols||nr>rows) continue;
-    const a = Math.min(idx(c,r), idx(nc,nr));
-    const b = Math.max(idx(c,r), idx(nc,nr));
-    links.add(a+"-"+b);
-  }
-
-  function carveDisk(cx, cy, rad){
-    for (let yy = cy-rad; yy<=cy+rad; yy++){
-      if (yy<=0 || yy>=h-1) continue;
-      for (let xx = cx-rad; xx<=cx+rad; xx++){
-        if (xx<=0 || xx>=w-1) continue;
-        const dx = xx-cx, dy = yy-cy;
-        if (dx*dx + dy*dy <= rad*rad) walls[yy][xx] = false;
-      }
-    }
-  }
-  function carveLine(x0,y0,x1,y1, rad){
-    x0|=0; y0|=0; x1|=0; y1|=0;
-    let dx = Math.abs(x1-x0), sx = x0<x1 ? 1 : -1;
-    let dy = -Math.abs(y1-y0), sy = y0<y1 ? 1 : -1;
-    let err = dx + dy, e2;
-    while (true){
-      carveDisk(x0, y0, rad);
-      if (x0===x1 && y0===y1) break;
-      e2 = 2*err;
-      if (e2 >= dy){ err += dy; x0 += sx; }
-      if (e2 <= dx){ err += dx; y0 += sy; }
-    }
-  }
-
-  const nodeRadius = Math.max(2, radius+1);
-  nodes.forEach(n => carveDisk(n.x, n.y, nodeRadius));
-  for (const key of links){
-    const [a,b] = key.split("-").map(s=>+s);
-    const na = nodes[a], nb = nodes[b];
-    carveLine(na.x, na.y, nb.x, nb.y, radius);
-  }
-
-  for (let pass=0; pass<2; pass++){
-    for (let y=1; y<h-1; y++){
-      for (let x=1; x<w-1; x++){
-        if (walls[y][x]){
-          let floorN=0;
-          for (let yy=y-1; yy<=y+1; yy++)
-            for (let xx=x-1; xx<=x+1; xx++)
-              if (!(xx===x&&yy===y) && !walls[yy][xx]) floorN++;
-          if (floorN >= 6) walls[y][x] = false;
-        }
-      }
-    }
-  }
-
-  let sx = nodes.length ? nodes[0].x|0 : 1;
-  let sy = nodes.length ? nodes[0].y|0 : 1;
-  outer: for (let tries=0; tries<500; tries++){
-    const tx = 1 + Math.floor(rnd()*(w-2));
-    const ty = 1 + Math.floor(rnd()*(h-2));
-    if (!walls[ty][tx]){ sx=tx; sy=ty; break outer; }
-  }
-
-  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy} };
-}
-
