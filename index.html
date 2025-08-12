@@ -42,7 +42,7 @@
     <div style="display:grid;gap:14px;place-items:center">
       <h1>Pick your character</h1>
       <div id="charGrid"></div>
-      <p>WASD / Arrows to move • E/Space to hop • Esc to reselect</p>
+      <p>WASD / Arrows to move • Space to hop • J to attack • K to shoot • Esc to reselect</p>
     </div>
   </div>
 
@@ -81,7 +81,9 @@
         <div class="d-pad-btn right" data-key="ArrowRight"></div>
     </div>
     <div id="action-buttons">
-      <button id="hop-btn" class="mobile-action-btn" data-key="e">JUMP</button>
+      <button id="attack-btn" class="mobile-action-btn" data-key="j">ATTACK</button>
+      <button id="shoot-btn" class="mobile-action-btn" data-key="k">SHOOT</button>
+      <button id="hop-btn" class="mobile-action-btn" data-key=" ">JUMP</button>
       <button id="chat-btn-mobile" class="mobile-action-btn">CHAT</button>
       <button id="back-btn-mobile" class="mobile-action-btn">BACK</button>
     </div>

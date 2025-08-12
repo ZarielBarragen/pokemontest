@@ -19,6 +19,7 @@ const remote = new Map();
 // Enemy and projectile registries
 const enemies = new Map();
 const projectiles = [];
+const playerProjectiles = [];
 
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
@@ -66,6 +67,7 @@ const mobileChatInput = document.getElementById("mobile-chat-input");
 let chatLogEl = null;
 let chatUnsubLocal = null;
 let chatMessages = [];
+let lastProcessedChatTimestamp = 0;
 
 function renderChatLog(){
   if (!chatLogEl) return;
@@ -111,7 +113,7 @@ const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
 function currentSpeedMult(){ const cfg = CHARACTERS[selectedKey]; return (cfg && cfg.speed) ? cfg.speed : 1.0; }
-const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12;
+const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12, ATTACK_FPS = 12;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
 const BASELINE_NUDGE_Y = 0;
@@ -168,31 +170,31 @@ let CHARACTERS = {};
 // **FIX**: Embed character data directly to prevent 404 errors.
 const CHARACTERS_DATA = {
   "$schemaVersion": 1,
-  "defaults": { "scale": 3, "speed": 1.0, "hp": 100, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "hurt": { "sheet": "Hurt-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" } },
+  "defaults": { "scale": 3, "speed": 1.0, "hp": 100, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "hurt": { "sheet": "Hurt-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "attack": { "sheet": "Attack-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 11, "rows": 8, "framesPerDir": 11, "dirGrid": "row" } },
   "characters": {
-    "Sableye": { "name": "Sableye", "base": "assets/Sableye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 150, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" } },
+    "Sableye": { "name": "Sableye", "base": "assets/Sableye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 150, "ranged": true, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 17, "rows": 8, "framesPerDir": 17, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" } },
     "Ditto": { "name": "Ditto", "base": "assets/Ditto/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 120, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 5, "rows": 8, "framesPerDir": 5, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Hisuian Zoroark": { "name": "Hisuian Zoroark", "base": "assets/Hisuian Zoroark/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.0, "hp": 160, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Hisuian Zoroark": { "name": "Hisuian Zoroark", "base": "assets/Hisuian Zoroark/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.0, "hp": 160, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Hypno": { "name": "Hypno", "base": "assets/Hypno/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 185, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Mimikyu": { "name": "Mimikyu", "base": "assets/Mimikyu/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 155, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Quagsire": { "name": "Quagsire", "base": "assets/Quagsire/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "idle": { "sheet": "Idle-Anim.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Mimikyu": { "name": "Mimikyu", "base": "assets/Mimikyu/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 155, "ranged": true, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Quagsire": { "name": "Quagsire", "base": "assets/Quagsire/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "ranged": true, "idle": { "sheet": "Idle-Anim.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Smeargle": { "name": "Smeargle", "base": "assets/Smeargle/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 155, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Corviknight": { "name": "Corviknight", "base": "assets/Corviknight/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 198, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Cacturne": { "name": "Cacturne", "base": "assets/Cacturne/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Decidueye": { "name": "Decidueye", "base": "assets/Decidueye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 178, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Corviknight": { "name": "Corviknight", "base": "assets/Corviknight/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 198, "attack": { "cols": 15, "rows": 8, "framesPerDir": 15 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Cacturne": { "name": "Cacturne", "base": "assets/Cacturne/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "ranged": true, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Decidueye": { "name": "Decidueye", "base": "assets/Decidueye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 178, "ranged": true, "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "shoot": { "sheet": "Shoot-Anim.png", "cols": 12, "rows": 8, "framesPerDir": 12, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Blaziken": { "name": "Blaziken", "base": "assets/Blaziken/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 180, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Snorlax": { "name": "Snorlax", "base": "assets/Snorlax/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 260, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Chandelure": { "name": "Chandelure", "base": "assets/Chandelure/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 160, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Empoleon": { "name": "Empoleon", "base": "assets/Empoleon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 184, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Jolteon": { "name": "Jolteon", "base": "assets/Jolteon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Pangoro": { "name": "Pangoro", "base": "assets/Pangoro/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Scrafty": { "name": "Scrafty", "base": "assets/Scrafty/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Cyclizar": { "name": "Cyclizar", "base": "assets/Cyclizar/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Chandelure": { "name": "Chandelure", "base": "assets/Chandelure/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 160, "ranged": true, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Empoleon": { "name": "Empoleon", "base": "assets/Empoleon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 184, "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Jolteon": { "name": "Jolteon", "base": "assets/Jolteon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "ranged": true, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Pangoro": { "name": "Pangoro", "base": "assets/Pangoro/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "attack": { "cols": 12, "rows": 8, "framesPerDir": 12 }, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Scrafty": { "name": "Scrafty", "base": "assets/Scrafty/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Cyclizar": { "name": "Cyclizar", "base": "assets/Cyclizar/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Axew": { "name": "Axew", "base": "assets/Axew/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 146, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Obstagoon": { "name": "Obstagoon", "base": "assets/Obstagoon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 193, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Primarina": { "name": "Primarina", "base": "assets/Primarina/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.02, "hp": 180, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Obstagoon": { "name": "Obstagoon", "base": "assets/Obstagoon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 193, "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Primarina": { "name": "Primarina", "base": "assets/Primarina/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.02, "hp": 180, "ranged": true, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 13, "rows": 8, "framesPerDir": 13, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Dewgong": { "name": "Dewgong", "base": "assets/Dewgong/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 190, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Scolipede": { "name": "Scolipede", "base": "assets/Scolipede/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.12, "hp": 160, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Scolipede": { "name": "Scolipede", "base": "assets/Scolipede/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.12, "hp": 160, "ranged": true, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Lycanroc": { "name": "Lycanroc", "base": "assets/Lycanroc/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.08, "hp": 185, "idle": { "sheet": "Idle-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } }
   }
 };
@@ -220,10 +222,13 @@ function processCharacterData() {
         scale: ch.scale ?? def.scale ?? 3,
         speed: ch.speed ?? def.speed ?? 1.0,
         hp: ch.hp ?? def.hp ?? 100,
+        ranged: ch.ranged ?? false,
         idle: mergeAnim(def.idle, ch.idle),
         walk: mergeAnim(def.walk, ch.walk),
         hop:  mergeAnim(def.hop,  ch.hop),
         hurt: mergeAnim(def.hurt, ch.hurt),
+        attack: mergeAnim(def.attack, ch.attack),
+        shoot: ch.ranged ? mergeAnim(def.shoot, ch.shoot) : null,
       };
     }
     
@@ -386,6 +391,8 @@ function buildSelectUI(){
 }
 
 // ---------- Lobbies ----------
+let isJoiningLobby = false;
+
 function renderLobbyList(list){
   lobbyListEl.innerHTML = "";
   lobbyHintEl.style.display = list.length ? "none" : "block";
@@ -403,7 +410,10 @@ function renderLobbyList(list){
         <div style="font-size:11px;opacity:.8">Map: ${w}×${h}</div>
       </div>
     `;
-    wrap.onclick = () => joinLobbyFlow(lob.id);
+    wrap.onclick = () => {
+        if (isJoiningLobby) return;
+        joinLobbyFlow(lob.id, wrap);
+    };
     lobbyListEl.appendChild(wrap);
   });
 }
@@ -444,8 +454,9 @@ createLobbyBtn.onclick = async ()=>{
     const seed = randSeed();
     const lobbyId = await net.createLobby((newLobbyNameEl.value||"").trim(), { w,h,seed });
     await net.joinLobby(lobbyId);
-    await startWithCharacter(cfg, generateMap(w,h,seed));
-    watchdogEnsureGame(cfg, {w,h,seed});
+    const map = generateMap(w, h, seed);
+    await startWithCharacter(cfg, map);
+    watchdogEnsureGame(cfg, map);
     overlayLobbies.classList.add("hidden");
     mountChatLog();
     startChatSubscription();
@@ -459,15 +470,20 @@ createLobbyBtn.onclick = async ()=>{
   }
 };
 
-async function joinLobbyFlow(lobbyId){
+async function joinLobbyFlow(lobbyId, btnEl){
+  isJoiningLobby = true;
+  const originalHTML = btnEl.innerHTML;
+  btnEl.innerHTML = `<div><strong>Joining...</strong></div>`;
+  
   try{
     const cfg = CHARACTERS[selectedKey];
     if (!cfg) { alert("Pick a character first"); return; }
     const lobby = await net.getLobby(lobbyId);
     const { w,h,seed } = lobby.mapMeta || {};
     await net.joinLobby(lobbyId);
-    await startWithCharacter(cfg, generateMap(w||48,h||32,seed??1234));
-    watchdogEnsureGame(cfg, {w:w||48, h:h||32, seed: (seed??1234)});
+    const map = generateMap(w||48,h||32,seed??1234);
+    await startWithCharacter(cfg, map);
+    watchdogEnsureGame(cfg, map);
     overlayLobbies.classList.add("hidden");
     mountChatLog();
     startChatSubscription();
@@ -475,15 +491,18 @@ async function joinLobbyFlow(lobbyId){
   } catch(e){
     console.error("Join lobby failed:", e);
     alert("Join lobby failed: " + (e?.message || e));
+  } finally {
+    isJoiningLobby = false;
+    if(btnEl) btnEl.innerHTML = originalHTML;
   }
 }
 
 
-function watchdogEnsureGame(cfg, mapMeta){
+function watchdogEnsureGame(cfg, map){
   // If for any reason state.ready/map didn't initialize, retry once after a tick
   setTimeout(()=>{
     if (!state.map || !state.ready){
-      try { startWithCharacter(cfg, generateMap(mapMeta.w||48, mapMeta.h||32, mapMeta.seed||1234)); } catch {}
+      try { startWithCharacter(cfg, map); } catch {}
     }
   }, 600);
 }
@@ -525,8 +544,8 @@ const state = {
   frameTime:0, frameStep:0, frameOrder: makePingPong(4),
   anim:"stand", idleAccum:0,
   scale:3,
-  walkImg:null, idleImg:null, hopImg:null, hurtImg: null,
-  animMeta:{walk:null, idle:null, hop:null, hurt: null},
+  walkImg:null, idleImg:null, hopImg:null, hurtImg: null, attackImg: null, shootImg: null,
+  animMeta:{walk:null, idle:null, hop:null, hurt: null, attack: null, shoot: null},
   hopping:false,
   hop:{sx:0,sy:0,tx:0,ty:0,t:0,dur:0,z:0},
   map:null, cam:{x:0,y:0},
@@ -537,6 +556,8 @@ const state = {
   hp: 100,
   maxHp: 100,
   invulnerableTimer: 0,
+  attackCooldown: 0,
+  attacking: false,
 };
 
 // ---------- Input ----------
@@ -544,6 +565,7 @@ function goBackToSelect() {
     remote.clear();
     enemies.clear();
     projectiles.length = 0;
+    playerProjectiles.length = 0;
     net.leaveLobby().catch(()=>{});
     state.ready = false;
     unmountChatLog();
@@ -579,7 +601,7 @@ window.addEventListener("keydown", e=>{
   }
 
   // Prevent default browser action for game keys
-  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ", "e", "E"].includes(e.key)) e.preventDefault();
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ", "j", "J", "k", "K"].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
@@ -686,13 +708,17 @@ async function loadCharacterAssets(key) {
   }
 
   try {
-    const [wRes, iRes, hRes, huRes, pRes] = await Promise.allSettled([
+    const promises = [
       loadImage(cfg.base + cfg.walk.sheet),
       loadImage(cfg.base + cfg.idle.sheet),
       loadImage(cfg.base + cfg.hop.sheet),
       loadImage(cfg.base + cfg.hurt.sheet),
+      loadImage(cfg.base + cfg.attack.sheet),
+      cfg.shoot ? loadImage(cfg.base + cfg.shoot.sheet) : Promise.resolve(null),
       loadImage(cfg.base + cfg.portrait)
-    ]);
+    ];
+
+    const [wRes, iRes, hRes, huRes, aRes, sRes, pRes] = await Promise.allSettled(promises);
 
     if (wRes.status !== "fulfilled" || iRes.status !== "fulfilled") {
       throw new Error(`Core sheets (walk/idle) missing for ${key}`);
@@ -702,16 +728,20 @@ async function loadCharacterAssets(key) {
     const idleImg = iRes.value;
     const hopImg = (hRes.status === "fulfilled") ? hRes.value : null;
     const hurtImg = (huRes.status === "fulfilled") ? huRes.value : null;
+    const attackImg = (aRes.status === "fulfilled") ? aRes.value : null;
+    const shootImg = (sRes.status === "fulfilled") ? sRes.value : null;
     const portraitImg = (pRes.status === "fulfilled") ? pRes.value : null;
 
     const meta = {
       walk: sliceSheet(walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir),
       idle: sliceSheet(idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir),
       hop: hopImg ? sliceSheet(hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {},
-      hurt: hurtImg ? sliceSheet(hurtImg, cfg.hurt.cols, cfg.hurt.rows, cfg.hurt.dirGrid, cfg.hurt.framesPerDir) : {}
+      hurt: hurtImg ? sliceSheet(hurtImg, cfg.hurt.cols, cfg.hurt.rows, cfg.hurt.dirGrid, cfg.hurt.framesPerDir) : {},
+      attack: attackImg ? sliceSheet(attackImg, cfg.attack.cols, cfg.attack.rows, cfg.attack.dirGrid, cfg.attack.framesPerDir) : {},
+      shoot: shootImg && cfg.shoot ? sliceSheet(shootImg, cfg.shoot.cols, cfg.shoot.rows, cfg.shoot.dirGrid, cfg.shoot.framesPerDir) : {},
     };
 
-    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, hurt: hurtImg, portrait: portraitImg, meta };
+    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, hurt: hurtImg, attack: attackImg, shoot: shootImg, portrait: portraitImg, meta };
     _assetCache.set(key, assets);
     return assets;
 
@@ -740,7 +770,8 @@ function startNetListeners(){
         hp: data.hp ?? assets.cfg.hp,
         maxHp: assets.cfg.hp,
         assets,
-        history: [{ t: performance.now()/1000, x: data.x, y: data.y }]
+        history: [{ t: performance.now()/1000, x: data.x, y: data.y }],
+        lastProcessedAttackTs: 0,
       });
     },
     onChange: (uid, data)=>{
@@ -751,7 +782,14 @@ function startNetListeners(){
       if (r.history.length>40) r.history.shift();
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
+      
+      if (data.hp < r.hp) {
+          r.anim = 'hurt';
+          r.frameStep = 0;
+          r.frameTime = 0;
+      }
       r.hp = data.hp ?? r.hp;
+
       if (typeof data.anim === "string" && data.anim !== r.anim){
         r.anim = data.anim; r.frameTime = 0; r.frameStep = 0;
         r.idlePlaying = (r.anim === "idle");
@@ -774,14 +812,21 @@ function startNetListeners(){
 // ---------- Chat subscription (only when mounted) ----------
 function startChatSubscription(){
   if (chatUnsubLocal){ try{ chatUnsubLocal(); }catch{} chatUnsubLocal = null; }
+  lastProcessedChatTimestamp = 0;
   chatUnsubLocal = net.subscribeChat((msgs)=>{
     chatMessages = msgs || [];
     renderChatLog();
-    const latest = new Map();
-    chatMessages.forEach(m=> latest.set(m.uid, m));
-    for (const [uid, r] of remote){
-      const m = latest.get(uid);
-      if (m){ r.say = m.text; r.sayTimer = 4.5; }
+
+    if (msgs.length > 0) {
+        const latestMsg = msgs[msgs.length - 1];
+        if (latestMsg.ts > lastProcessedChatTimestamp) {
+            lastProcessedChatTimestamp = latestMsg.ts;
+            const r = remote.get(latestMsg.uid);
+            if (r) {
+                r.say = latestMsg.text;
+                r.sayTimer = 5.0;
+            }
+        }
     }
   });
 }
@@ -789,7 +834,7 @@ function startChatSubscription(){
 // ---------- Boot character in map ----------
 async function startWithCharacter(cfg, map){
   state.ready = false;
-  state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{} };
+  state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{}, attack:{}, shoot:{} };
   state.scale = cfg.scale ?? 3;
   state.map = map;
   state.maxHp = cfg.hp;
@@ -803,6 +848,8 @@ async function startWithCharacter(cfg, map){
     state.idleImg = assets.idle;
     state.hopImg  = assets.hop;
     state.hurtImg = assets.hurt;
+    state.attackImg = assets.attack;
+    state.shootImg = assets.shoot;
     state.animMeta = assets.meta;
 
     const spawn = tileCenter(map.spawn.x, map.spawn.y);
@@ -813,6 +860,7 @@ async function startWithCharacter(cfg, map){
     state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
     state.say = null; state.sayTimer = 0; state.typing = false;
     state.invulnerableTimer = 0;
+    state.attackCooldown = 0;
 
     spawnEnemies(map);
     updateCamera();
@@ -923,7 +971,7 @@ function tryMove(dt, vx, vy){
   state.x = adj.x; state.y = adj.y;
 }
 function tryStartHop(){
-  if (!state.ready || state.hopping || state.anim === 'hurt') return;
+  if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking) return;
   const cfg = CHARACTERS[selectedKey];
   const strip = state.animMeta.hop?.[state.dir];
   if (!cfg?.hop || !state.hopImg || !strip || strip.length === 0) return;
@@ -967,6 +1015,14 @@ function currentFrame(){
   }
   if (state.anim === "hurt") {
     meta = state.animMeta.hurt; strip = meta?.[state.dir];
+    idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
+  }
+  if (state.anim === "attack") {
+    meta = state.animMeta.attack; strip = meta?.[state.dir];
+    idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
+  }
+  if (state.anim === "shoot") {
+    meta = state.animMeta.shoot; strip = meta?.[state.dir];
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   meta = state.animMeta.idle; strip = meta?.[state.dir]; return strip ? strip[0] : null;
@@ -1207,19 +1263,29 @@ function updatePlayerHUD() {
 
 
 function update(dt){
-  if (keys.has("e") || keys.has("E") || keys.has(" ")) {
+  if (keys.has(" ")) {
     tryStartHop();
   }
   
   if (state.invulnerableTimer > 0) {
     state.invulnerableTimer -= dt;
   }
+  if (state.attackCooldown > 0) {
+    state.attackCooldown -= dt;
+  }
+  
+  if (keys.has("j") || keys.has("J")) {
+    tryMeleeAttack();
+  }
+  if (keys.has("k") || keys.has("K")) {
+    tryRangedAttack();
+  }
 
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
 
-  if (!state.hopping && state.anim !== 'hurt'){
+  if (!state.hopping && state.anim !== 'hurt' && !state.attacking){
     state.dir = vecToDir(vx, vy);
 
     if (state.moving){
@@ -1268,6 +1334,21 @@ function update(dt){
       state.anim = 'stand';
       state.frameStep = 0;
     }
+  } else if (state.attacking) {
+    state.frameTime += dt;
+    const tpf = 1 / ATTACK_FPS;
+    const animData = (state.attackType === 'melee') ? CHARACTERS[selectedKey].attack : CHARACTERS[selectedKey].shoot;
+    const attackFrames = animData.framesPerDir;
+    const frameOrder = [...Array(attackFrames).keys()];
+    while (state.frameTime >= tpf) {
+      state.frameTime -= tpf;
+      state.frameStep += 1;
+    }
+    if (state.frameStep >= frameOrder.length) {
+      state.attacking = false;
+      state.anim = 'stand';
+      state.frameStep = 0;
+    }
   } else if (state.hopping) {
     state.hop.t = Math.min(1, state.hop.t + dt / state.hop.dur);
     const p = state.hop.t, e = 0.5 - 0.5 * Math.cos(Math.PI * p);
@@ -1291,6 +1372,7 @@ function update(dt){
 
   updateEnemies(dt);
   updateProjectiles(dt);
+  updatePlayerProjectiles(dt);
 
   if (selectedKey && state.ready){
     _netAccum += dt; _heartbeat += dt;
@@ -1350,6 +1432,18 @@ function draw(){
             fps = HURT_FPS;
             order = [...Array(Math.max(frames, 1)).keys()];
             break;
+        case "attack":
+            meta = assets.meta.attack;
+            frames = assets.cfg.attack.framesPerDir;
+            fps = ATTACK_FPS;
+            order = [...Array(Math.max(frames, 1)).keys()];
+            break;
+        case "shoot":
+            meta = assets.meta.shoot;
+            frames = assets.cfg.shoot.framesPerDir;
+            fps = ATTACK_FPS;
+            order = [...Array(Math.max(frames, 1)).keys()];
+            break;
         default: // idle or stand
             meta = assets.meta.idle;
             frames = assets.cfg.idle.framesPerDir;
@@ -1362,12 +1456,12 @@ function draw(){
     if (!strip || !strip.length) continue;
 
 
-    if ((r.anim === "walk") || (r.anim === "hop") || (r.anim === "hurt") || (r.anim === "idle" && r.idlePlaying)){
+    if ((r.anim === "walk") || (r.anim === "hop") || (r.anim === "hurt") || (r.anim === "attack") || (r.anim === "shoot") || (r.anim === "idle" && r.idlePlaying)){
       r.frameTime += frameDt;
       const tpf = 1 / fps;
       while (r.frameTime >= tpf){
         r.frameTime -= tpf;
-        if (r.anim === "hop" || r.anim === "hurt"){
+        if (["hop", "hurt", "attack", "shoot"].includes(r.anim)){
           if (r.frameStep < order.length - 1) r.frameStep += 1;
         } else {
           r.frameStep = (r.frameStep + 1) % order.length;
@@ -1386,6 +1480,8 @@ function draw(){
     const src = r.anim === "hop" ? assets.hop :
                 r.anim === "walk" ? assets.walk :
                 r.anim === "hurt" ? assets.hurt :
+                r.anim === "attack" ? assets.attack :
+                r.anim === "shoot" ? assets.shoot :
                 assets.idle;
 
     let smx = r.x, smy = r.y;
@@ -1421,7 +1517,9 @@ function draw(){
     const z = state.hopping ? state.hop.z : 0;
     const src = state.anim === "hop" ? state.hopImg : 
                 (state.anim === "walk" ? state.walkImg : 
-                (state.anim === "hurt" ? state.hurtImg : state.idleImg));
+                (state.anim === "hurt" ? state.hurtImg : 
+                (state.anim === "attack" ? state.attackImg :
+                (state.anim === "shoot" ? state.shootImg : state.idleImg))));
     actors.push({
       kind:"local", name: localUsername || "you",
       x:state.x, y:state.y, z, frame:lf, src, scale:state.scale,
@@ -1488,6 +1586,15 @@ function draw(){
       ctx.lineWidth = 2;
       ctx.stroke();
   }
+  for (const p of playerProjectiles) {
+      ctx.beginPath();
+      ctx.arc(p.x - state.cam.x, p.y - state.cam.y, PROJECTILE_R, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(100, 180, 255, 0.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+  }
 }
 function loop(ts){
   const now = ts || 0;
@@ -1503,6 +1610,7 @@ function loop(ts){
 function spawnEnemies(map) {
     enemies.clear();
     projectiles.length = 0;
+    const enemyRng = mulberry32(map.seed);
     let spawned = 0;
     const maxEnemies = Math.floor((map.w * map.h) / 200); // Scale enemies with map size
     const validSpawns = [];
@@ -1514,7 +1622,7 @@ function spawnEnemies(map) {
         }
     }
     for (let i = validSpawns.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(enemyRng() * (i + 1));
         [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
     }
     for (const pos of validSpawns) {
@@ -1597,6 +1705,119 @@ function updateProjectiles(dt) {
         }
     }
 }
+
+function updatePlayerProjectiles(dt) {
+    if (!state.ready) return;
+    for (let i = playerProjectiles.length - 1; i >= 0; i--) {
+        const p = playerProjectiles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+
+        if (p.life <= 0) {
+            playerProjectiles.splice(i, 1);
+            continue;
+        }
+
+        // Check collision with enemies
+        for (const enemy of enemies.values()) {
+            const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
+            if (dist < ENEMY_R + PROJECTILE_R) {
+                enemy.hp = Math.max(0, enemy.hp - p.damage);
+                playerProjectiles.splice(i, 1);
+                if (enemy.hp <= 0) {
+                    // Respawn enemy
+                    const enemyRng = mulberry32(state.map.seed + enemies.size);
+                    const validSpawns = [];
+                    for (let y = 1; y < state.map.h - 1; y++) {
+                        for (let x = 1; x < state.map.w - 1; x++) {
+                            if (!state.map.walls[y][x]) {
+                                validSpawns.push({ x, y });
+                            }
+                        }
+                    }
+                    const spawnPos = validSpawns[Math.floor(enemyRng() * validSpawns.length)];
+                    const worldPos = tileCenter(spawnPos.x, spawnPos.y);
+                    enemy.x = worldPos.x;
+                    enemy.y = worldPos.y;
+                    enemy.hp = enemy.maxHp;
+                }
+                break; 
+            }
+        }
+    }
+}
+
+function tryMeleeAttack() {
+    if (!state.ready || state.attacking || state.attackCooldown > 0) return;
+
+    state.attacking = true;
+    state.attackType = 'melee';
+    state.anim = 'attack';
+    state.frameStep = 0;
+    state.frameTime = 0;
+    state.attackCooldown = 0.5;
+
+    const attackRange = TILE * 1.5;
+    const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
+
+    for (const enemy of enemies.values()) {
+        const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
+        if (dist < attackRange) {
+            enemy.hp = Math.max(0, enemy.hp - damage);
+            if (enemy.hp <= 0) {
+                // Respawn enemy
+                const enemyRng = mulberry32(state.map.seed + enemies.size);
+                const validSpawns = [];
+                for (let y = 1; y < state.map.h - 1; y++) {
+                    for (let x = 1; x < state.map.w - 1; x++) {
+                        if (!state.map.walls[y][x]) {
+                            validSpawns.push({ x, y });
+                        }
+                    }
+                }
+                const spawnPos = validSpawns[Math.floor(enemyRng() * validSpawns.length)];
+                const worldPos = tileCenter(spawnPos.x, spawnPos.y);
+                enemy.x = worldPos.x;
+                enemy.y = worldPos.y;
+                enemy.hp = enemy.maxHp;
+            }
+        }
+    }
+    
+    for (const player of remote.values()) {
+        const dist = Math.hypot(state.x - player.x, state.y - player.y);
+        if (dist < attackRange) {
+            // This is a placeholder for networked PvP damage
+            console.log(`Attacked ${player.username}`);
+        }
+    }
+}
+
+function tryRangedAttack() {
+    const cfg = CHARACTERS[selectedKey];
+    if (!state.ready || !cfg.ranged || state.attacking || state.attackCooldown > 0) return;
+
+    state.attacking = true;
+    state.attackType = 'ranged';
+    state.anim = 'shoot';
+    state.frameStep = 0;
+    state.frameTime = 0;
+    state.attackCooldown = 0.8;
+
+    const projectileSpeed = TILE * 8;
+    const [vx, vy] = DIR_VECS[state.dir];
+
+    playerProjectiles.push({
+        x: state.x,
+        y: state.y,
+        vx: vx * projectileSpeed,
+        vy: vy * projectileSpeed,
+        damage: 10,
+        life: 2.0
+    });
+}
+
 
 // ---------- Init ----------
 function init() {
@@ -1790,5 +2011,5 @@ function generateMap(w, h, seed=1234){
     if (!walls[ty][tx]){ sx=tx; sy=ty; break outer; }
   }
 
-  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy} };
+  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed };
 }
