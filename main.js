@@ -477,6 +477,8 @@ function generateMap(w, h, seed=1234){
 
   const DIRS = [[1,0,'h'], [0,1,'v'], [-1,0,'h'], [0,-1,'v']];
   let dir = DIRS[0]; // start moving right
+  const TURN_CHANCE = 0.30; // probability to turn at each step
+  const MAX_STRAIGHT = 7; // force a turn after this many straight tiles
   const STRAIGHT_BIAS = 0.78;
   const GAP_EVERY = 9;
   const GAP_JITTER = 3;
@@ -500,16 +502,36 @@ function generateMap(w, h, seed=1234){
 
   const MAX = w*h*2;
   for (let step=0; step<MAX; step++){
-    // choose direction
-    const fwdOk = canCarve(x+dir[0], y+dir[1]);
-    if (!fwdOk || rnd()>STRAIGHT_BIAS){
-      const choices = [turnLeft(dir), turnRight(dir), reverse(dir)];
-      // pick first that can carve
-      let picked = null;
-      for (const c of choices){
-        if (canCarve(x+c[0], y+c[1])) { picked=c; break; }
+    // choose direction (allow real turns while keeping long straights)
+    const forwardOk = canCarve(x+dir[0], y+dir[1]);
+    let shouldTurn = false;
+    if (!forwardOk) {
+      shouldTurn = true;
+    } else {
+      shouldTurn = (rnd() < TURN_CHANCE) || (straightCount >= MAX_STRAIGHT);
+    }
+    if (shouldTurn) {
+      const left  = turnLeft(dir);
+      const right = turnRight(dir);
+      const options = [];
+      if (canCarve(x+left[0],  y+left[1]))  options.push(left);
+      if (canCarve(x+right[0], y+right[1])) options.push(right);
+      if (options.length) {
+        dir = options[Math.floor(rnd()*options.length)];
+        straightCount = 0;
+      } else if (forwardOk) {
+        straightCount++;
+      } else {
+        const rev = reverse(dir);
+        if (canCarve(x+rev[0], y+rev[1])) {
+          dir = rev;
+          straightCount = 0;
+        } else {
+          break;
+        }
       }
-      if (picked) dir=picked;
+    } else {
+      straightCount++;
     }
     const nx = x+dir[0], ny = y+dir[1];
     if (!inside(nx,ny)) break;
@@ -558,22 +580,7 @@ function generateMap(w, h, seed=1234){
   for (let iy=0; iy<h; iy++){ walls[iy][0]=true; walls[iy][w-1]=true; }
 
   return { w, h, walls, edgesV, edgesH, spawn: {x:start.x, y:start.y} };
-}
-
-function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
-function tileCenter(tx,ty){ return {x: tx*TILE + TILE/2, y: ty*TILE + TILE/2}; }
-function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
-function lerp(a,b,t){ return a + (b-a)*t; }
-
-// ---------- Character assets / anim ----------
-function makePingPong(n){ const f=[...Array(n).keys()], b=[...Array(Math.max(n-2,0)).keys()].reverse().map(i=>i+1); return f.concat(b); }
-const remote = new Map();
-const charCache = new Map();
-
-async function loadCharacterAssets(key){
-  if (charCache.has(key)) return charCache.get(key);
-  const cfg = CHARACTERS[key]; if (!cfg) return null;
-  const [walk, idle, hop] = await Promise.all([
+} await Promise.all([
     loadImage(cfg.base + cfg.walk.sheet),
     loadImage(cfg.base + cfg.idle.sheet),
     loadImage(cfg.base + cfg.hop.sheet).catch(()=>null)
@@ -588,7 +595,7 @@ async function loadCharacterAssets(key){
   };
   charCache.set(key, assets);
   return assets;
-}
+  
 function sliceSheet(img, cols, rows, dirGrid, framesPerDir){
   const CELL_W = Math.floor(img.width / cols);
   const CELL_H = Math.floor(img.height / rows);
