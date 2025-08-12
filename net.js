@@ -228,7 +228,7 @@ export class Net {
     await set(newHitRef, {
       damage: damage,
       from: this.auth.currentUser?.uid,
-      ts: this.serverTimestamp()
+      ts: rtdbServerTimestamp()
     });
   }
 
