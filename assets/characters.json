@@ -365,6 +365,11 @@
       "scale": 3.0,
       "speed": 1.01,
       "hp": 180,
+      "attack": {
+        "cols": 9,
+        "rows": 8,
+        "framesPerDir": 9
+      },
       "idle": {
         "sheet": "Idle-Anim.png",
         "cols": 2,
