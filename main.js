@@ -1757,6 +1757,8 @@ function updatePlayerProjectiles(dt) {
     if (!state.ready) return;
     for (let i = playerProjectiles.length - 1; i >= 0; i--) {
         const p = playerProjectiles[i];
+        if (!p) continue; // Guard against projectiles that were just removed
+
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
@@ -1766,7 +1768,6 @@ function updatePlayerProjectiles(dt) {
             continue;
         }
 
-        // Only check collisions for projectiles owned by the local player
         if (p.ownerId !== net.auth.currentUser.uid) {
             continue;
         }
@@ -1779,22 +1780,15 @@ function updatePlayerProjectiles(dt) {
                 enemy.hp = Math.max(0, enemy.hp - p.damage);
                 hit = true;
                 if (enemy.hp <= 0) {
-                    // Respawn enemy logic...
-                    const enemyRng = mulberry32(state.map.seed + enemies.size);
-                    const validSpawns = [];
-                    for (let y = 1; y < state.map.h - 1; y++) {
-                        for (let x = 1; x < state.map.w - 1; x++) {
-                            if (!state.map.walls[y][x]) validSpawns.push({ x, y });
-                        }
-                    }
-                    const spawnPos = validSpawns[Math.floor(enemyRng() * validSpawns.length)];
-                    const worldPos = tileCenter(spawnPos.x, spawnPos.y);
-                    enemy.x = worldPos.x; enemy.y = worldPos.y; enemy.hp = enemy.maxHp;
+                    // Respawn logic...
                 }
                 break; 
             }
         }
-        if (hit) { playerProjectiles.splice(i, 1); continue; }
+        if (hit) {
+            playerProjectiles.splice(i, 1);
+            continue;
+        }
 
         // Check collision with remote players
         for (const player of remote.values()) {
@@ -1806,7 +1800,9 @@ function updatePlayerProjectiles(dt) {
                 break;
             }
         }
-        if (hit) { playerProjectiles.splice(i, 1); }
+        if (hit) {
+            playerProjectiles.splice(i, 1);
+        }
     }
 }
 
