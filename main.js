@@ -182,7 +182,7 @@ const CHARACTERS_DATA = {
     "Corviknight": { "name": "Corviknight", "base": "assets/Corviknight/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 198, "attack": { "cols": 15, "rows": 8, "framesPerDir": 15 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Cacturne": { "name": "Cacturne", "base": "assets/Cacturne/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "ranged": true, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Decidueye": { "name": "Decidueye", "base": "assets/Decidueye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 178, "ranged": true, "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "shoot": { "sheet": "Shoot-Anim.png", "cols": 12, "rows": 8, "framesPerDir": 12, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Blaziken": { "name": "Blaziken", "base": "assets/Blaziken/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 180, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+    "Blaziken": { "name": "Blaziken", "base": "assets/Blaziken/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 180, "attack": { "cols": 9, "rows": 8, "framesPerDir": 9 }, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Snorlax": { "name": "Snorlax", "base": "assets/Snorlax/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 260, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Chandelure": { "name": "Chandelure", "base": "assets/Chandelure/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 160, "ranged": true, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
     "Empoleon": { "name": "Empoleon", "base": "assets/Empoleon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 184, "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
@@ -1011,18 +1011,22 @@ function currentFrame(){
   }
   if (state.anim === "hop"){
     meta = state.animMeta.hop; strip = meta?.[state.dir];
+    if (!strip) return null;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   if (state.anim === "hurt") {
     meta = state.animMeta.hurt; strip = meta?.[state.dir];
+    if (!strip) return null;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   if (state.anim === "attack") {
     meta = state.animMeta.attack; strip = meta?.[state.dir];
+    if (!strip) return null;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   if (state.anim === "shoot") {
     meta = state.animMeta.shoot; strip = meta?.[state.dir];
+    if (!strip) return null;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   meta = state.animMeta.idle; strip = meta?.[state.dir]; return strip ? strip[0] : null;
