@@ -16,6 +16,10 @@ let selectedKey = null;
 
 // Remote players registry
 const remote = new Map();
+// Enemy and projectile registries
+const enemies = new Map();
+const projectiles = [];
+
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
 
@@ -107,12 +111,14 @@ const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
 function currentSpeedMult(){ const cfg = CHARACTERS[selectedKey]; return (cfg && cfg.speed) ? cfg.speed : 1.0; }
-const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12;
+const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
 const BASELINE_NUDGE_Y = 0;
 
-const PLAYER_R = 12;
+const PLAYER_R = 12; // Player collision radius
+const ENEMY_R = 16;  // Enemy collision radius
+const PROJECTILE_R = 6; // Projectile collision radius
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
@@ -162,7 +168,7 @@ let CHARACTERS = {};
 // **FIX**: Embed character data directly to prevent 404 errors.
 const CHARACTERS_DATA = {
   "$schemaVersion": 1,
-  "defaults": { "scale": 3, "speed": 1.0, "hp": 100, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
+  "defaults": { "scale": 3, "speed": 1.0, "hp": 100, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "hurt": { "sheet": "Hurt-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" } },
   "characters": {
     "Sableye": { "name": "Sableye", "base": "assets/Sableye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 150, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" } },
     "Ditto": { "name": "Ditto", "base": "assets/Ditto/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 120, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 5, "rows": 8, "framesPerDir": 5, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
@@ -217,6 +223,7 @@ function processCharacterData() {
         idle: mergeAnim(def.idle, ch.idle),
         walk: mergeAnim(def.walk, ch.walk),
         hop:  mergeAnim(def.hop,  ch.hop),
+        hurt: mergeAnim(def.hurt, ch.hurt),
       };
     }
     
@@ -518,8 +525,8 @@ const state = {
   frameTime:0, frameStep:0, frameOrder: makePingPong(4),
   anim:"stand", idleAccum:0,
   scale:3,
-  walkImg:null, idleImg:null, hopImg:null,
-  animMeta:{walk:null, idle:null, hop:null},
+  walkImg:null, idleImg:null, hopImg:null, hurtImg: null,
+  animMeta:{walk:null, idle:null, hop:null, hurt: null},
   hopping:false,
   hop:{sx:0,sy:0,tx:0,ty:0,t:0,dur:0,z:0},
   map:null, cam:{x:0,y:0},
@@ -528,12 +535,15 @@ const state = {
   say:null, sayTimer:0,
   typing:false,
   hp: 100,
-  maxHp: 100
+  maxHp: 100,
+  invulnerableTimer: 0,
 };
 
 // ---------- Input ----------
 function goBackToSelect() {
     remote.clear();
+    enemies.clear();
+    projectiles.length = 0;
     net.leaveLobby().catch(()=>{});
     state.ready = false;
     unmountChatLog();
@@ -676,10 +686,11 @@ async function loadCharacterAssets(key) {
   }
 
   try {
-    const [wRes, iRes, hRes, pRes] = await Promise.allSettled([
+    const [wRes, iRes, hRes, huRes, pRes] = await Promise.allSettled([
       loadImage(cfg.base + cfg.walk.sheet),
       loadImage(cfg.base + cfg.idle.sheet),
       loadImage(cfg.base + cfg.hop.sheet),
+      loadImage(cfg.base + cfg.hurt.sheet),
       loadImage(cfg.base + cfg.portrait)
     ]);
 
@@ -690,15 +701,17 @@ async function loadCharacterAssets(key) {
     const walkImg = wRes.value;
     const idleImg = iRes.value;
     const hopImg = (hRes.status === "fulfilled") ? hRes.value : null;
+    const hurtImg = (huRes.status === "fulfilled") ? huRes.value : null;
     const portraitImg = (pRes.status === "fulfilled") ? pRes.value : null;
 
     const meta = {
       walk: sliceSheet(walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir),
       idle: sliceSheet(idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir),
-      hop: hopImg ? sliceSheet(hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {}
+      hop: hopImg ? sliceSheet(hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {},
+      hurt: hurtImg ? sliceSheet(hurtImg, cfg.hurt.cols, cfg.hurt.rows, cfg.hurt.dirGrid, cfg.hurt.framesPerDir) : {}
     };
 
-    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, portrait: portraitImg, meta };
+    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, hurt: hurtImg, portrait: portraitImg, meta };
     _assetCache.set(key, assets);
     return assets;
 
@@ -776,7 +789,7 @@ function startChatSubscription(){
 // ---------- Boot character in map ----------
 async function startWithCharacter(cfg, map){
   state.ready = false;
-  state.animMeta = { walk:{}, idle:{}, hop:{} };
+  state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{} };
   state.scale = cfg.scale ?? 3;
   state.map = map;
   state.maxHp = cfg.hp;
@@ -789,6 +802,7 @@ async function startWithCharacter(cfg, map){
     state.walkImg = assets.walk;
     state.idleImg = assets.idle;
     state.hopImg  = assets.hop;
+    state.hurtImg = assets.hurt;
     state.animMeta = assets.meta;
 
     const spawn = tileCenter(map.spawn.x, map.spawn.y);
@@ -798,7 +812,9 @@ async function startWithCharacter(cfg, map){
     state.frameOrder = makePingPong(cfg.walk.framesPerDir);
     state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
     state.say = null; state.sayTimer = 0; state.typing = false;
+    state.invulnerableTimer = 0;
 
+    spawnEnemies(map);
     updateCamera();
     state.ready = true;
 
@@ -907,7 +923,7 @@ function tryMove(dt, vx, vy){
   state.x = adj.x; state.y = adj.y;
 }
 function tryStartHop(){
-  if (!state.ready || state.hopping) return;
+  if (!state.ready || state.hopping || state.anim === 'hurt') return;
   const cfg = CHARACTERS[selectedKey];
   const strip = state.animMeta.hop?.[state.dir];
   if (!cfg?.hop || !state.hopImg || !strip || strip.length === 0) return;
@@ -947,6 +963,10 @@ function currentFrame(){
   }
   if (state.anim === "hop"){
     meta = state.animMeta.hop; strip = meta?.[state.dir];
+    idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
+  }
+  if (state.anim === "hurt") {
+    meta = state.animMeta.hurt; strip = meta?.[state.dir];
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   meta = state.animMeta.idle; strip = meta?.[state.dir]; return strip ? strip[0] : null;
@@ -1190,12 +1210,16 @@ function update(dt){
   if (keys.has("e") || keys.has("E") || keys.has(" ")) {
     tryStartHop();
   }
+  
+  if (state.invulnerableTimer > 0) {
+    state.invulnerableTimer -= dt;
+  }
 
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
 
-  if (!state.hopping){
+  if (!state.hopping && state.anim !== 'hurt'){
     state.dir = vecToDir(vx, vy);
 
     if (state.moving){
@@ -1231,7 +1255,20 @@ function update(dt){
       }
     }
     updateCamera();
-  } else {
+  } else if (state.anim === 'hurt') {
+    state.frameTime += dt;
+    const tpf = 1 / HURT_FPS;
+    const hurtFrames = CHARACTERS[selectedKey].hurt.framesPerDir;
+    const frameOrder = [...Array(hurtFrames).keys()];
+    while (state.frameTime >= tpf) {
+      state.frameTime -= tpf;
+      state.frameStep += 1;
+    }
+    if (state.frameStep >= frameOrder.length) {
+      state.anim = 'stand';
+      state.frameStep = 0;
+    }
+  } else if (state.hopping) {
     state.hop.t = Math.min(1, state.hop.t + dt / state.hop.dur);
     const p = state.hop.t, e = 0.5 - 0.5 * Math.cos(Math.PI * p);
     state.x = lerp(state.hop.sx, state.hop.tx, e);
@@ -1251,6 +1288,9 @@ function update(dt){
 
   if (state.sayTimer > 0){ state.sayTimer -= dt; if (state.sayTimer <= 0){ state.sayTimer = 0; state.say = null; } }
   if (state.typing){ chatTypingDots = (chatTypingDots + dt*3) % 3; }
+
+  updateEnemies(dt);
+  updateProjectiles(dt);
 
   if (selectedKey && state.ready){
     _netAccum += dt; _heartbeat += dt;
@@ -1278,27 +1318,56 @@ function draw(){
   updatePlayerHUD();
 
   const actors = [];
+  
+  for (const enemy of enemies.values()) {
+      actors.push({
+          kind: "enemy",
+          ...enemy
+      });
+  }
 
   for (const r of remote.values()){
     const assets = r.assets; if (!assets) continue;
-    const meta = r.anim === "walk" ? assets.meta.walk
-               : r.anim === "hop"  ? assets.meta.hop
-               : assets.meta.idle;
-    const strip = meta[r.dir] || meta.down || Object.values(meta)[0];
+    
+    let meta, strip, frames, fps, order;
+    
+    switch(r.anim) {
+        case "walk":
+            meta = assets.meta.walk;
+            frames = assets.cfg.walk.framesPerDir;
+            fps = WALK_FPS;
+            order = makePingPong(Math.max(frames, 1));
+            break;
+        case "hop":
+            meta = assets.meta.hop;
+            frames = assets.cfg.hop?.framesPerDir || 1;
+            fps = HOP_FPS;
+            order = [...Array(Math.max(frames, 1)).keys()];
+            break;
+        case "hurt":
+            meta = assets.meta.hurt;
+            frames = assets.cfg.hurt.framesPerDir;
+            fps = HURT_FPS;
+            order = [...Array(Math.max(frames, 1)).keys()];
+            break;
+        default: // idle or stand
+            meta = assets.meta.idle;
+            frames = assets.cfg.idle.framesPerDir;
+            fps = IDLE_FPS;
+            order = makePingPong(Math.max(frames, 1));
+            break;
+    }
+    
+    strip = meta[r.dir] || meta.down || Object.values(meta)[0];
     if (!strip || !strip.length) continue;
 
-    const frames = r.anim === "walk" ? assets.cfg.walk.framesPerDir
-                 : r.anim === "hop"  ? (assets.cfg.hop?.framesPerDir || 1)
-                 : assets.cfg.idle.framesPerDir;
-    const fps = r.anim === "walk" ? WALK_FPS : r.anim === "hop" ? HOP_FPS : IDLE_FPS;
-    const order = (r.anim === "hop") ? [...Array(Math.max(frames,1)).keys()] : makePingPong(Math.max(frames,1));
 
-    if ((r.anim === "walk") || (r.anim === "hop") || (r.anim === "idle" && r.idlePlaying)){
+    if ((r.anim === "walk") || (r.anim === "hop") || (r.anim === "hurt") || (r.anim === "idle" && r.idlePlaying)){
       r.frameTime += frameDt;
       const tpf = 1 / fps;
       while (r.frameTime >= tpf){
         r.frameTime -= tpf;
-        if (r.anim === "hop"){
+        if (r.anim === "hop" || r.anim === "hurt"){
           if (r.frameStep < order.length - 1) r.frameStep += 1;
         } else {
           r.frameStep = (r.frameStep + 1) % order.length;
@@ -1313,8 +1382,11 @@ function draw(){
       r.hopT = Math.min(1, r.hopT + (frameDt / Math.max(0.001, r.hopDur)));
       r.z = Math.sin(Math.PI * r.hopT) * (HOP_HEIGHT * r.scale);
     } else { r.hopT = 0; r.z = 0; }
-
-    const src = (r.anim === "hop" && assets.hop) ? assets.hop : (r.anim === "walk") ? assets.walk : assets.idle;
+    
+    const src = r.anim === "hop" ? assets.hop :
+                r.anim === "walk" ? assets.walk :
+                r.anim === "hurt" ? assets.hurt :
+                assets.idle;
 
     let smx = r.x, smy = r.y;
     if (r.history && r.history.length >= 2){
@@ -1347,7 +1419,9 @@ function draw(){
   const lf = currentFrame();
   if (state.ready && lf){
     const z = state.hopping ? state.hop.z : 0;
-    const src = state.anim === "hop" ? state.hopImg : (state.moving ? state.walkImg : state.idleImg);
+    const src = state.anim === "hop" ? state.hopImg : 
+                (state.anim === "walk" ? state.walkImg : 
+                (state.anim === "hurt" ? state.hurtImg : state.idleImg));
     actors.push({
       kind:"local", name: localUsername || "you",
       x:state.x, y:state.y, z, frame:lf, src, scale:state.scale,
@@ -1355,8 +1429,33 @@ function draw(){
     });
   }
 
-  actors.sort((a,b)=> (a.y - a.z*0.35) - (b.y - b.z*0.35));
+  actors.sort((a,b)=> (a.y - (a.z || 0)*0.35) - (b.y - (b.z || 0)*0.35));
+  
   for (const a of actors){
+    if (a.kind === 'enemy') {
+        // Draw enemy
+        const sx = Math.round(a.x - state.cam.x);
+        const sy = Math.round(a.y - state.cam.y);
+        drawShadow(a.x, a.y, 0, 3.0, false);
+        ctx.beginPath();
+        ctx.arc(sx, sy, ENEMY_R, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 80, 80, 0.8)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(180, 40, 40, 1)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Draw enemy HP bar
+        const hpw = 30, hph = 5;
+        const hpx = sx - hpw/2, hpy = sy - ENEMY_R - 10;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(hpx, hpy, hpw, hph);
+        ctx.fillStyle = '#f44';
+        ctx.fillRect(hpx, hpy, hpw * (a.hp / a.maxHp), hph);
+        ctx.strokeStyle = '#fff';
+        ctx.strokeRect(hpx, hpy, hpw, hph);
+        continue;
+    }
+  
     const f = a.frame, scale = a.scale;
     const dw = f.sw * scale, dh = f.sh * scale;
     const dx = Math.round(a.x - f.ox * scale - state.cam.x);
@@ -1364,12 +1463,30 @@ function draw(){
 
     const overGap = isOverGapWorld(a.x, a.y);
     drawShadow(a.x, a.y, a.z, a.scale, overGap);
+    
+    if (a.kind === 'local' && state.invulnerableTimer > 0) {
+        ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 1.0;
+    }
 
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
+    
+    ctx.globalAlpha = 1.0;
+
     drawNameTagAbove(a.name, f, a.x, a.y, a.z, a.scale);
 
     if (a.typing)      drawChatBubble("", true,  a.frame, a.x, a.y, a.z, a.scale);
     else if (a.say)    drawChatBubble(a.say, false, a.frame, a.x, a.y, a.z, a.scale);
+  }
+  
+  // Draw projectiles on top of everything
+  for (const p of projectiles) {
+      ctx.beginPath();
+      ctx.arc(p.x - state.cam.x, p.y - state.cam.y, PROJECTILE_R, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 165, 0, 0.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
   }
 }
 function loop(ts){
@@ -1380,6 +1497,105 @@ function loop(ts){
   frameDt = dt;
   draw();
   requestAnimationFrame(loop);
+}
+
+// ---------- Enemy and Projectile Logic ----------
+function spawnEnemies(map) {
+    enemies.clear();
+    projectiles.length = 0;
+    let spawned = 0;
+    const maxEnemies = Math.floor((map.w * map.h) / 200); // Scale enemies with map size
+    const validSpawns = [];
+    for (let y = 1; y < map.h - 1; y++) {
+        for (let x = 1; x < map.w - 1; x++) {
+            if (!map.walls[y][x]) {
+                validSpawns.push({ x, y });
+            }
+        }
+    }
+    for (let i = validSpawns.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
+    }
+    for (const pos of validSpawns) {
+        if (spawned >= maxEnemies) break;
+        const distToPlayer = Math.hypot(pos.x - map.spawn.x, pos.y - map.spawn.y);
+        if (distToPlayer < 10) continue;
+        const id = `enemy_${spawned}`;
+        const worldPos = tileCenter(pos.x, pos.y);
+        enemies.set(id, {
+            id,
+            x: worldPos.x,
+            y: worldPos.y,
+            hp: 50,
+            maxHp: 50,
+            dir: 'down',
+            attackCooldown: 0,
+            detectionRange: TILE * 7,
+            projectileSpeed: TILE * 5,
+            damage: 10,
+        });
+        spawned++;
+    }
+}
+
+function updateEnemies(dt) {
+    if (!state.ready) return;
+    for (const enemy of enemies.values()) {
+        if (enemy.attackCooldown > 0) {
+            enemy.attackCooldown -= dt;
+        }
+        const dx = state.x - enemy.x;
+        const dy = state.y - enemy.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < enemy.detectionRange && enemy.attackCooldown <= 0) {
+            enemy.attackCooldown = 2.0; // 2 second cooldown
+            const vx = (dx / dist) * enemy.projectileSpeed;
+            const vy = (dy / dist) * enemy.projectileSpeed;
+            projectiles.push({
+                x: enemy.x,
+                y: enemy.y,
+                vx, vy,
+                damage: enemy.damage,
+                life: 3.0 // 3 seconds lifetime
+            });
+        }
+    }
+}
+
+function updateProjectiles(dt) {
+    if (!state.ready) return;
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+
+        if (p.life <= 0) {
+            projectiles.splice(i, 1);
+            continue;
+        }
+        
+        // Check collision with local player
+        if (state.invulnerableTimer <= 0) {
+            const dist = Math.hypot(p.x - state.x, p.y - state.y);
+            if (dist < PLAYER_R + PROJECTILE_R) {
+                state.hp = Math.max(0, state.hp - p.damage);
+                state.invulnerableTimer = 0.7; // 0.7 seconds of invulnerability
+                state.anim = 'hurt';
+                state.frameStep = 0;
+                state.frameTime = 0;
+                projectiles.splice(i, 1);
+                // TODO: Add hurt sound effect
+                if (state.hp <= 0) {
+                    // TODO: Handle player death
+                    console.log("Player has been defeated!");
+                    goBackToSelect(); // For now, just go back to select screen
+                }
+            }
+        }
+    }
 }
 
 // ---------- Init ----------
@@ -1415,7 +1631,7 @@ function tileCenter(tx, ty) {
 }
 
 function canWalk(tx, ty, map) {
-  return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[ty][tx];
+  return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[y][tx];
 }
 
 function generateMap(w, h, seed=1234){

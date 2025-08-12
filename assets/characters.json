@@ -24,6 +24,13 @@
       "rows": 8,
       "framesPerDir": 10,
       "dirGrid": "row"
+    },
+    "hurt": {
+      "sheet": "Hurt-Anim.png",
+      "cols": 2,
+      "rows": 8,
+      "framesPerDir": 2,
+      "dirGrid": "row"
     }
   },
   "characters": {
