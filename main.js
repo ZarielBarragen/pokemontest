@@ -43,6 +43,12 @@ const passEl         = document.getElementById("authPass");
 const toggleEl       = document.getElementById("authToggle");
 const titleEl        = document.getElementById("authTitle");
 const errEl          = document.getElementById("authErr");
+const inputSelectOverlay = document.getElementById("input-select");
+const keyboardBtn = document.getElementById("keyboardBtn");
+const screenBtn = document.getElementById("screenBtn");
+const mobileControls = document.getElementById("mobile-controls");
+const authSubmitBtn = document.getElementById("authSubmit");
+
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
 let chatLogEl = null;
@@ -82,6 +88,9 @@ function mountChatLog(){
 function unmountChatLog(){
   if (chatUnsubLocal){ try{ chatUnsubLocal(); }catch{} chatUnsubLocal = null; }
   if (chatLogEl){ chatLogEl.remove(); chatLogEl = null; }
+  if (inputMode === 'touch') {
+      mobileControls.classList.add("hidden");
+  }
 }
 
 // ---------- Settings ----------
@@ -184,6 +193,14 @@ async function loadCharactersJSON(){
   }
 }
 
+let authMode = "signup";
+toggleEl.onclick = ()=>{
+    authMode = (authMode === "signup") ? "login" : "signup";
+    titleEl.textContent = (authMode === "signup") ? "Sign up" : "Log in";
+    authSubmitBtn.textContent = (authMode === "signup") ? "Create account" : "Log in";
+    toggleEl.textContent = (authMode === "signup") ? "Already have an account? Log in" : "Need an account? Sign up";
+};
+
 formEl.addEventListener("submit", async (e)=>{
   e.preventDefault();
   errEl.textContent = "";
@@ -205,20 +222,94 @@ Object.assign(logoutBtn.style,{position:"fixed",top:"12px",right:"12px",zIndex:"
 logoutBtn.onclick = () => net.logOut().catch(()=>{});
 document.body.appendChild(logoutBtn);
 
+let inputMode = 'keyboard';
+
 net.onAuth(user=>{
   if (user){
     localUsername = user.displayName || (user.email ? user.email.split("@")[0] : "player");
     authEl.classList.add("hidden");
     logoutBtn.style.display = "inline-block";
-    overlaySelect.classList.remove("hidden");
+    inputSelectOverlay.classList.remove("hidden");
   } else {
     logoutBtn.style.display = "none";
     authEl.classList.remove("hidden");
     overlaySelect.classList.add("hidden");
     overlayLobbies.classList.add("hidden");
     unmountChatLog(); // ensure chat UI gone when signed out
+    mobileControls.classList.add("hidden");
   }
 });
+
+keyboardBtn.onclick = () => {
+    inputMode = 'keyboard';
+    mobileControls.classList.add("hidden");
+    inputSelectOverlay.classList.add("hidden");
+    overlaySelect.classList.remove("hidden");
+};
+
+screenBtn.onclick = () => {
+    inputMode = 'touch';
+    mobileControls.classList.remove("hidden");
+    inputSelectOverlay.classList.add("hidden");
+    overlaySelect.classList.remove("hidden");
+    setupMobileControls();
+};
+
+const touchState = new Map();
+
+function setupMobileControls() {
+    const controls = document.getElementById('mobile-controls');
+
+    const handleTouchStart = (e) => {
+        e.preventDefault();
+        for (const touch of e.changedTouches) {
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            if (target && target.dataset.key) {
+                const key = target.dataset.key;
+                keys.add(key);
+                touchState.set(touch.identifier, key); // Track this touch
+            }
+        }
+    };
+
+    const handleTouchEnd = (e) => {
+        e.preventDefault();
+        for (const touch of e.changedTouches) {
+            if (touchState.has(touch.identifier)) {
+                const key = touchState.get(touch.identifier);
+                keys.delete(key);
+                touchState.delete(touch.identifier); // Stop tracking
+            }
+        }
+    };
+
+    const handleTouchMove = (e) => {
+        e.preventDefault();
+        for (const touch of e.changedTouches) {
+            const currentKey = touchState.get(touch.identifier);
+            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            const targetKey = target ? target.dataset.key : null;
+
+            if (currentKey !== targetKey) {
+                if (currentKey) {
+                    keys.delete(currentKey);
+                }
+                if (targetKey) {
+                    keys.add(targetKey);
+                    touchState.set(touch.identifier, targetKey);
+                } else {
+                    touchState.delete(touch.identifier);
+                }
+            }
+        }
+    };
+
+    controls.addEventListener('touchstart', handleTouchStart);
+    controls.addEventListener('touchend', handleTouchEnd);
+    controls.addEventListener('touchcancel', handleTouchEnd);
+    controls.addEventListener('touchmove', handleTouchMove);
+}
+
 
 // ---------- Select UI ----------
 function buildSelectUI(){
@@ -283,7 +374,10 @@ function showLobbies(){
 }
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
-  overlaySelect.classList.remove("hidden");
+  overlaySelect.classList.add("hidden");
+  if (inputMode === 'touch') {
+      mobileControls.classList.add("hidden");
+  }
 };
 refreshBtn.onclick = ()=>{
   if (lobbyUnsub) { try{ unsubscribeLobby(); }catch{} lobbyUnsub = null; }
@@ -431,7 +525,9 @@ window.addEventListener("keydown", e=>{
     state.ready=false;
     unmountChatLog();
     overlayLobbies.classList.add("hidden");
-    overlaySelect.classList.remove("hidden");
+    overlaySelect.classList.add("hidden");
+    mobileControls.classList.add("hidden");
+    inputSelectOverlay.classList.remove("hidden");
     return;
   }
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;

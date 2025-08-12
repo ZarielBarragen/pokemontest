@@ -56,6 +56,28 @@
     </div>
   </div>
 
+  <!-- Input Select -->
+  <div id="input-select" class="hidden">
+    <div style="display:grid;gap:14px;place-items:center">
+      <h1>How are you playing?</h1>
+      <div style="display:flex;gap:10px;">
+        <button id="keyboardBtn" class="button8">Keyboard</button>
+        <button id="screenBtn" class="button8">Touch Screen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Controls -->
+  <div id="mobile-controls" class="hidden">
+    <div id="d-pad">
+        <div class="d-pad-btn up" data-key="ArrowUp"></div>
+        <div class="d-pad-btn down" data-key="ArrowDown"></div>
+        <div class="d-pad-btn left" data-key="ArrowLeft"></div>
+        <div class="d-pad-btn right" data-key="ArrowRight"></div>
+    </div>
+    <button id="hop-btn" data-key="e">E</button>
+  </div> 
+
   <script type="module" src="./net.js"></script>
   <script type="module" src="./main.js"></script>
 </body>
