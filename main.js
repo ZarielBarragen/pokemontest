@@ -500,6 +500,48 @@ function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
   return out;
 }
 
+// ---------- Asset Loading ----------
+const _assetCache = new Map();
+
+async function loadCharacterAssets(key) {
+  if (_assetCache.has(key)) return _assetCache.get(key);
+
+  const cfg = CHARACTERS[key];
+  if (!cfg) {
+    console.warn(`No config for character key: ${key}`);
+    return null;
+  }
+
+  try {
+    const [wRes, iRes, hRes] = await Promise.allSettled([
+      loadImage(cfg.base + cfg.walk.sheet),
+      loadImage(cfg.base + cfg.idle.sheet),
+      loadImage(cfg.base + cfg.hop.sheet)
+    ]);
+
+    if (wRes.status !== "fulfilled" || iRes.status !== "fulfilled") {
+      throw new Error(`Core sheets (walk/idle) missing for ${key}`);
+    }
+
+    const walkImg = wRes.value;
+    const idleImg = iRes.value;
+    const hopImg = (hRes.status === "fulfilled") ? hRes.value : null;
+
+    const meta = {
+      walk: sliceSheet(walkImg, cfg.walk.cols, cfg.walk.rows, cfg.walk.dirGrid, cfg.walk.framesPerDir),
+      idle: sliceSheet(idleImg, cfg.idle.cols, cfg.idle.rows, cfg.idle.dirGrid, cfg.idle.framesPerDir),
+      hop: hopImg ? sliceSheet(hopImg, cfg.hop.cols, cfg.hop.rows, cfg.hop.dirGrid, cfg.hop.framesPerDir) : {}
+    };
+
+    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, meta };
+    _assetCache.set(key, assets);
+    return assets;
+
+  } catch (err) {
+    console.error(`Failed to load assets for ${key}:`, err);
+    return null;
+  }
+}
 
 // ---------- Net listeners ----------
 function startNetListeners(){
