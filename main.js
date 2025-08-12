@@ -1192,8 +1192,7 @@ loadCharacters().catch(console.error);
 async function loadCharacters(){ return await loadCharactersJSON(); }
 function generateMap(w, h, seed=1234){
   const rnd = mulberry32((seed>>>0) ^ 0x9E3779B9);
-  const walls = Array.from({length:h}, (_,y)=>
-    Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1)));
+  const walls = Array.from({length:h}, ()=> Array(w).fill(true));
   const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
   const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
 
