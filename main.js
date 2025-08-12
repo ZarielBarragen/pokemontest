@@ -368,6 +368,15 @@ function _hasMeaningfulChange() {
          state.typing !== _lastSent.typing;
 }
 
+function makePingPong(n){
+  // produce [0..n-1, n-2..1] for ping-pong frame order
+  n = Math.max(1, n|0);
+  const seq = [];
+  for (let i=0;i<n;i++) seq.push(i);
+  for (let i=n-2;i>0;i--) seq.push(i);
+  return seq;
+}
+
 const state = {
   x:0, y:0, dir:"down",
   moving:false, prevMoving:false,
