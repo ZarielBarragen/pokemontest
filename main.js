@@ -904,7 +904,7 @@ async function startWithCharacter(cfg, map){
 // ---------- Movement / hop / camera ----------
 const DIR_VECS = {
   down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
-  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,-1], // Corrected downLeft
+  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1], 
 };
 function getInputVec(){
   if (chatMode) return {vx:0, vy:0};
@@ -1285,6 +1285,29 @@ function updatePlayerHUD() {
     playerHudEl.appendChild(card);
 }
 
+// Helper function to get the smoothed, interpolated position of a remote player
+function getRemotePlayerSmoothedPos(r) {
+    if (r.history && r.history.length >= 2){
+      const now = performance.now() / 1000;
+      const LAG = 0.12; // This is the same as NET_INTERVAL
+      const target = now - LAG;
+      let a = r.history[0], b = r.history[r.history.length - 1];
+      for (let i = 1; i < r.history.length; i++){
+        if (r.history[i].t >= target){
+          a = r.history[i - 1] || r.history[i];
+          b = r.history[i];
+          break;
+        }
+      }
+      const denom = Math.max(0.0001, b.t - a.t);
+      const t = Math.max(0, Math.min(1, (target - a.t) / denom));
+      const smx = a.x + (b.x - a.x) * t;
+      const smy = a.y + (b.y - a.y) * t;
+      return { x: smx, y: smy };
+    }
+    return { x: r.x, y: r.y }; // Fallback to raw position
+}
+
 
 function update(dt){
   if (keys.has(" ")) {
@@ -1508,24 +1531,9 @@ function draw(){
                 r.anim === "shoot" ? assets.shoot :
                 assets.idle;
 
-    let smx = r.x, smy = r.y;
-    if (r.history && r.history.length >= 2){
-      const now = performance.now() / 1000;
-      const LAG = 0.12;
-      const target = now - LAG;
-      let a = r.history[0], b = r.history[r.history.length - 1];
-      for (let i = 1; i < r.history.length; i++){
-        if (r.history[i].t >= target){
-          a = r.history[i - 1] || r.history[i];
-          b = r.history[i];
-          break;
-        }
-      }
-      const denom = Math.max(0.0001, b.t - a.t);
-      const t = Math.max(0, Math.min(1, (target - a.t) / denom));
-      smx = a.x + (b.x - a.x) * t;
-      smy = a.y + (b.y - a.y) * t;
-    }
+    const smoothedPos = getRemotePlayerSmoothedPos(r);
+    const smx = smoothedPos.x;
+    const smy = smoothedPos.y;
     
     if (r.sayTimer > 0) r.sayTimer = Math.max(0, r.sayTimer - frameDt);
     else r.say = null;
@@ -1788,9 +1796,10 @@ function updatePlayerProjectiles(dt) {
         }
         if (hit) { playerProjectiles.splice(i, 1); continue; }
 
-        // FIX 4: Check collision with remote players
+        // Check collision with remote players
         for (const player of remote.values()) {
-            const dist = Math.hypot(p.x - player.x, p.y - player.y);
+            const smoothedPos = getRemotePlayerSmoothedPos(player);
+            const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
             if (dist < PLAYER_R + PROJECTILE_R) {
                 net.dealDamage(player.uid, p.damage).catch(e => console.error("Deal damage failed", e));
                 hit = true;
@@ -1824,9 +1833,10 @@ function tryMeleeAttack() {
         }
     }
     
-    // FIX 4: PvP Melee Damage
+    // PvP Melee Damage
     for (const player of remote.values()) {
-        const dist = Math.hypot(state.x - player.x, state.y - player.y);
+        const smoothedPos = getRemotePlayerSmoothedPos(player);
+        const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
         if (dist < attackRange) {
             net.dealDamage(player.uid, damage).catch(e => console.error("Deal damage failed", e));
         }
@@ -1847,7 +1857,7 @@ function tryRangedAttack() {
     const projectileSpeed = TILE * 8;
     const [vx, vy] = DIR_VECS[state.dir];
 
-    // FIX 1: Projectile origin from center
+    // Projectile origin from center
     const frame = currentFrame();
     const startY = state.y - (frame ? (frame.oy * state.scale / 2) : (TILE * state.scale / 4));
 
@@ -1859,7 +1869,7 @@ function tryRangedAttack() {
         damage: 20,
         life: 2.0,
         ownerId: net.auth.currentUser.uid, // Track owner for PvP
-        color: cfg.projectileColor || '#FFFF00' // FIX 3: Projectile color
+        color: cfg.projectileColor || '#FFFF00' // Projectile color
     });
 }
 
