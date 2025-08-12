@@ -6,7 +6,7 @@ let lobbyUnsub = null; // unsubscribe fn for lobby snapshot
 // Safe unsubscribe wrapper for lobby snapshot
 function unsubscribeLobby(){
   if (typeof lobbyUnsub === 'function'){
-    try { unsubscribeLobby(); } catch(e){ console.warn('lobbyUnsub threw during unsubscribe', e); }
+    try { lobbyUnsub(); } catch(e){ console.warn('lobbyUnsub threw during unsubscribe', e); }
     lobbyUnsub = null;
   }
 }
@@ -430,161 +430,73 @@ window.addEventListener("keydown", e=>{
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
 
 // ---------- Map generation (seeded) ----------
-
 function generateMap(w, h, seed=1234){
-  // Maze-like generator: long straights, occasional turns. Produces:
-  // { w,h, walls[rows][cols] boolean, edgesV[h][w+1], edgesH[h+1][w] }
-  const rnd = mulberry32((seed>>>0));
-  const inside = (x,y)=> x>=0 && y>=0 && x<w && y<h;
-
-  // Start with all walls (true)
-  const walls = Array.from({length:h}, ()=> Array(w).fill(true));
-  // edges mark jump gaps along grid lines
+  const rnd = mulberry32(seed>>>0);
+  const walls = Array.from({length:h}, (_,y)=>
+    Array.from({length:w}, (_,x)=> (x===0||y===0||x===w-1||y===h-1)));
+  const rects = 12 + Math.floor(rnd()*8);
+  for (let i=0;i<rects;i++){
+    const rw = 2 + Math.floor(rnd()*5);
+    const rh = 2 + Math.floor(rnd()*4);
+    const rx = 1 + Math.floor(rnd()*(w-rw-2));
+    const ry = 1 + Math.floor(rnd()*(h-rh-2));
+    for (let y=ry; y<ry+rh; y++){
+      for (let x=rx; x<Math.min(w, rx+rw); x++){
+        walls[y][x] = true;
+      }
+    }
+  }
   const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
   const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
-
-  
-  // Corridor thickness (in tiles). Must be odd to stay centered.
-  const HALL_W = 5; // try 3 or 4 for wider halls
-  const HALF = Math.floor(HALL_W/2);
-
-  function carveAt(cx, cy, dirChar){
-    if (!inside(cx,cy)) return;
-    walls[cy][cx] = false;
-    // widen perpendicular to direction
-    if (HALL_W > 1){
-      if (dirChar === 'h'){ // moving horizontally -> widen vertically
-        for (let dy=-HALF; dy<=HALF; dy++){
-          const ay = cy + dy;
-          if (inside(cx, ay)) walls[ay][cx] = false;
-        }
-      } else if (dirChar === 'v'){ // moving vertically -> widen horizontally
-        for (let dx=-HALF; dx<=HALF; dx++){
-          const ax = cx + dx;
-          if (inside(ax, cy)) walls[cy][ax] = false;
-        }
-      } else {
-        // unknown, just carve a plus
-        for (let dx=-HALF; dx<=HALF; dx++) if (inside(cx+dx, cy)) walls[cy][cx+dx] = false;
-        for (let dy=-HALF; dy<=HALF; dy++) if (inside(cx, cy+dy)) walls[cy+dy][cx] = false;
-      }
-    }
-  }
-// Carve a main corridor from left-middle to right side
-  const start = { x:1, y: Math.floor(h/2) };
-  let x = start.x, y = start.y;
-  carveAt(x, y, 'h');
-
-  const DIRS = [[1,0,'h'], [0,1,'v'], [-1,0,'h'], [0,-1,'v']];
-  let dir = DIRS[0]; // start moving right
-  const TURN_CHANCE = 0.30; // probability to turn at each step
-  const MAX_STRAIGHT = 7; // force a turn after this many straight tiles
-  const STRAIGHT_BIAS = 0.78;
-  const GAP_EVERY = 9;
-  const GAP_JITTER = 3;
-  let stepsSinceGap = 0;
-  let nextGap = GAP_EVERY + Math.floor((rnd()*2-1)*GAP_JITTER);
-
-  function canCarve(nx,ny){
-    if (!inside(nx,ny)) return false;
-    if (!walls[ny][nx]) return false; // already carved
-    // keep corridors thin by avoiding cells with 2+ carved neighbors
-    let n=0;
-    if (inside(nx+1,ny) && !walls[ny][nx+1]) n++;
-    if (inside(nx-1,ny) && !walls[ny][nx-1]) n++;
-    if (inside(nx,ny+1) && !walls[ny+1][nx]) n++;
-    if (inside(nx,ny-1) && !walls[ny-1][nx]) n++;
-    return n<=2;
-  }
-  function turnLeft(d){ return d[0] ? [0, d[0],'v'] : [-d[1],0,'h']; }
-  function turnRight(d){ return d[0] ? [0,-d[0],'v'] : [ d[1],0,'h']; }
-  function reverse(d){ return [-d[0], -d[1], d[2]]; }
-
-  const MAX = w*h*2;
-  for (let step=0; step<MAX; step++){
-    // choose direction (allow real turns while keeping long straights)
-    const forwardOk = canCarve(x+dir[0], y+dir[1]);
-    let shouldTurn = false;
-    if (!forwardOk) {
-      shouldTurn = true;
-    } else {
-      shouldTurn = (rnd() < TURN_CHANCE) || (straightCount >= MAX_STRAIGHT);
-    }
-    if (shouldTurn) {
-      const left  = turnLeft(dir);
-      const right = turnRight(dir);
-      const options = [];
-      if (canCarve(x+left[0],  y+left[1]))  options.push(left);
-      if (canCarve(x+right[0], y+right[1])) options.push(right);
-      if (options.length) {
-        dir = options[Math.floor(rnd()*options.length)];
-        straightCount = 0;
-      } else if (forwardOk) {
-        straightCount++;
-      } else {
-        const rev = reverse(dir);
-        if (canCarve(x+rev[0], y+rev[1])) {
-          dir = rev;
-          straightCount = 0;
-        } else {
-          break;
-        }
+  const edgeSegments = 20 + Math.floor(rnd()*12);
+  for (let i=0;i<edgeSegments;i++){
+    const vertical = rnd() < 0.5;
+    if (vertical){
+      const xB = 1 + Math.floor(rnd()*(w-1));
+      const y0 = 1 + Math.floor(rnd()*(h-2));
+      const len = 3 + Math.floor(rnd()*(h-4));
+      for (let y=y0; y<Math.min(h-1, y0+len); y++){
+        if (!walls[y][xB-1] && !walls[y][xB]) edgesV[y][xB] = true;
       }
     } else {
-      straightCount++;
-    }
-    const nx = x+dir[0], ny = y+dir[1];
-    if (!inside(nx,ny)) break;
-    if (!canCarve(nx,ny)) {
-      // try turning once more
-      const choices = [turnLeft(dir), turnRight(dir), reverse(dir)];
-      let found=false;
-      for (const c of choices){
-        const tx=x+c[0], ty=y+c[1];
-        if (canCarve(tx,ty)){ dir=c; found=true; break; }
+      const yB = 1 + Math.floor(rnd()*(h-1));
+      const x0 = 1 + Math.floor(rnd()*(w-2));
+      const len = 4 + Math.floor(rnd()*(w-4));
+      for (let x=x0; x<Math.min(w-1, x0+len); x++){
+        if (!walls[yB-1][x] && !walls[yB][x]) edgesH[yB][x] = true;
       }
-      if (!found) break;
     }
-    // carve
-    x += dir[0]; y += dir[1];
-    carveAt(x, y, 'h');
-
-    stepsSinceGap++;
-    if (stepsSinceGap>=nextGap){
-      // place a jump gap across the full hallway width between previous cell and current
-      if (dir[2]==='h'){
-        // vertical edge column at x, span rows y-HALF..y+HALF
-        for (let dy=-HALF; dy<=HALF; dy++){
-          const ry = y + dy;
-          if (inside(x-1,ry) && inside(x,ry) && !walls[ry][x-1] && !walls[ry][x]) {
-            edgesV[ry][x] = true;
-          }
-        }
-      } else { // 'v'
-        // horizontal edge row at y, span cols x-HALF..x+HALF
-        for (let dx=-HALF; dx<=HALF; dx++){
-          const rx = x + dx;
-          if (inside(rx,y-1) && inside(rx,y) && !walls[y-1][rx] && !walls[y][rx]) {
-            edgesH[y][rx] = true;
-          }
-        }
-      }
-      stepsSinceGap = 0;
-      nextGap = GAP_EVERY + Math.floor((rnd()*2-1)*GAP_JITTER);
-    }
-    if (x>=w-2) break; // reached right side
   }
+  let sx=1, sy=1;
+  for (let tries=0; tries<400; tries++){
+    const tx = 1 + Math.floor(rnd()*(w-2));
+    const ty = 1 + Math.floor(rnd()*(h-2));
+    if (!walls[ty][tx]){ sx=tx; sy=ty; break; }
+  }
+  return { w, h, walls, edgesV, edgesH, spawn:{x:sx, y:sy} };
+}
+function canWalk(tx,ty, map){ return tx>=0 && ty>=0 && tx<map.w && ty<map.h && !map.walls[ty][tx]; }
+function tileCenter(tx,ty){ return {x: tx*TILE + TILE/2, y: ty*TILE + TILE/2}; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function lerp(a,b,t){ return a + (b-a)*t; }
 
-  // Ensure borders remain walls
-  for (let ix=0; ix<w; ix++){ walls[0][ix]=true; walls[h-1][ix]=true; }
-  for (let iy=0; iy<h; iy++){ walls[iy][0]=true; walls[iy][w-1]=true; }
+// ---------- Character assets / anim ----------
+function makePingPong(n){ const f=[...Array(n).keys()], b=[...Array(Math.max(n-2,0)).keys()].reverse().map(i=>i+1); return f.concat(b); }
+const remote = new Map();
+const charCache = new Map();
 
-  return { w, h, walls, edgesV, edgesH, spawn: {x:start.x, y:start.y} };
-} await Promise.all([
+// Cache for character sprite assets
+const charCache = new Map();
+
+async function loadCharacterAssets(key, cfg) {
+  if (charCache.has(key)) return charCache.get(key);
+
+  const [walk, idle, hop] = await Promise.all([
     loadImage(cfg.base + cfg.walk.sheet),
     loadImage(cfg.base + cfg.idle.sheet),
-    loadImage(cfg.base + cfg.hop.sheet).catch(()=>null)
+    cfg.hop ? loadImage(cfg.base + cfg.hop.sheet) : Promise.resolve(null),
   ]);
+
   const assets = {
     cfg, walk, idle, hop,
     meta: {
@@ -593,9 +505,15 @@ function generateMap(w, h, seed=1234){
       hop:  hop ? sliceSheet(hop,  cfg.hop.cols,  cfg.hop.rows,  cfg.hop.dirGrid,  cfg.hop.framesPerDir) : {}
     }
   };
+
   charCache.set(key, assets);
   return assets;
-  
+}
+}
+  };
+  charCache.set(key, assets);
+  return assets;
+}
 function sliceSheet(img, cols, rows, dirGrid, framesPerDir){
   const CELL_W = Math.floor(img.width / cols);
   const CELL_H = Math.floor(img.height / rows);
