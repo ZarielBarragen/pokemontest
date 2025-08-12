@@ -23,6 +23,8 @@ const net = new Net(firebaseConfig);
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
+// These constants define the game's internal resolution.
+// CSS will scale the canvas visually.
 const CANVAS_W = 960, CANVAS_H = 640;
 canvas.width = CANVAS_W; canvas.height = CANVAS_H;
 
@@ -150,7 +152,6 @@ function makeRowDirGrid() {
 }
 let CHARACTERS = {};
 // ---- Optional JSON character override ----
-// ---- Optional JSON character override ----
 async function loadCharactersJSON(){
   try {
     const res = await fetch('assets/characters.json', { cache: 'no-store' });
@@ -263,6 +264,7 @@ function setupMobileControls() {
     const handleTouchStart = (e) => {
         e.preventDefault();
         for (const touch of e.changedTouches) {
+            // Find the element under the touch point
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             if (target && target.dataset.key) {
                 const key = target.dataset.key;
@@ -290,24 +292,32 @@ function setupMobileControls() {
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             const targetKey = target ? target.dataset.key : null;
 
+            // If the finger slides off a button or onto a new one
             if (currentKey !== targetKey) {
+                // Deactivate the old button
                 if (currentKey) {
                     keys.delete(currentKey);
                 }
+                // Activate the new button
                 if (targetKey) {
                     keys.add(targetKey);
                     touchState.set(touch.identifier, targetKey);
                 } else {
+                    // If we slid off into empty space, just remove tracking
                     touchState.delete(touch.identifier);
                 }
             }
         }
     };
-
-    controls.addEventListener('touchstart', handleTouchStart);
-    controls.addEventListener('touchend', handleTouchEnd);
-    controls.addEventListener('touchcancel', handleTouchEnd);
-    controls.addEventListener('touchmove', handleTouchMove);
+    
+    // Use a flag to ensure listeners are only added once
+    if (!controls.dataset.listenersAdded) {
+        controls.addEventListener('touchstart', handleTouchStart, { passive: false });
+        controls.addEventListener('touchend', handleTouchEnd, { passive: false });
+        controls.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        controls.addEventListener('touchmove', handleTouchMove, { passive: false });
+        controls.dataset.listenersAdded = 'true';
+    }
 }
 
 
@@ -516,7 +526,8 @@ window.addEventListener("keydown", e=>{
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab"].includes(e.key)){ e.preventDefault(); return; }
   }
 
-  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+  // Prevent default browser action for game keys
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ", "e", "E"].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
@@ -532,7 +543,9 @@ window.addEventListener("keydown", e=>{
   }
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
   if (e.key.toLowerCase() === "b") state.showBoxes = !state.showBoxes;
-  if (e.key.toLowerCase() === "e") tryStartHop();
+  
+  // The hop action is now handled in the main update loop to unify keyboard and touch input.
+  // We still add the key to the `keys` set here.
   keys.add(e.key);
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
@@ -1061,6 +1074,13 @@ function drawChatBubble(text, typing, frame, wx, wy, z, scale){
 let frameDt = 1/60;
 let last = 0;
 function update(dt){
+  // **FIX**: Handle hop input from both keyboard ('e' or 'space') and touch controls.
+  // This is checked every frame. The `tryStartHop` function has its own cooldown
+  // (`state.hopping`) to prevent constant hopping.
+  if (keys.has("e") || keys.has("E") || keys.has(" ")) {
+    tryStartHop();
+  }
+
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
@@ -1092,7 +1112,8 @@ function update(dt){
         state.frameTime += dt;
         const tpf = 1 / IDLE_FPS;
         while (state.frameTime >= tpf){
-          state.frameTime -= tpf; state.frameStep += 1;
+          state.frameTime -= tpf;
+          state.frameStep += 1;
           if (state.frameStep >= state.frameOrder.length){
             state.anim = "stand"; state.frameStep = 0; state.idleAccum -= IDLE_INTERVAL; if (state.idleAccum < 0) state.idleAccum = 0; break;
           }
@@ -1142,6 +1163,7 @@ function draw(){
     ctx.fillStyle = '#9bd5e0';
     ctx.textAlign = 'center';
     ctx.fillText('Loading map…', canvas.width/2, canvas.height/2);
+    return; // Don't draw anything else if map isn't ready
   }
   drawMap();
 
@@ -1247,7 +1269,9 @@ function draw(){
   }
 }
 function loop(ts){
-  const dt = Math.min(0.033, (ts - last)/1000); last = ts;
+  const now = ts || 0;
+  const dt = Math.min(0.033, (now - last)/1000); 
+  last = now;
   if (state.ready) update(dt);
   frameDt = dt;
   draw();

@@ -37,7 +37,7 @@
     <div style="display:grid;gap:14px;place-items:center">
       <h1>Pick your character</h1>
       <div id="charGrid"></div>
-      <p>WASD / Arrows to move • E to hop • Esc to reselect</p>
+      <p>WASD / Arrows to move • E/Space to hop • Esc to reselect</p>
     </div>
   </div>
 
@@ -75,7 +75,8 @@
         <div class="d-pad-btn left" data-key="ArrowLeft"></div>
         <div class="d-pad-btn right" data-key="ArrowRight"></div>
     </div>
-    <button id="hop-btn" data-key="e">E</button>
+    <!-- The data-key="e" is used by the game logic to trigger a jump -->
+    <button id="hop-btn" data-key="e">JUMP</button>
   </div> 
 
   <script type="module" src="./net.js"></script>
