@@ -508,10 +508,6 @@ async function loadCharacterAssets(key, cfg) {
   return assets;
 }
 }
-  };
-  charCache.set(key, assets);
-  return assets;
-}
 function sliceSheet(img, cols, rows, dirGrid, framesPerDir){
   const CELL_W = Math.floor(img.width / cols);
   const CELL_H = Math.floor(img.height / rows);
