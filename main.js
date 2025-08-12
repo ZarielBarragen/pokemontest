@@ -1196,7 +1196,7 @@ function generateMap(w, h, seed=1234){
   const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
   const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
 
-  const hallW = Math.max(4, Math.floor((Math.min(w,h))/12));
+  const hallW = Math.max(2, Math.floor((Math.min(w,h))/16));
   const radius = Math.floor(hallW/2);
   const margin = Math.max(3, radius+2);
   const cellStep = Math.max(hallW + 3, Math.floor(Math.min(w,h)/8));
@@ -1311,6 +1311,24 @@ function generateMap(w, h, seed=1234){
       }
     }
   }
+  
+  // Add jump gaps
+  const gapChance = 0.1;
+  for (let y=1; y<h-1; y++){
+    for (let x=1; x<w-2; x++){
+      if (!walls[y][x] && !walls[y][x+1] && rnd() < gapChance){
+        edgesV[y][x+1] = true;
+      }
+    }
+  }
+  for (let y=1; y<h-2; y++){
+    for (let x=1; x<w-1; x++){
+      if (!walls[y][x] && !walls[y+1][x] && rnd() < gapChance){
+        edgesH[y+1][x] = true;
+      }
+    }
+  }
+
 
   let sx = nodes.length ? nodes[0].x|0 : 1;
   let sy = nodes.length ? nodes[0].y|0 : 1;
