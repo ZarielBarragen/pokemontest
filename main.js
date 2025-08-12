@@ -601,7 +601,7 @@ window.addEventListener("keydown", e=>{
   }
 
   // Prevent default browser action for game keys
-  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ", "j", "J", "k", "K"].includes(e.key)) e.preventDefault();
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K"].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
