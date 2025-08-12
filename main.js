@@ -483,8 +483,6 @@ function lerp(a,b,t){ return a + (b-a)*t; }
 // ---------- Character assets / anim ----------
 function makePingPong(n){ const f=[...Array(n).keys()], b=[...Array(Math.max(n-2,0)).keys()].reverse().map(i=>i+1); return f.concat(b); }
 const remote = new Map();
-const charCache = new Map();
-
 // Cache for character sprite assets
 const charCache = new Map();
 
