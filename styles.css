@@ -205,15 +205,14 @@ body::after{
   align-items: flex-end;
   pointer-events: none;
   z-index: 100;
-  -webkit-user-select: none; /* Safari */
-  -ms-user-select: none; /* IE 10 and IE 11 */
-  user-select: none; /* Standard syntax */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 #d-pad {
   position: relative;
-  width: 180px; /* Increased size for easier touch */
-  height: 180px; /* Increased size for easier touch */
+  width: 180px;
+  height: 180px;
   background: rgba(11, 31, 18, 0.5);
   border-radius: 50%;
   border: 4px solid #163a21;
@@ -222,41 +221,100 @@ body::after{
 
 .d-pad-btn {
   position: absolute;
-  width: 60px; /* Increased size */
-  height: 60px; /* Increased size */
+  width: 60px;
+  height: 60px;
   background: rgba(44, 106, 58, 0.7);
 }
 .d-pad-btn:active {
   background: rgba(155, 188, 15, 0.8);
 }
 
-/* Centered and corrected D-Pad buttons */
 .d-pad-btn.up { top: 0; left: 50%; transform: translateX(-50%); border-top-left-radius: 10px; border-top-right-radius: 10px; }
 .d-pad-btn.down { bottom: 0; left: 50%; transform: translateX(-50%); border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
 .d-pad-btn.left { left: 0; top: 50%; transform: translateY(-50%); border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
 .d-pad-btn.right { right: 0; top: 50%; transform: translateY(-50%); border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
 
-#hop-btn {
-  width: 90px; /* Increased size */
-  height: 90px; /* Increased size */
-  border-radius: 50%;
-  font-size: 20px; /* Adjusted font size */
-  font-weight: bold;
+#action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   pointer-events: all;
+}
+
+.mobile-action-btn {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: bold;
   color: var(--text);
   background: var(--panel-2);
   border: 4px solid #163a21;
   box-shadow: 0 4px 0 rgba(0,0,0,.3);
+  font-family: inherit;
+  cursor: pointer;
 }
-#hop-btn:active {
+.mobile-action-btn:active {
   transform: translateY(2px);
   box-shadow: 0 2px 0 rgba(0,0,0,.3);
 }
 
+/* Mobile Chat Overlay */
+#mobile-chat-overlay {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: #0b1c21;
+  border-top: 2px solid #2a6473;
+  z-index: 101;
+}
+#mobile-chat-form {
+  display: flex;
+  padding: 8px;
+}
+#mobile-chat-input {
+  flex-grow: 1;
+  border: 2px solid var(--panel-2);
+  background: #0f2a22;
+  color: var(--text);
+  font-family: inherit;
+  padding: 10px;
+  font-size: 14px;
+  border-radius: 0;
+}
+#mobile-chat-form button {
+  padding: 10px 15px;
+  border: none;
+  background: var(--accent);
+  color: #1b1500;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+
 /* ==== Responsive niceties ==== */
 @media (max-width: 720px){
-  #charGrid{ grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); }
-  .card img{ width:80px; height:80px; }
+  /* Make character select cards smaller on mobile */
+  #charGrid {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 8px;
+  }
+  .small-card {
+    width: 90px;
+    height: 90px;
+    padding: 6px;
+    gap: 4px;
+  }
+  .small-card img {
+    width: 48px;
+    height: 48px;
+  }
+  .small-card span {
+    font-size: 8px;
+    padding: 3px 4px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -276,9 +334,9 @@ body::after{
     width: 46px;
     height: 46px;
   }
-  #hop-btn {
-    width: 75px;
-    height: 75px;
-    font-size: 18px;
+  .mobile-action-btn {
+    width: 70px;
+    height: 70px;
+    font-size: 14px;
   }
 }

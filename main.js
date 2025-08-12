@@ -50,6 +50,11 @@ const keyboardBtn = document.getElementById("keyboardBtn");
 const screenBtn = document.getElementById("screenBtn");
 const mobileControls = document.getElementById("mobile-controls");
 const authSubmitBtn = document.getElementById("authSubmit");
+const chatBtnMobile = document.getElementById("chat-btn-mobile");
+const backBtnMobile = document.getElementById("back-btn-mobile");
+const mobileChatOverlay = document.getElementById("mobile-chat-overlay");
+const mobileChatForm = document.getElementById("mobile-chat-form");
+const mobileChatInput = document.getElementById("mobile-chat-input");
 
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
@@ -264,12 +269,11 @@ function setupMobileControls() {
     const handleTouchStart = (e) => {
         e.preventDefault();
         for (const touch of e.changedTouches) {
-            // Find the element under the touch point
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             if (target && target.dataset.key) {
                 const key = target.dataset.key;
                 keys.add(key);
-                touchState.set(touch.identifier, key); // Track this touch
+                touchState.set(touch.identifier, key); 
             }
         }
     };
@@ -280,7 +284,7 @@ function setupMobileControls() {
             if (touchState.has(touch.identifier)) {
                 const key = touchState.get(touch.identifier);
                 keys.delete(key);
-                touchState.delete(touch.identifier); // Stop tracking
+                touchState.delete(touch.identifier); 
             }
         }
     };
@@ -292,25 +296,20 @@ function setupMobileControls() {
             const target = document.elementFromPoint(touch.clientX, touch.clientY);
             const targetKey = target ? target.dataset.key : null;
 
-            // If the finger slides off a button or onto a new one
             if (currentKey !== targetKey) {
-                // Deactivate the old button
                 if (currentKey) {
                     keys.delete(currentKey);
                 }
-                // Activate the new button
                 if (targetKey) {
                     keys.add(targetKey);
                     touchState.set(touch.identifier, targetKey);
                 } else {
-                    // If we slid off into empty space, just remove tracking
                     touchState.delete(touch.identifier);
                 }
             }
         }
     };
     
-    // Use a flag to ensure listeners are only added once
     if (!controls.dataset.listenersAdded) {
         controls.addEventListener('touchstart', handleTouchStart, { passive: false });
         controls.addEventListener('touchend', handleTouchEnd, { passive: false });
@@ -415,8 +414,8 @@ createLobbyBtn.onclick = async ()=>{
     await startWithCharacter(cfg, generateMap(w,h,seed));
     watchdogEnsureGame(cfg, {w,h,seed});
     overlayLobbies.classList.add("hidden");
-    mountChatLog();          // mount only after we're inside a lobby
-    startChatSubscription(); // subscribe now
+    mountChatLog();
+    startChatSubscription();
   } catch(e){
     console.error("Create lobby failed:", e);
     alert("Create lobby failed: " + (e?.message || e));
@@ -502,6 +501,17 @@ const state = {
 };
 
 // ---------- Input ----------
+function goBackToSelect() {
+    remote.clear();
+    net.leaveLobby().catch(()=>{});
+    state.ready = false;
+    unmountChatLog();
+    overlayLobbies.classList.add("hidden");
+    overlaySelect.classList.remove("hidden");
+    mobileControls.classList.add("hidden");
+    mobileChatOverlay.classList.add("hidden");
+}
+
 window.addEventListener("keydown", e=>{
   if (chatMode){
     if (e.key === "Enter"){
@@ -531,24 +541,38 @@ window.addEventListener("keydown", e=>{
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
-    remote.clear();
-    net.leaveLobby().catch(()=>{});
-    state.ready=false;
-    unmountChatLog();
-    overlayLobbies.classList.add("hidden");
-    overlaySelect.classList.add("hidden");
-    mobileControls.classList.add("hidden");
-    inputSelectOverlay.classList.remove("hidden");
+    goBackToSelect();
     return;
   }
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
   if (e.key.toLowerCase() === "b") state.showBoxes = !state.showBoxes;
   
-  // The hop action is now handled in the main update loop to unify keyboard and touch input.
-  // We still add the key to the `keys` set here.
   keys.add(e.key);
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
+
+backBtnMobile.onclick = goBackToSelect;
+
+chatBtnMobile.onclick = () => {
+  mobileChatOverlay.classList.remove("hidden");
+  mobileChatInput.focus();
+};
+
+mobileChatForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = mobileChatInput.value.trim();
+    const clean = censorMessage(text);
+    
+    if (clean && clean.length) {
+        state.say = clean;
+        state.sayTimer = chatShowTime;
+        net.sendChat(clean).catch(() => {});
+    }
+    
+    mobileChatInput.value = "";
+    mobileChatOverlay.classList.add("hidden");
+});
+
 
 // ---------- Map generation (seeded) ----------
 
@@ -584,8 +608,6 @@ function analyzeBitmap(sheet, sx, sy, sw, sh){
 }
 
 // Slice a sprite sheet into direction -> frames[] using a row-based grid.
-// cols: number of columns in the sheet, rows: number of rows
-// dirGrid: {dir: {row, start}}, framesPerDir: frames along the row starting at 'start'.
 function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
   const out = {};
   if (!sheet || !cols || !rows || !dirGrid || !framesPerDir) return out;
@@ -600,7 +622,6 @@ function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
       const c = Math.min(cols-1, start + i);
       const sx = c * cw;
       const sy = r * ch;
-      // analyzeBitmap crops to the non-transparent pixels and returns anchor (ox,oy)
       const frame = analyzeBitmap(sheet, sx, sy, cw, ch);
       strip.push(frame);
     }
@@ -1074,9 +1095,6 @@ function drawChatBubble(text, typing, frame, wx, wy, z, scale){
 let frameDt = 1/60;
 let last = 0;
 function update(dt){
-  // **FIX**: Handle hop input from both keyboard ('e' or 'space') and touch controls.
-  // This is checked every frame. The `tryStartHop` function has its own cooldown
-  // (`state.hopping`) to prevent constant hopping.
   if (keys.has("e") || keys.has("E") || keys.has(" ")) {
     tryStartHop();
   }
@@ -1155,7 +1173,6 @@ function update(dt){
   }
 }
 function draw(){
-  // Always clear bg so the canvas never appears empty/transparent
   ctx.fillStyle = '#061b21';
   ctx.fillRect(0,0,canvas.width,canvas.height);
   if (!state.map) {
@@ -1163,14 +1180,12 @@ function draw(){
     ctx.fillStyle = '#9bd5e0';
     ctx.textAlign = 'center';
     ctx.fillText('Loading map…', canvas.width/2, canvas.height/2);
-    return; // Don't draw anything else if map isn't ready
+    return;
   }
   drawMap();
 
-  // collect actors
   const actors = [];
 
-  // remote
   for (const r of remote.values()){
     const assets = r.assets; if (!assets) continue;
     const meta = r.anim === "walk" ? assets.meta.walk
@@ -1208,8 +1223,6 @@ function draw(){
 
     const src = (r.anim === "hop" && assets.hop) ? assets.hop : (r.anim === "walk") ? assets.walk : assets.idle;
 
-
-    // REMOTE POSITION SMOOTHING
     let smx = r.x, smy = r.y;
     if (r.history && r.history.length >= 2){
       const now = performance.now() / 1000;
@@ -1238,7 +1251,6 @@ function draw(){
     else r.say = null;
   }
 
-  // local
   const lf = currentFrame();
   if (state.ready && lf){
     const z = state.hopping ? state.hop.z : 0;
@@ -1250,7 +1262,6 @@ function draw(){
     });
   }
 
-  // depth sort & draw
   actors.sort((a,b)=> (a.y - a.z*0.35) - (b.y - b.z*0.35));
   for (const a of actors){
     const f = a.frame, scale = a.scale;

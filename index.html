@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Poke Test</title>
 
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,9 +75,20 @@
         <div class="d-pad-btn left" data-key="ArrowLeft"></div>
         <div class="d-pad-btn right" data-key="ArrowRight"></div>
     </div>
-    <!-- The data-key="e" is used by the game logic to trigger a jump -->
-    <button id="hop-btn" data-key="e">JUMP</button>
+    <div id="action-buttons">
+      <button id="hop-btn" class="mobile-action-btn" data-key="e">JUMP</button>
+      <button id="chat-btn-mobile" class="mobile-action-btn">CHAT</button>
+      <button id="back-btn-mobile" class="mobile-action-btn">BACK</button>
+    </div>
   </div> 
+
+  <!-- Mobile Chat Input -->
+  <div id="mobile-chat-overlay" class="hidden">
+    <form id="mobile-chat-form">
+      <input id="mobile-chat-input" type="text" placeholder="Type a message..." autocomplete="off" maxlength="140">
+      <button type="submit">Send</button>
+    </form>
+  </div>
 
   <script type="module" src="./net.js"></script>
   <script type="module" src="./main.js"></script>
