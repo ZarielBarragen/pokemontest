@@ -1631,7 +1631,7 @@ function tileCenter(tx, ty) {
 }
 
 function canWalk(tx, ty, map) {
-  return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[y][tx];
+  return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[ty][tx];
 }
 
 function generateMap(w, h, seed=1234){
