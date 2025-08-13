@@ -602,6 +602,9 @@ window.addEventListener("keydown", e=>{
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab"].includes(e.key)){ e.preventDefault(); return; }
   }
 
+  // If the game isn't active, don't hijack keyboard inputs.
+  if (!state.ready) return;
+
   // Prevent default browser action for game keys
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K"].includes(e.key)) e.preventDefault();
 
@@ -1694,9 +1697,9 @@ function loop(ts){
 }
 
 // ---------- Enemy and Projectile Logic ----------
-function handleEnemyDefeat(enemyId) {
-    if (enemies.has(enemyId)) {
-        enemies.delete(enemyId);
+function handleEnemyDefeat(enemy) {
+    if (enemies.has(enemy.id)) {
+        enemies.delete(enemy.id);
     }
 }
 
