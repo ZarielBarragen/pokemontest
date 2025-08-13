@@ -1697,9 +1697,9 @@ function loop(ts){
 }
 
 // ---------- Enemy and Projectile Logic ----------
-function handleEnemyDefeat(enemy) {
-    if (enemies.has(enemy.id)) {
-        enemies.delete(enemy.id);
+function handleEnemyDefeat(enemyId) {
+    if (enemies.has(enemyId)) {
+        enemies.delete(enemyId);
     }
 }
 
