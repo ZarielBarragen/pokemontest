@@ -242,6 +242,7 @@ export class Net {
       if (snap.exists()) {
           return snap.val();
       } else {
+          // If user exists but has no stats, create them.
           const defaultStats = { level: 1, xp: 0, coins: 0 };
           await set(userRef, defaultStats);
           return defaultStats;
@@ -252,6 +253,7 @@ export class Net {
       const uid = this.auth.currentUser?.uid;
       if (!uid) return;
       const userRef = ref(this.db, `users/${uid}`);
+      // Use a transaction to safely update stats like XP and coins
       return runTransaction(userRef, (currentData) => {
           if (currentData) {
               if (statsUpdate.xp) {
@@ -450,6 +452,36 @@ export class Net {
   subscribeCoins({ onAdd, onRemove }) {
       if (!this.currentLobbyId) return () => {};
       const base = ref(this.db, `lobbies/${this.currentLobbyId}/coins`);
+
+      const a = onChildAdded(base, (snap) => {
+          onAdd && onAdd(snap.key, snap.val());
+      });
+      const r = onChildRemoved(base, (snap) => {
+          onRemove && onRemove(snap.key);
+      });
+
+      const unsub = () => { try{a();}catch{} try{r();}catch{} };
+      this.playersUnsubs.push(unsub);
+      return unsub;
+  }
+  
+    // ---------- HEALTH PACKS (RTDB) ----------
+  async setInitialHealthPacks(healthPacksData) {
+      const uid = this.auth.currentUser?.uid;
+      if (!this.currentLobbyId || uid !== this.currentLobbyOwner) return;
+      const healthPacksRef = ref(this.db, `lobbies/${this.currentLobbyId}/healthPacks`);
+      await set(healthPacksRef, healthPacksData);
+  }
+
+  async removeHealthPack(packId) {
+      if (!this.currentLobbyId || !packId) return;
+      const packRef = ref(this.db, `lobbies/${this.currentLobbyId}/healthPacks/${packId}`);
+      await remove(packRef);
+  }
+
+  subscribeHealthPacks({ onAdd, onRemove }) {
+      if (!this.currentLobbyId) return () => {};
+      const base = ref(this.db, `lobbies/${this.currentLobbyId}/healthPacks`);
 
       const a = onChildAdded(base, (snap) => {
           onAdd && onAdd(snap.key, snap.val());

@@ -21,6 +21,7 @@ const enemies = new Map();
 const projectiles = [];
 const playerProjectiles = [];
 const coins = new Map();
+const healthPacks = new Map();
 
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
@@ -62,6 +63,7 @@ const backBtnMobile = document.getElementById("back-btn-mobile");
 const mobileChatOverlay = document.getElementById("mobile-chat-overlay");
 const mobileChatForm = document.getElementById("mobile-chat-form");
 const mobileChatInput = document.getElementById("mobile-chat-input");
+const leaveLobbyBtn = document.getElementById("leaveLobbyBtn");
 
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
@@ -121,6 +123,7 @@ const PLAYER_R = 12; // Player collision radius
 const ENEMY_R = 16;  // Enemy collision radius
 const PROJECTILE_R = 6; // Projectile collision radius (adjusted for 8-bit square)
 const COIN_R = 10;
+const HEALTH_PACK_R = 10;
 const COIN_SCALE = 0.025; // Further reduced coin size
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
@@ -467,6 +470,7 @@ createLobbyBtn.onclick = async ()=>{
     mountChatLog();
     startChatSubscription();
     playerHudEl.classList.remove("hidden");
+    leaveLobbyBtn.classList.remove("hidden");
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
@@ -498,6 +502,7 @@ async function joinLobbyFlow(lobbyId, btnEl){
     mountChatLog();
     startChatSubscription();
     playerHudEl.classList.remove("hidden");
+    leaveLobbyBtn.classList.remove("hidden");
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
@@ -581,11 +586,12 @@ const state = {
 };
 
 // ---------- Input ----------
-function goBackToSelect() {
-    // On death, lose a level
-    const newLevel = Math.max(1, state.level - 1);
-    if (newLevel < state.level) {
-        net.updatePlayerStats({ level: newLevel, xpSet: 0 });
+function goBackToSelect(isSafeLeave = false) {
+    if (!isSafeLeave) {
+        const newLevel = Math.max(1, state.level - 1);
+        if (newLevel < state.level) {
+            net.updatePlayerStats({ level: newLevel, xpSet: 0 });
+        }
     }
     try { lobbyMusic.pause(); lobbyMusic.currentTime = 0; } catch(e) {}
 
@@ -593,6 +599,7 @@ function goBackToSelect() {
     remote.clear();
     enemies.clear();
     coins.clear();
+    healthPacks.clear();
     projectiles.length = 0;
     playerProjectiles.length = 0;
     net.leaveLobby().catch(()=>{});
@@ -603,7 +610,11 @@ function goBackToSelect() {
     mobileControls.classList.add("hidden");
     mobileChatOverlay.classList.add("hidden");
     mobileChatInput.blur();
+    leaveLobbyBtn.classList.add("hidden");
 }
+
+leaveLobbyBtn.onclick = () => goBackToSelect(true);
+
 
 window.addEventListener("keydown", e=>{
   if (chatMode){
@@ -637,7 +648,7 @@ window.addEventListener("keydown", e=>{
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
-    goBackToSelect();
+    goBackToSelect(true); // Treat Escape as a safe leave
     return;
   }
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
@@ -647,7 +658,7 @@ window.addEventListener("keydown", e=>{
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
 
-backBtnMobile.onclick = goBackToSelect;
+backBtnMobile.onclick = () => goBackToSelect(true);
 
 chatBtnMobile.onclick = () => {
   mobileChatOverlay.classList.remove("hidden");
@@ -853,6 +864,15 @@ function startNetListeners(){
           coins.delete(id);
       }
   });
+  
+  net.subscribeHealthPacks({
+      onAdd: (id, data) => {
+          healthPacks.set(id, data);
+      },
+      onRemove: (id) => {
+          healthPacks.delete(id);
+      }
+  });
 
   return net.subscribePlayers({
     onAdd: async (uid, data)=>{
@@ -977,6 +997,7 @@ async function startWithCharacter(cfg, map){
     if (net.auth.currentUser?.uid === net.currentLobbyOwner) {
         spawnEnemies(map);
         spawnCoins(map);
+        spawnHealthPacks(map);
     }
     
     updateCamera();
@@ -1504,6 +1525,7 @@ function update(dt){
   updateProjectiles(dt);
   updatePlayerProjectiles(dt);
   checkCoinCollision();
+  checkHealthPackCollision();
 
   if (selectedKey && state.ready){
     _netAccum += dt; _heartbeat += dt;
@@ -1543,6 +1565,13 @@ function draw(){
       actors.push({
           kind: "coin",
           ...coin
+      });
+  }
+  
+  for (const pack of healthPacks.values()) {
+      actors.push({
+          kind: "healthpack",
+          ...pack
       });
   }
 
@@ -1688,12 +1717,24 @@ function draw(){
             ctx.save();
             ctx.drawImage(TEX.coin, dx, dy, dw, dh);
             
-            // Apply a color tint
             ctx.globalCompositeOperation = 'source-atop';
-            ctx.fillStyle = 'rgba(255, 223, 0, 0.5)'; // Gold tint
+            ctx.fillStyle = 'rgba(255, 223, 0, 0.5)';
             ctx.fillRect(dx, dy, dw, dh);
-            ctx.restore(); // Restore original drawing state
+            ctx.restore();
         }
+        continue;
+    }
+    
+    if (a.kind === 'healthpack') {
+        const sx = Math.round(a.x - state.cam.x);
+        const sy = Math.round(a.y - state.cam.y);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fillRect(sx - 10, sy - 2, 20, 4);
+        ctx.fillRect(sx - 2, sy - 10, 4, 20);
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sx - 10, sy - 2, 20, 4);
+        ctx.strokeRect(sx - 2, sy - 10, 4, 20);
         continue;
     }
   
@@ -1841,6 +1882,37 @@ function spawnCoins(map) {
     net.setInitialCoins(coinsData).catch(e => console.error("Failed to set initial coins", e));
 }
 
+function spawnHealthPacks(map) {
+    healthPacks.clear();
+    const healthPackRng = mulberry32(map.seed + 2);
+    let spawned = 0;
+    const maxHealthPacks = Math.floor((map.w * map.h) / 400);
+    const validSpawns = [];
+    for (let y = 1; y < map.h - 1; y++) {
+        for (let x = 1; x < map.w - 1; x++) {
+            if (!map.walls[y][x]) {
+                validSpawns.push({ x, y });
+            }
+        }
+    }
+    for (let i = validSpawns.length - 1; i > 0; i--) {
+        const j = Math.floor(healthPackRng() * (i + 1));
+        [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
+    }
+
+    const healthPacksData = {};
+
+    for (const pos of validSpawns) {
+        if (spawned >= maxHealthPacks) break;
+        const id = `healthpack_${spawned}`;
+        const worldPos = tileCenter(pos.x, pos.y);
+        healthPacksData[id] = { id, x: worldPos.x, y: worldPos.y };
+        spawned++;
+    }
+
+    net.setInitialHealthPacks(healthPacksData).catch(e => console.error("Failed to set initial health packs", e));
+}
+
 
 function updateEnemies(dt) {
     if (!state.ready) return;
@@ -1968,7 +2040,7 @@ function updatePlayerProjectiles(dt) {
                 continue;
             }
 
-            for (const player of remote.values()) {
+            for (const [uid, player] of remote.entries()) {
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
@@ -1998,6 +2070,19 @@ function checkCoinCollision() {
         }
     }
 }
+
+function checkHealthPackCollision() {
+    if (!state.ready || state.hp >= state.maxHp) return;
+    for (const [id, pack] of healthPacks.entries()) {
+        const dist = Math.hypot(state.x - pack.x, state.y - pack.y);
+        if (dist < PLAYER_R + HEALTH_PACK_R) {
+            state.hp = Math.min(state.maxHp, state.hp + 50); // Heal for 50 HP
+            net.updateState({ hp: state.hp });
+            net.removeHealthPack(id);
+        }
+    }
+}
+
 
 function addXp(amount) {
     state.xp += amount;
@@ -2060,13 +2145,13 @@ function tryMeleeAttack() {
         }
     }
 
-    for (const player of remote.values()) {
+    for (const [uid, player] of remote.entries()) {
         const smoothedPos = getRemotePlayerSmoothedPos(player);
         const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
         if (dist < attackRange && isFacing(state, { x: smoothedPos.x, y: smoothedPos.y })) {
             const isKill = (player.hp - damage) <= 0;
             if(isKill) addXp(100);
-            net.dealDamage(player.uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
+            net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
         }
     }
 }
