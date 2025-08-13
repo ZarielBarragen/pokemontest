@@ -102,9 +102,10 @@ function mountChatLog(){
 function unmountChatLog(){
   if (chatUnsubLocal){ try{ chatUnsubLocal(); }catch{} chatUnsubLocal = null; }
   if (chatLogEl){ chatLogEl.remove(); chatLogEl = null; }
-  if (inputMode === 'touch') {
-      mobileControls.classList.add("hidden");
-  }
+  // --- FIX 2 ---
+  // Unconditionally hide the mobile controls when the chat log is unmounted
+  // (which happens when leaving a game). This ensures they don't persist on menu screens.
+  mobileControls.classList.add("hidden");
   playerHudEl.classList.add("hidden");
 }
 
@@ -295,7 +296,7 @@ keyboardBtn.onclick = () => {
 
 screenBtn.onclick = () => {
     inputMode = 'touch';
-    mobileControls.classList.remove("hidden");
+    mobileControls.classList.add("hidden"); // Explicitly hide here
     inputSelectOverlay.classList.add("hidden");
     overlaySelect.classList.remove("hidden");
     setupMobileControls();
@@ -428,9 +429,9 @@ function showLobbies(){
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
   overlaySelect.classList.remove("hidden"); 
-  if (inputMode === 'touch') {
-      mobileControls.classList.add("hidden");
-  }
+  // --- FIX 2 ---
+  // Unconditionally hide the mobile controls when going back to the character select screen.
+  mobileControls.classList.add("hidden");
 };
 refreshBtn.onclick = ()=>{
   if (lobbyUnsub) { try{ unsubscribeLobby(); }catch{} lobbyUnsub = null; }
@@ -462,6 +463,9 @@ createLobbyBtn.onclick = async ()=>{
     mountChatLog();
     startChatSubscription();
     playerHudEl.classList.remove("hidden");
+    if (inputMode === 'touch') {
+        mobileControls.classList.remove("hidden");
+    }
   } catch(e){
     console.error("Create lobby failed:", e);
     alert("Create lobby failed: " + (e?.message || e));
@@ -489,6 +493,9 @@ async function joinLobbyFlow(lobbyId, btnEl){
     mountChatLog();
     startChatSubscription();
     playerHudEl.classList.remove("hidden");
+    if (inputMode === 'touch') {
+        mobileControls.classList.remove("hidden");
+    }
   } catch(e){
     console.error("Join lobby failed:", e);
     alert("Join lobby failed: " + (e?.message || e));
@@ -1828,9 +1835,6 @@ function updateProjectiles(dt) {
     }
 }
 
-// =================================================================
-//  FIXED FUNCTION
-// =================================================================
 function updatePlayerProjectiles(dt) {
     if (!state.ready) return;
 
@@ -1863,7 +1867,9 @@ function updatePlayerProjectiles(dt) {
                     enemy.hp = Math.max(0, enemy.hp - p.damage);
                     hit = true;
                     if (enemy.hp <= 0) {
-                        handleEnemyDefeat(enemy);
+                        // --- FIX 1 ---
+                        // Pass the enemy's ID, not the whole object, to the defeat handler.
+                        handleEnemyDefeat(enemy.id);
                     }
                     break; 
                 }
@@ -1889,8 +1895,6 @@ function updatePlayerProjectiles(dt) {
                 playerProjectiles.splice(i, 1);
             }
         }
-        // No 'else' block. Remote projectiles are just for show on this client.
-        // The damage is handled by the 'subscribeToHits' listener when the owner reports a hit.
     }
 }
 
@@ -1927,7 +1931,6 @@ function tryMeleeAttack() {
     // Broadcast the attack animation to other players
     net.performMeleeAttack().catch(e => console.error("Failed to broadcast melee attack", e));
 
-    // --- NEW DAMAGE LOGIC ---
     const attackRange = TILE * 1.5;
     const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
 
@@ -1937,7 +1940,9 @@ function tryMeleeAttack() {
         if (dist < attackRange && isFacing(state, enemy)) {
             enemy.hp = Math.max(0, enemy.hp - damage);
             if (enemy.hp <= 0) {
-                handleEnemyDefeat(enemy);
+                // --- FIX 1 ---
+                // Pass the enemy's ID, not the whole object, to the defeat handler.
+                handleEnemyDefeat(enemy.id);
             }
         }
     }
@@ -1966,8 +1971,6 @@ function tryRangedAttack() {
     const projectileSpeed = TILE * 8;
     const [vx, vy] = DIR_VECS[state.dir];
 
-    // FIX: Make projectile origin more reliable by not depending on the animation frame.
-    // Originate from slightly above the player's anchor point (feet).
     const startY = state.y - (TILE * 0.5);
 
     const p_data = {
@@ -1977,8 +1980,8 @@ function tryRangedAttack() {
         vy: vy * projectileSpeed,
         damage: 20,
         life: 2.0,
-        ownerId: net.auth.currentUser.uid, // Track owner for PvP
-        color: cfg.projectileColor || '#FFFF00' // Projectile color
+        ownerId: net.auth.currentUser.uid,
+        color: cfg.projectileColor || '#FFFF00'
     };
     
     playerProjectiles.push(p_data);

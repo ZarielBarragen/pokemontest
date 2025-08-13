@@ -144,7 +144,7 @@ export class Net {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
-    this.joinTimestamp = Date.now(); // Record join time
+    this.joinTimestamp = Date.now(); // Record the time the player joins
     try {
       const s = await get(child(ref(this.db), `lobbies/${lobbyId}/meta`));
       this.currentLobbyOwner = s.exists() ? (s.val().owner || null) : null;
