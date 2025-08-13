@@ -282,19 +282,16 @@ export class Net {
       return unsub;
   }
   
-  // NEW: Broadcast a melee attack event
   async performMeleeAttack() {
     if (!this.currentLobbyId) return;
     const meleeAttacksRef = ref(this.db, `lobbies/${this.currentLobbyId}/melee_attacks`);
     const newAttackRef = push(meleeAttacksRef);
-    // We just need to signal that an attack happened. The payload can be simple.
     await set(newAttackRef, {
       by: this.auth.currentUser?.uid,
       ts: rtdbServerTimestamp()
     });
   }
 
-  // NEW: Listen for melee attack events from other players
   subscribeToMeleeAttacks(onAttack) {
       if (!this.currentLobbyId) return () => {};
       const meleeAttacksRef = ref(this.db, `lobbies/${this.currentLobbyId}/melee_attacks`);
@@ -302,12 +299,10 @@ export class Net {
 
       const unsub = onChildAdded(q, (snap) => {
           const attackData = snap.val();
-          // Don't trigger animation for our own attacks that are already playing locally
           if (attackData.by === this.auth.currentUser?.uid) {
               return;
           }
           onAttack(attackData);
-          // Clean up the event so it doesn't fire again on a page refresh
           remove(snap.ref).catch(e => console.error("Failed to remove melee attack event", e));
       });
 
@@ -351,5 +346,45 @@ export class Net {
     }, (err)=>console.error("subscribeChat:", err));
     this.chatUnsub = unsub;
     return unsub;
+  }
+
+  // ---------- ENEMIES (RTDB) ----------
+  async setInitialEnemies(enemiesData) {
+    const uid = this.auth.currentUser?.uid;
+    // Only the lobby owner can set the initial enemy state.
+    if (!this.currentLobbyId || uid !== this.currentLobbyOwner) return;
+    const enemiesRef = ref(this.db, `lobbies/${this.currentLobbyId}/enemies`);
+    await set(enemiesRef, enemiesData);
+  }
+
+  async updateEnemyState(enemyId, partialData) {
+      if (!this.currentLobbyId || !enemyId) return;
+      const enemyRef = ref(this.db, `lobbies/${this.currentLobbyId}/enemies/${enemyId}`);
+      await update(enemyRef, partialData);
+  }
+
+  async removeEnemy(enemyId) {
+      if (!this.currentLobbyId || !enemyId) return;
+      const enemyRef = ref(this.db, `lobbies/${this.currentLobbyId}/enemies/${enemyId}`);
+      await remove(enemyRef);
+  }
+
+  subscribeEnemies({ onAdd, onChange, onRemove }) {
+      if (!this.currentLobbyId) return () => {};
+      const base = ref(this.db, `lobbies/${this.currentLobbyId}/enemies`);
+
+      const a = onChildAdded(base, (snap) => {
+          onAdd && onAdd(snap.key, snap.val());
+      });
+      const c = onChildChanged(base, (snap) => {
+          onChange && onChange(snap.key, snap.val());
+      });
+      const r = onChildRemoved(base, (snap) => {
+          onRemove && onRemove(snap.key);
+      });
+
+      const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
+      this.playersUnsubs.push(unsub);
+      return unsub;
   }
 }
