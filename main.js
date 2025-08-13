@@ -121,6 +121,7 @@ const PLAYER_R = 12; // Player collision radius
 const ENEMY_R = 16;  // Enemy collision radius
 const PROJECTILE_R = 6; // Projectile collision radius (adjusted for 8-bit square)
 const COIN_R = 10;
+const COIN_SCALE = 1.5; // Controls the visual size of the coin sprite
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
@@ -1520,6 +1521,13 @@ function draw(){
           ...enemy
       });
   }
+  
+  for (const coin of coins.values()) {
+      actors.push({
+          kind: "coin",
+          ...coin
+      });
+  }
 
   for (const r of remote.values()){
     const assets = r.assets; if (!assets) continue;
@@ -1630,23 +1638,6 @@ function draw(){
 
   actors.sort((a,b)=> (a.y - (a.z || 0)*0.35) - (b.y - (b.z || 0)*0.35));
   
-    for (const coin of coins.values()) {
-        if (TEX.coin) {
-            coin.frameTime += frameDt;
-            const tpf = 1 / 10; // 10 FPS for coin animation
-            while (coin.frameTime >= tpf) {
-                coin.frameTime -= tpf;
-                coin.frame = (coin.frame + 1) % 9; // 9 frames in the sheet
-            }
-            const frameW = TEX.coin.width / 9;
-            ctx.drawImage(
-                TEX.coin,
-                coin.frame * frameW, 0, frameW, TEX.coin.height,
-                coin.x - state.cam.x - frameW/2, coin.y - state.cam.y - TEX.coin.height/2, frameW, TEX.coin.height
-            );
-        }
-    }
-
   for (const a of actors){
     if (a.kind === 'enemy') {
         const sx = Math.round(a.x - state.cam.x);
@@ -1667,6 +1658,28 @@ function draw(){
         ctx.fillRect(hpx, hpy, hpw * (a.hp / a.maxHp), hph);
         ctx.strokeStyle = '#fff';
         ctx.strokeRect(hpx, hpy, hpw, hph);
+        continue;
+    }
+    
+    if (a.kind === 'coin') {
+        if (TEX.coin) {
+            a.frameTime += frameDt;
+            const tpf = 1 / 10; // 10 FPS for coin animation
+            while (a.frameTime >= tpf) {
+                a.frameTime -= tpf;
+                a.frame = (a.frame + 1) % 9; // 9 frames in the sheet
+            }
+            const frameW = TEX.coin.width / 9;
+            const frameH = TEX.coin.height;
+            const dw = frameW * COIN_SCALE;
+            const dh = frameH * COIN_SCALE;
+
+            ctx.drawImage(
+                TEX.coin,
+                a.frame * frameW, 0, frameW, frameH,
+                a.x - state.cam.x - dw / 2, a.y - state.cam.y - dh / 2, dw, dh
+            );
+        }
         continue;
     }
   

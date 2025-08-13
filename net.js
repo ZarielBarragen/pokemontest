@@ -242,7 +242,6 @@ export class Net {
       if (snap.exists()) {
           return snap.val();
       } else {
-          // If user exists but has no stats, create them.
           const defaultStats = { level: 1, xp: 0, coins: 0 };
           await set(userRef, defaultStats);
           return defaultStats;
@@ -253,7 +252,6 @@ export class Net {
       const uid = this.auth.currentUser?.uid;
       if (!uid) return;
       const userRef = ref(this.db, `users/${uid}`);
-      // Use a transaction to safely update stats like XP and coins
       return runTransaction(userRef, (currentData) => {
           if (currentData) {
               if (statsUpdate.xp) {
@@ -265,7 +263,7 @@ export class Net {
               if (statsUpdate.level) {
                   currentData.level = statsUpdate.level;
               }
-               if (statsUpdate.xpSet) { // To reset XP on level up/down
+               if (statsUpdate.xpSet !== undefined) { 
                   currentData.xp = statsUpdate.xpSet;
               }
           }
