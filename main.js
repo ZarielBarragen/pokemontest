@@ -121,7 +121,7 @@ const PLAYER_R = 12; // Player collision radius
 const ENEMY_R = 16;  // Enemy collision radius
 const PROJECTILE_R = 6; // Projectile collision radius (adjusted for 8-bit square)
 const COIN_R = 10;
-const COIN_SCALE = 0.03; // Further reduced coin size
+const COIN_SCALE = 0.025; // Further reduced coin size
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
@@ -135,7 +135,11 @@ loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{})
 loadImage("assets/coin.png").then(im => TEX.coin = im).catch(() => {});
 
 
-// ---------- SFX ----------
+// ---------- SFX & Music ----------
+const lobbyMusic = new Audio('assets/sfx/lobby.mp3');
+lobbyMusic.loop = true;
+lobbyMusic.volume = 0.3;
+
 function makeAudioPool(url, poolSize = 6){
   const pool = Array.from({length: poolSize}, () => new Audio(url));
   return {
@@ -285,6 +289,7 @@ net.onAuth(user=>{
     overlayLobbies.classList.add("hidden");
     unmountChatLog(); // ensure chat UI gone when signed out
     mobileControls.classList.add("hidden");
+    try { lobbyMusic.pause(); lobbyMusic.currentTime = 0; } catch(e) {}
   }
 });
 
@@ -465,6 +470,7 @@ createLobbyBtn.onclick = async ()=>{
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
+    try { lobbyMusic.play(); } catch(e) {}
   } catch(e){
     console.error("Create lobby failed:", e);
     alert("Create lobby failed: " + (e?.message || e));
@@ -495,6 +501,7 @@ async function joinLobbyFlow(lobbyId, btnEl){
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
+    try { lobbyMusic.play(); } catch(e) {}
   } catch(e){
     console.error("Join lobby failed:", e);
     alert("Join lobby failed: " + (e?.message || e));
@@ -580,6 +587,7 @@ function goBackToSelect() {
     if (newLevel < state.level) {
         net.updatePlayerStats({ level: newLevel, xpSet: 0 });
     }
+    try { lobbyMusic.pause(); lobbyMusic.currentTime = 0; } catch(e) {}
 
     keys.clear(); 
     remote.clear();
@@ -1221,14 +1229,23 @@ function drawNameTagAbove(name, level, frame, wx, wy, z, scale){
   const topWorldY = wy - frame.oy * scale - (z || 0);
   const sx = Math.round(wx - state.cam.x);
   const sy = Math.round(topWorldY - state.cam.y) - 8;
-  const displayName = `Lvl ${level} ${name}`;
-  ctx.font = '12px "Press Start 2P", monospace';
+
+  // Level Text (smaller, above)
+  ctx.font = '10px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.lineWidth = 3;
   ctx.strokeStyle = "rgba(0,0,0,0.65)";
-  ctx.strokeText(displayName, sx, sy);
+  const levelText = `Lvl ${level}`;
+  const levelY = sy - 14; // Position level text above the username
+  ctx.strokeText(levelText, sx, levelY);
+  ctx.fillStyle = "#ddd"; // A slightly different color for the level
+  ctx.fillText(levelText, sx, levelY);
+
+  // Username Text (original size, below level)
+  ctx.font = '12px "Press Start 2P", monospace';
+  ctx.strokeText(name, sx, sy);
   ctx.fillStyle = "#ffea7a";
-  ctx.fillText(displayName, sx, sy);
+  ctx.fillText(name, sx, sy);
 }
 function drawShadow(wx, wy, z, scale, overGap){
   const squash  = z ? 1 - 0.35*Math.sin(Math.min(1, z / (HOP_HEIGHT*scale)) * Math.PI) : 1;
@@ -1665,12 +1682,17 @@ function draw(){
         if (TEX.coin) {
             const dw = TEX.coin.width * COIN_SCALE;
             const dh = TEX.coin.height * COIN_SCALE;
-            ctx.drawImage(
-                TEX.coin,
-                a.x - state.cam.x - dw / 2, 
-                a.y - state.cam.y - dh / 2, 
-                dw, dh
-            );
+            const dx = a.x - state.cam.x - dw / 2;
+            const dy = a.y - state.cam.y - dh / 2;
+
+            ctx.save();
+            ctx.drawImage(TEX.coin, dx, dy, dw, dh);
+            
+            // Apply a color tint
+            ctx.globalCompositeOperation = 'source-atop';
+            ctx.fillStyle = 'rgba(255, 223, 0, 0.5)'; // Gold tint
+            ctx.fillRect(dx, dy, dw, dh);
+            ctx.restore(); // Restore original drawing state
         }
         continue;
     }
