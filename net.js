@@ -31,7 +31,10 @@ export class Net {
     this.db   = getDatabase(this.app);
 
     this._authCb = () => {};
-    this._authUnsub = onAuthStateChanged(this.auth, (u)=>this._authCb(u));
+    this._authUnsub = onAuthStateChanged(this.auth, (u)=>{
+        this._authCb(u);
+        this.setupPresence();
+    });
 
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
@@ -48,7 +51,42 @@ export class Net {
     window.addEventListener("unload",       () => { this.leaveLobby().catch(()=>{}); });
   }
 
-  // ---------- AUTH ----------
+  // ---------- AUTH & PRESENCE ----------
+  setupPresence() {
+      const uid = this.auth.currentUser?.uid;
+      if (uid) {
+          const userStatusDatabaseRef = ref(this.db, '/connections/' + uid);
+          const isOfflineForDatabase = { state: 'offline', last_changed: rtdbServerTimestamp() };
+          const isOnlineForDatabase = { state: 'online', last_changed: rtdbServerTimestamp() };
+
+          onValue(ref(this.db, '.info/connected'), (snapshot) => {
+              if (snapshot.val() === false) {
+                  return;
+              }
+              onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
+                  set(userStatusDatabaseRef, isOnlineForDatabase);
+              });
+          });
+      }
+  }
+  
+  subscribeOnlineCount(cb) {
+      const connectionsRef = ref(this.db, '/connections');
+      const handler = onValue(connectionsRef, (snap) => {
+          let count = 0;
+          if (snap.exists()) {
+              snap.forEach(childSnap => {
+                  if (childSnap.val().state === 'online') {
+                      count++;
+                  }
+              });
+          }
+          cb(count);
+      });
+      return handler;
+  }
+
+
   onAuth(cb){ this._authCb = cb; }
   _usernameToEmail(username){ return `${username}@poketest.local`; }
 
@@ -69,6 +107,8 @@ export class Net {
     return cred.user;
   }
   async logOut(){
+    const userStatusDatabaseRef = ref(this.db, '/connections/' + this.auth.currentUser.uid);
+    await set(userStatusDatabaseRef, { state: 'offline', last_changed: rtdbServerTimestamp() });
     try { await this.leaveLobby(); } catch {}
     return signOut(this.auth);
   }
@@ -225,7 +265,7 @@ export class Net {
     });
     const r = onChildRemoved(base, (snap) => {
       if (snap.key === uid) return;
-      onRemove && onRemove(snap.key);
+      onRemove && onRemove(snap.key, snap.val());
     });
 
     const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
@@ -358,13 +398,24 @@ export class Net {
       return unsub;
   }
 
-  async sendChat(text){
+  async sendChat(text, isSystemMessage = false){
     if (!this.currentLobbyId) return;
     const uid = this.auth.currentUser?.uid;
     const user = this.auth.currentUser;
     const username = user?.displayName || (user?.email ? user.email.split("@")[0] : "player");
     const msgRef = push(ref(this.db, `lobbies/${this.currentLobbyId}/chat`));
-    await set(msgRef, { uid, username, text: String(text).slice(0,200), ts: rtdbServerTimestamp() });
+    
+    const payload = {
+        uid,
+        username,
+        text: String(text).slice(0, 200),
+        ts: rtdbServerTimestamp()
+    };
+    if (isSystemMessage) {
+        payload.system = true;
+    }
+
+    await set(msgRef, payload);
 
     if (this.currentLobbyOwner && this.currentLobbyOwner === uid){
       try {

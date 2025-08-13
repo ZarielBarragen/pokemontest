@@ -64,6 +64,7 @@ const mobileChatOverlay = document.getElementById("mobile-chat-overlay");
 const mobileChatForm = document.getElementById("mobile-chat-form");
 const mobileChatInput = document.getElementById("mobile-chat-input");
 const leaveLobbyBtn = document.getElementById("leaveLobbyBtn");
+const onlineCountEl = document.getElementById("online-count");
 
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
@@ -79,7 +80,16 @@ function renderChatLog(){
   for (const m of msgs){
     const div = document.createElement("div");
     div.className = "chatItem";
-    div.textContent = `${m.username || "player"}: ${m.text}`;
+    if (m.system) {
+        div.classList.add("system");
+    }
+    const time = new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    div.innerHTML = `<span class="chat-ts">[${time}]</span> `;
+    if (m.system) {
+        div.innerHTML += m.text;
+    } else {
+        div.innerHTML += `<strong>${m.username || "player"}:</strong> ${m.text}`;
+    }
     chatLogEl.appendChild(div);
   }
   // Local draft while typing (not sent to Firestore)
@@ -130,12 +140,13 @@ const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
 const EDGE_LIP    = "rgba(255,255,255,0.08)";
 
-const TEX = { floor: null, wall: null, coin: null };
+const TEX = { floor: null, wall: null, coin: null, health: null };
 const BG_TILE_SCALE = 3.0; // visual scale for floor & wall tiles (option 2)
 
 loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{});
 loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
 loadImage("assets/coin.png").then(im => TEX.coin = im).catch(() => {});
+loadImage("assets/health.png").then(im => TEX.health = im).catch(() => {});
 
 
 // ---------- SFX & Music ----------
@@ -434,6 +445,9 @@ function showLobbies(){
   if (lobbyUnsub) try{ unsubscribeLobby(); }catch{}
   net.cleanupEmptyLobbies().catch(()=>{}).catch(()=>{});
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
+  net.subscribeOnlineCount(count => {
+      onlineCountEl.textContent = count;
+  });
 }
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
@@ -623,7 +637,7 @@ window.addEventListener("keydown", e=>{
       const clean = censorMessage(chatBuffer.trim());
       chatMode = false; state.typing = false; net.updateState({ typing:false }).catch(()=>{});
       if (clean && clean.length){
-        state.say = clean; state.sayTimer = chatShowTime; net.sendChat(clean).catch(()=>{});
+        net.sendChat(clean).catch(()=>{});
       }
       chatBuffer = "";
       renderChatLog();
@@ -671,8 +685,6 @@ mobileChatForm.addEventListener("submit", (e) => {
     const clean = censorMessage(text);
     
     if (clean && clean.length) {
-        state.say = clean;
-        state.sayTimer = chatShowTime;
         net.sendChat(clean).catch(() => {});
     }
     
@@ -878,6 +890,10 @@ function startNetListeners(){
     onAdd: async (uid, data)=>{
       const assets = await loadCharacterAssets(data.character);
       if (!assets) return;
+      
+      chatMessages.push({ system: true, text: `${data.username} has joined the lobby.`, ts: Date.now() });
+      renderChatLog();
+
       remote.set(uid, {
         uid: uid,
         username: data.username, character: data.character,
@@ -930,7 +946,14 @@ function startNetListeners(){
       }
       r.username = data.username ?? r.username;
     },
-    onRemove: (uid)=> remote.delete(uid)
+    onRemove: (uid)=> {
+        const player = remote.get(uid);
+        if (player) {
+            chatMessages.push({ system: true, text: `${player.username} has left the lobby.`, ts: Date.now() });
+            renderChatLog();
+        }
+        remote.delete(uid);
+    }
   });
 }
 
@@ -1726,15 +1749,16 @@ function draw(){
     }
     
     if (a.kind === 'healthpack') {
-        const sx = Math.round(a.x - state.cam.x);
-        const sy = Math.round(a.y - state.cam.y);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.fillRect(sx - 10, sy - 2, 20, 4);
-        ctx.fillRect(sx - 2, sy - 10, 4, 20);
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.9)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(sx - 10, sy - 2, 20, 4);
-        ctx.strokeRect(sx - 2, sy - 10, 4, 20);
+        if(TEX.health) {
+            const dw = TEX.health.width * COIN_SCALE;
+            const dh = TEX.health.height * COIN_SCALE;
+            ctx.drawImage(
+                TEX.health,
+                a.x - state.cam.x - dw / 2, 
+                a.y - state.cam.y - dh / 2, 
+                dw, dh
+            );
+        }
         continue;
     }
   
@@ -2046,7 +2070,7 @@ function updatePlayerProjectiles(dt) {
                 if (dist < PLAYER_R + PROJECTILE_R) {
                     const isKill = (player.hp - p.damage) <= 0;
                     if(isKill) addXp(100);
-                    net.dealDamage(player.uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
+                    net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
                     hit = true;
                     break;
                 }
