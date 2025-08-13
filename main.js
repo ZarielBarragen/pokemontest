@@ -559,7 +559,6 @@ const state = {
   invulnerableTimer: 0,
   attackCooldown: 0,
   attacking: false,
-  attackedThisTurn: new Set(),
 };
 
 // ---------- Input ----------
@@ -1403,7 +1402,6 @@ function update(dt){
       state.frameStep = 0;
     }
   } else if (state.attacking) {
-    const oldFrameStep = state.frameStep;
     state.frameTime += dt;
     const tpf = 1 / ATTACK_FPS;
     const animData = (state.attackType === 'melee') ? CHARACTERS[selectedKey].attack : CHARACTERS[selectedKey].shoot;
@@ -1833,19 +1831,61 @@ function updatePlayerProjectiles(dt) {
     }
 }
 
+// NEW: Helper to check if a player is facing a target
+function isFacing(player, target) {
+    const dx = target.x - player.x;
+    const dy = target.y - player.y;
+
+    switch (player.dir) {
+        case 'right':     return dx > 0 && Math.abs(dx) > Math.abs(dy);
+        case 'left':      return dx < 0 && Math.abs(dx) > Math.abs(dy);
+        case 'down':      return dy > 0 && Math.abs(dy) > Math.abs(dx);
+        case 'up':        return dy < 0 && Math.abs(dy) > Math.abs(dx);
+        case 'downRight': return dx > 0 && dy > 0;
+        case 'downLeft':  return dx < 0 && dy > 0;
+        case 'upRight':   return dx > 0 && dy < 0;
+        case 'upLeft':    return dx < 0 && dy < 0;
+    }
+    return false;
+}
+
 function tryMeleeAttack() {
     if (!state.ready || state.attacking || state.attackCooldown > 0) return;
 
+    // Set animation state immediately
     state.attacking = true;
     state.attackType = 'melee';
     state.anim = 'attack';
     state.frameStep = 0;
     state.frameTime = 0;
     state.attackCooldown = 0.5;
-    state.attackedThisTurn.clear(); // Reset hit targets for this new attack
 
-    // Broadcast that a melee attack is happening
+    // Broadcast the attack animation to other players
     net.performMeleeAttack().catch(e => console.error("Failed to broadcast melee attack", e));
+
+    // --- NEW DAMAGE LOGIC ---
+    const attackRange = TILE * 1.5;
+    const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
+
+    // Damage enemies
+    for (const enemy of enemies.values()) {
+        const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
+        if (dist < attackRange && isFacing(state, enemy)) {
+            enemy.hp = Math.max(0, enemy.hp - damage);
+            if (enemy.hp <= 0) {
+                // TODO: Respawn logic...
+            }
+        }
+    }
+
+    // Damage other players
+    for (const player of remote.values()) {
+        const smoothedPos = getRemotePlayerSmoothedPos(player);
+        const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
+        if (dist < attackRange && isFacing(state, { x: smoothedPos.x, y: smoothedPos.y })) {
+            net.dealDamage(player.uid, damage).catch(e => console.error("Deal damage failed", e));
+        }
+    }
 }
 
 function tryRangedAttack() {
@@ -2074,4 +2114,5 @@ function generateMap(w, h, seed=1234){
     if (!walls[ty][tx]){ sx=tx; sy=ty; break outer; }
   }
 
-  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed }
+  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed };
+}
