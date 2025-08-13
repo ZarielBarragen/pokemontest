@@ -1737,18 +1737,42 @@ function spawnEnemies(map) {
 
 function updateEnemies(dt) {
     if (!state.ready) return;
+
+    // Create a list of all players (local and remote) with their positions
+    const allPlayers = [{ id: net.auth.currentUser.uid, x: state.x, y: state.y }];
+    for (const [uid, player] of remote.entries()) {
+        const pos = getRemotePlayerSmoothedPos(player);
+        allPlayers.push({ id: uid, x: pos.x, y: pos.y });
+    }
+
     for (const enemy of enemies.values()) {
         if (enemy.attackCooldown > 0) {
             enemy.attackCooldown -= dt;
         }
-        const dx = state.x - enemy.x;
-        const dy = state.y - enemy.y;
-        const dist = Math.hypot(dx, dy);
 
-        if (dist < enemy.detectionRange && enemy.attackCooldown <= 0) {
+        let closestPlayer = null;
+        let minPlayerDist = Infinity;
+
+        // Find the closest player to this enemy
+        for (const player of allPlayers) {
+            const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+            if (dist < minPlayerDist) {
+                minPlayerDist = dist;
+                closestPlayer = player;
+            }
+        }
+
+        // If a closest player was found and is in range, attack them
+        if (closestPlayer && minPlayerDist < enemy.detectionRange && enemy.attackCooldown <= 0) {
             enemy.attackCooldown = 2.0; // 2 second cooldown
+
+            const dx = closestPlayer.x - enemy.x;
+            const dy = closestPlayer.y - enemy.y;
+            const dist = minPlayerDist;
+
             const vx = (dx / dist) * enemy.projectileSpeed;
             const vy = (dy / dist) * enemy.projectileSpeed;
+            
             projectiles.push({
                 x: enemy.x,
                 y: enemy.y,
