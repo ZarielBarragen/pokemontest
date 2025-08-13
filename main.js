@@ -959,24 +959,38 @@ function updateCamera(){
   state.cam.x = clamp(state.x - canvas.width  /2, 0, Math.max(0, mapPxW - canvas.width));
   state.cam.y = clamp(state.y - canvas.height /2, 0, Math.max(0, mapPxH - canvas.height));
 }
+
+// =================================================================
+//  FIXED FUNCTION
+// =================================================================
 function resolvePlayerCollisions(nx, ny){
   let x = nx, y = ny;
-  const myR = PLAYER_R * (state.scale || 3);
+  // The collision radius should be a constant, not scaled with the character's visual size.
+  const myR = PLAYER_R; 
   for (const r of remote.values()){
-    const rr = PLAYER_R * (r.scale || 3);
-    const minD = myR + rr;
-    const dx = x - r.x, dy = y - r.y;
+    const rr = PLAYER_R; // Use the constant radius for remote players too.
+    const minD = myR + rr; // This will now be PLAYER_R + PLAYER_R
+
+    // Use the same smoothed position for collision as we do for drawing and attacking
+    // to ensure consistency.
+    const remotePos = getRemotePlayerSmoothedPos(r);
+    const dx = x - remotePos.x;
+    const dy = y - remotePos.y;
     const d = Math.hypot(dx,dy);
+
     if (d > 0 && d < minD){
-      const push = (minD - d) + 0.5;
+      const push = (minD - d) + 0.5; // Small extra push to prevent sticking
       x += (dx / d) * push;
       y += (dy / d) * push;
     }
   }
+  // Clamp to map boundaries
   x = clamp(x, TILE*0.5, state.map.w*TILE - TILE*0.5);
   y = clamp(y, TILE*0.5, state.map.h*TILE - TILE*0.5);
   return {x,y};
 }
+// =================================================================
+
 function tryMove(dt, vx, vy){
   const stepX = vx * SPEED * currentSpeedMult() * dt;
   const stepY = vy * SPEED * currentSpeedMult() * dt;
