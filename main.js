@@ -766,7 +766,6 @@ function startNetListeners(){
       net.updateState({ hp: state.hp }); 
 
       if (state.hp <= 0) {
-          console.log("Player has been defeated!");
           goBackToSelect();
       }
   });
@@ -1809,7 +1808,6 @@ function updateProjectiles(dt) {
                 projectiles.splice(i, 1);
                 net.updateState({ hp: state.hp });
                 if (state.hp <= 0) {
-                    console.log("Player has been defeated!");
                     goBackToSelect();
                 }
             }
@@ -1840,12 +1838,11 @@ function updatePlayerProjectiles(dt) {
             continue;
         }
 
-        let hit = false;
-
-        // --- Collision Logic ---
-        // Case 1: The projectile belongs to the local player.
-        // Check if it hits enemies or other remote players.
+        // ONLY the owner of the projectile checks for collisions.
+        // This makes the shooter's client authoritative.
         if (p.ownerId === net.auth.currentUser.uid) {
+            let hit = false;
+            
             // Check against enemies
             for (const enemy of enemies.values()) {
                 const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
@@ -1861,7 +1858,7 @@ function updatePlayerProjectiles(dt) {
 
             if (hit) {
                 playerProjectiles.splice(i, 1);
-                continue; // Skip to next projectile
+                continue; // Move to the next projectile
             }
 
             // Check against remote players
@@ -1874,33 +1871,13 @@ function updatePlayerProjectiles(dt) {
                     break;
                 }
             }
-        } 
-        // Case 2: The projectile belongs to a remote player.
-        // Check if it hits the local player.
-        else {
-            if (state.invulnerableTimer <= 0) {
-                const dist = Math.hypot(p.x - state.x, p.y - state.y);
-                if (dist < PLAYER_R + PROJECTILE_R) {
-                    // Apply damage and effects to the local player
-                    state.hp = Math.max(0, state.hp - p.damage);
-                    state.invulnerableTimer = 0.7;
-                    state.anim = 'hurt';
-                    state.frameStep = 0;
-                    state.frameTime = 0;
-                    net.updateState({ hp: state.hp });
-                    hit = true;
-                    if (state.hp <= 0) {
-                        console.log("Player has been defeated!");
-                        goBackToSelect();
-                    }
-                }
+
+            if (hit) {
+                playerProjectiles.splice(i, 1);
             }
         }
-
-        // If a hit occurred in either case, remove the projectile
-        if (hit) {
-            playerProjectiles.splice(i, 1);
-        }
+        // No 'else' block. Remote projectiles are just for show on this client.
+        // The damage is handled by the 'subscribeToHits' listener when the owner reports a hit.
     }
 }
 
