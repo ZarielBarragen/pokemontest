@@ -563,6 +563,7 @@ const state = {
 
 // ---------- Input ----------
 function goBackToSelect() {
+    keys.clear(); // FIX: Clear input state to prevent automatic actions on rejoin.
     remote.clear();
     enemies.clear();
     projectiles.length = 0;
@@ -1951,9 +1952,9 @@ function tryRangedAttack() {
     const projectileSpeed = TILE * 8;
     const [vx, vy] = DIR_VECS[state.dir];
 
-    // Projectile origin from center
-    const frame = currentFrame();
-    const startY = state.y - (frame ? (frame.oy * state.scale / 2) : (TILE * state.scale / 4));
+    // FIX: Make projectile origin more reliable by not depending on the animation frame.
+    // Originate from slightly above the player's anchor point (feet).
+    const startY = state.y - (TILE * 0.5);
 
     const p_data = {
         x: state.x,
