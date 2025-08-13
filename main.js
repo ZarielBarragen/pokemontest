@@ -1792,12 +1792,20 @@ function updateProjectiles(dt) {
     }
 }
 
+// =================================================================
+//  FIXED FUNCTION
+// =================================================================
 function updatePlayerProjectiles(dt) {
     if (!state.ready) return;
+
     for (let i = playerProjectiles.length - 1; i >= 0; i--) {
         const p = playerProjectiles[i];
-        if (!p) continue; 
+        if (!p) {
+            playerProjectiles.splice(i, 1);
+            continue;
+        }
 
+        // First, update position and lifetime for ALL player projectiles
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
@@ -1807,43 +1815,70 @@ function updatePlayerProjectiles(dt) {
             continue;
         }
 
-        if (p.ownerId !== net.auth.currentUser.uid) {
-            continue;
-        }
-
         let hit = false;
-        // Check collision with enemies
-        for (const enemy of enemies.values()) {
-            const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
-            if (dist < ENEMY_R + PROJECTILE_R) {
-                enemy.hp = Math.max(0, enemy.hp - p.damage);
-                hit = true;
-                if (enemy.hp <= 0) {
-                    // Respawn logic...
+
+        // --- Collision Logic ---
+        // Case 1: The projectile belongs to the local player.
+        // Check if it hits enemies or other remote players.
+        if (p.ownerId === net.auth.currentUser.uid) {
+            // Check against enemies
+            for (const enemy of enemies.values()) {
+                const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
+                if (dist < ENEMY_R + PROJECTILE_R) {
+                    enemy.hp = Math.max(0, enemy.hp - p.damage);
+                    hit = true;
+                    if (enemy.hp <= 0) {
+                        // TODO: Add enemy respawn logic
+                    }
+                    break; 
                 }
-                break; 
             }
-        }
-        if (hit) {
-            playerProjectiles.splice(i, 1);
-            continue;
+
+            if (hit) {
+                playerProjectiles.splice(i, 1);
+                continue; // Skip to next projectile
+            }
+
+            // Check against remote players
+            for (const player of remote.values()) {
+                const smoothedPos = getRemotePlayerSmoothedPos(player);
+                const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
+                if (dist < PLAYER_R + PROJECTILE_R) {
+                    net.dealDamage(player.uid, p.damage).catch(e => console.error("Deal damage failed", e));
+                    hit = true;
+                    break;
+                }
+            }
+        } 
+        // Case 2: The projectile belongs to a remote player.
+        // Check if it hits the local player.
+        else {
+            if (state.invulnerableTimer <= 0) {
+                const dist = Math.hypot(p.x - state.x, p.y - state.y);
+                if (dist < PLAYER_R + PROJECTILE_R) {
+                    // Apply damage and effects to the local player
+                    state.hp = Math.max(0, state.hp - p.damage);
+                    state.invulnerableTimer = 0.7;
+                    state.anim = 'hurt';
+                    state.frameStep = 0;
+                    state.frameTime = 0;
+                    net.updateState({ hp: state.hp });
+                    hit = true;
+                    if (state.hp <= 0) {
+                        console.log("Player has been defeated!");
+                        goBackToSelect();
+                    }
+                }
+            }
         }
 
-        // Check collision with remote players
-        for (const player of remote.values()) {
-            const smoothedPos = getRemotePlayerSmoothedPos(player);
-            const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
-            if (dist < PLAYER_R + PROJECTILE_R) {
-                net.dealDamage(player.uid, p.damage).catch(e => console.error("Deal damage failed", e));
-                hit = true;
-                break;
-            }
-        }
+        // If a hit occurred in either case, remove the projectile
         if (hit) {
             playerProjectiles.splice(i, 1);
         }
     }
 }
+
 
 // NEW: Helper to check if a player is facing a target
 function isFacing(player, target) {
