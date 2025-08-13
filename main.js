@@ -102,9 +102,6 @@ function mountChatLog(){
 function unmountChatLog(){
   if (chatUnsubLocal){ try{ chatUnsubLocal(); }catch{} chatUnsubLocal = null; }
   if (chatLogEl){ chatLogEl.remove(); chatLogEl = null; }
-  // --- FIX 2 ---
-  // Unconditionally hide the mobile controls when the chat log is unmounted
-  // (which happens when leaving a game). This ensures they don't persist on menu screens.
   mobileControls.classList.add("hidden");
   playerHudEl.classList.add("hidden");
 }
@@ -168,7 +165,6 @@ function makeRowDirGrid() {
 }
 let CHARACTERS = {};
 
-// **FIX**: Embed character data directly to prevent 404 errors.
 const CHARACTERS_DATA = {
   "$schemaVersion": 1,
   "defaults": { "scale": 3, "speed": 1.0, "hp": 100, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "hurt": { "sheet": "Hurt-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "attack": { "sheet": "Attack-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 11, "rows": 8, "framesPerDir": 11, "dirGrid": "row" } },
@@ -429,8 +425,6 @@ function showLobbies(){
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
   overlaySelect.classList.remove("hidden"); 
-  // --- FIX 2 ---
-  // Unconditionally hide the mobile controls when going back to the character select screen.
   mobileControls.classList.add("hidden");
 };
 refreshBtn.onclick = ()=>{
@@ -793,16 +787,30 @@ function startNetListeners(){
       });
   });
   
-  // NEW: Listen for melee attacks from other players
   net.subscribeToMeleeAttacks(attackData => {
       const attackerId = attackData.by;
       const remotePlayer = remote.get(attackerId);
       if (remotePlayer) {
-          // Trigger the attack animation for the remote player
           remotePlayer.anim = 'attack';
           remotePlayer.frameStep = 0;
           remotePlayer.frameTime = 0;
       }
+  });
+
+  // NEW: Subscribe to enemy state changes
+  net.subscribeEnemies({
+    onAdd: (id, data) => {
+        enemies.set(id, data);
+    },
+    onChange: (id, data) => {
+        const enemy = enemies.get(id);
+        if (enemy) {
+            Object.assign(enemy, data);
+        }
+    },
+    onRemove: (id) => {
+        enemies.delete(id);
+    }
   });
 
   return net.subscribePlayers({
@@ -916,7 +924,12 @@ async function startWithCharacter(cfg, map){
     state.invulnerableTimer = 0;
     state.attackCooldown = 0;
 
-    spawnEnemies(map);
+    // The lobby owner is responsible for spawning enemies in the database.
+    // Other clients will receive them via the real-time listener.
+    if (net.auth.currentUser?.uid === net.currentLobbyOwner) {
+        spawnEnemies(map);
+    }
+    
     updateCamera();
     state.ready = true;
 
@@ -970,36 +983,28 @@ function updateCamera(){
   state.cam.y = clamp(state.y - canvas.height /2, 0, Math.max(0, mapPxH - canvas.height));
 }
 
-// =================================================================
-//  FIXED FUNCTION
-// =================================================================
 function resolvePlayerCollisions(nx, ny){
   let x = nx, y = ny;
-  // The collision radius should be a constant, not scaled with the character's visual size.
   const myR = PLAYER_R; 
   for (const r of remote.values()){
-    const rr = PLAYER_R; // Use the constant radius for remote players too.
-    const minD = myR + rr; // This will now be PLAYER_R + PLAYER_R
+    const rr = PLAYER_R;
+    const minD = myR + rr;
 
-    // Use the same smoothed position for collision as we do for drawing and attacking
-    // to ensure consistency.
     const remotePos = getRemotePlayerSmoothedPos(r);
     const dx = x - remotePos.x;
     const dy = y - remotePos.y;
     const d = Math.hypot(dx,dy);
 
     if (d > 0 && d < minD){
-      const push = (minD - d) + 0.5; // Small extra push to prevent sticking
+      const push = (minD - d) + 0.5;
       x += (dx / d) * push;
       y += (dy / d) * push;
     }
   }
-  // Clamp to map boundaries
   x = clamp(x, TILE*0.5, state.map.w*TILE - TILE*0.5);
   y = clamp(y, TILE*0.5, state.map.h*TILE - TILE*0.5);
   return {x,y};
 }
-// =================================================================
 
 function tryMove(dt, vx, vy){
   const stepX = vx * SPEED * currentSpeedMult() * dt;
@@ -1195,7 +1200,6 @@ function drawShadow(wx, wy, z, scale, overGap){
   ctx.globalAlpha = 1;
 }
 
-// NEW chat bubble (anchored to top of current frame + word wrap)
 function drawChatBubble(text, typing, frame, wx, wy, z, scale){
   const topWorldY = wy - frame.oy * scale - (z || 0);
   const sxCenter  = Math.round(wx - state.cam.x);
@@ -1330,11 +1334,10 @@ function updatePlayerHUD() {
     playerHudEl.appendChild(card);
 }
 
-// Helper function to get the smoothed, interpolated position of a remote player
 function getRemotePlayerSmoothedPos(r) {
     if (r.history && r.history.length >= 2){
       const now = performance.now() / 1000;
-      const LAG = 0.12; // This is the same as NET_INTERVAL
+      const LAG = 0.12;
       const target = now - LAG;
       let a = r.history[0], b = r.history[r.history.length - 1];
       for (let i = 1; i < r.history.length; i++){
@@ -1350,7 +1353,7 @@ function getRemotePlayerSmoothedPos(r) {
       const smy = a.y + (b.y - a.y) * t;
       return { x: smx, y: smy };
     }
-    return { x: r.x, y: r.y }; // Fallback to raw position
+    return { x: r.x, y: r.y };
 }
 
 
@@ -1457,7 +1460,6 @@ function update(dt){
     }
   }
 
-  // Always resolve collisions and update camera after any position change
   const adj = resolvePlayerCollisions(state.x, state.y);
   state.x = adj.x;
   state.y = adj.y;
@@ -1676,7 +1678,6 @@ function draw(){
     else if (a.say)    drawChatBubble(a.say, false, a.frame, a.x, a.y, a.z, a.scale);
   }
   
-  // Draw projectiles on top of everything
   for (const p of projectiles) {
       ctx.beginPath();
       ctx.arc(p.x - state.cam.x, p.y - state.cam.y, PROJECTILE_R, 0, Math.PI * 2);
@@ -1686,9 +1687,7 @@ function draw(){
       ctx.lineWidth = 2;
       ctx.stroke();
   }
-  // Draw player projectiles
   for (const p of playerProjectiles) {
-      // FIX 2 & 3: 8-bit square projectile with correct color
       ctx.fillStyle = p.color || '#FFFF00';
       ctx.fillRect(Math.round(p.x - state.cam.x - 4), Math.round(p.y - state.cam.y - 4), 8, 8);
   }
@@ -1704,18 +1703,16 @@ function loop(ts){
 }
 
 // ---------- Enemy and Projectile Logic ----------
-function handleEnemyDefeat(enemyId) {
-    if (enemies.has(enemyId)) {
-        enemies.delete(enemyId);
-    }
-}
-
 function spawnEnemies(map) {
-    enemies.clear();
+    // This function now only generates the initial enemy data object.
+    // The lobby owner will push this to Firebase.
+    // All clients (including the owner) will then receive the data via the real-time listener.
+    enemies.clear(); // Clear local list to prevent duplicates before listener populates it.
     projectiles.length = 0;
+
     const enemyRng = mulberry32(map.seed);
     let spawned = 0;
-    const maxEnemies = Math.floor((map.w * map.h) / 200); // Scale enemies with map size
+    const maxEnemies = Math.floor((map.w * map.h) / 200);
     const validSpawns = [];
     for (let y = 1; y < map.h - 1; y++) {
         for (let x = 1; x < map.w - 1; x++) {
@@ -1728,13 +1725,18 @@ function spawnEnemies(map) {
         const j = Math.floor(enemyRng() * (i + 1));
         [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
     }
+
+    const enemiesData = {}; // Create a plain object for Firebase.
+
     for (const pos of validSpawns) {
         if (spawned >= maxEnemies) break;
         const distToPlayer = Math.hypot(pos.x - map.spawn.x, pos.y - map.spawn.y);
         if (distToPlayer < 10) continue;
+        
         const id = `enemy_${spawned}`;
         const worldPos = tileCenter(pos.x, pos.y);
-        enemies.set(id, {
+        
+        enemiesData[id] = {
             id,
             x: worldPos.x,
             y: worldPos.y,
@@ -1745,15 +1747,17 @@ function spawnEnemies(map) {
             detectionRange: TILE * 7,
             projectileSpeed: TILE * 5,
             damage: 10,
-        });
+        };
         spawned++;
     }
+
+    // The lobby owner is responsible for creating the initial enemies in the database.
+    net.setInitialEnemies(enemiesData).catch(e => console.error("Failed to set initial enemies", e));
 }
 
 function updateEnemies(dt) {
     if (!state.ready) return;
 
-    // Create a list of all players (local and remote) with their positions
     const allPlayers = [{ id: net.auth.currentUser.uid, x: state.x, y: state.y }];
     for (const [uid, player] of remote.entries()) {
         const pos = getRemotePlayerSmoothedPos(player);
@@ -1768,7 +1772,6 @@ function updateEnemies(dt) {
         let closestPlayer = null;
         let minPlayerDist = Infinity;
 
-        // Find the closest player to this enemy
         for (const player of allPlayers) {
             const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
             if (dist < minPlayerDist) {
@@ -1777,9 +1780,8 @@ function updateEnemies(dt) {
             }
         }
 
-        // If a closest player was found and is in range, attack them
         if (closestPlayer && minPlayerDist < enemy.detectionRange && enemy.attackCooldown <= 0) {
-            enemy.attackCooldown = 2.0; // 2 second cooldown
+            enemy.attackCooldown = 2.0;
 
             const dx = closestPlayer.x - enemy.x;
             const dy = closestPlayer.y - enemy.y;
@@ -1793,7 +1795,7 @@ function updateEnemies(dt) {
                 y: enemy.y,
                 vx, vy,
                 damage: enemy.damage,
-                life: 3.0 // 3 seconds lifetime
+                life: 3.0
             });
         }
     }
@@ -1803,7 +1805,7 @@ function updateProjectiles(dt) {
     if (!state.ready) return;
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
-        if (!p) { // FIX: Add a check to ensure projectile exists
+        if (!p) {
             projectiles.splice(i, 1);
             continue;
         }
@@ -1816,12 +1818,11 @@ function updateProjectiles(dt) {
             continue;
         }
         
-        // Check collision with local player
         if (state.invulnerableTimer <= 0) {
             const dist = Math.hypot(p.x - state.x, p.y - state.y);
             if (dist < PLAYER_R + PROJECTILE_R) {
                 state.hp = Math.max(0, state.hp - p.damage);
-                state.invulnerableTimer = 0.7; // 0.7 seconds of invulnerability
+                state.invulnerableTimer = 0.7;
                 state.anim = 'hurt';
                 state.frameStep = 0;
                 state.frameTime = 0;
@@ -1845,7 +1846,6 @@ function updatePlayerProjectiles(dt) {
             continue;
         }
 
-        // First, update position and lifetime for ALL player projectiles
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
@@ -1855,32 +1855,30 @@ function updatePlayerProjectiles(dt) {
             continue;
         }
 
-        // ONLY the owner of the projectile checks for collisions.
-        // This makes the shooter's client authoritative.
         if (p.ownerId === net.auth.currentUser.uid) {
             let hit = false;
             
-            // Check against enemies
             for (const enemy of enemies.values()) {
+                if (enemy.hp <= 0) continue; // Don't hit already defeated enemies.
+
                 const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
                 if (dist < ENEMY_R + PROJECTILE_R) {
-                    enemy.hp = Math.max(0, enemy.hp - p.damage);
-                    hit = true;
-                    if (enemy.hp <= 0) {
-                        // --- FIX 1 ---
-                        // Pass the enemy's ID, not the whole object, to the defeat handler.
-                        handleEnemyDefeat(enemy.id);
+                    const newHp = Math.max(0, enemy.hp - p.damage);
+                    if (newHp <= 0) {
+                        net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
+                    } else {
+                        net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
                     }
+                    hit = true;
                     break; 
                 }
             }
 
             if (hit) {
                 playerProjectiles.splice(i, 1);
-                continue; // Move to the next projectile
+                continue;
             }
 
-            // Check against remote players
             for (const player of remote.values()) {
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
@@ -1898,8 +1896,6 @@ function updatePlayerProjectiles(dt) {
     }
 }
 
-
-// NEW: Helper to check if a player is facing a target
 function isFacing(player, target) {
     const dx = target.x - player.x;
     const dy = target.y - player.y;
@@ -1920,7 +1916,6 @@ function isFacing(player, target) {
 function tryMeleeAttack() {
     if (!state.ready || state.attacking || state.attackCooldown > 0) return;
 
-    // Set animation state immediately
     state.attacking = true;
     state.attackType = 'melee';
     state.anim = 'attack';
@@ -1928,26 +1923,25 @@ function tryMeleeAttack() {
     state.frameTime = 0;
     state.attackCooldown = 0.5;
 
-    // Broadcast the attack animation to other players
     net.performMeleeAttack().catch(e => console.error("Failed to broadcast melee attack", e));
 
     const attackRange = TILE * 1.5;
     const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
 
-    // Damage enemies
     for (const enemy of enemies.values()) {
+        if (enemy.hp <= 0) continue;
+
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackRange && isFacing(state, enemy)) {
-            enemy.hp = Math.max(0, enemy.hp - damage);
-            if (enemy.hp <= 0) {
-                // --- FIX 1 ---
-                // Pass the enemy's ID, not the whole object, to the defeat handler.
-                handleEnemyDefeat(enemy.id);
+            const newHp = Math.max(0, enemy.hp - damage);
+            if (newHp <= 0) {
+                net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
+            } else {
+                net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
             }
         }
     }
 
-    // Damage other players
     for (const player of remote.values()) {
         const smoothedPos = getRemotePlayerSmoothedPos(player);
         const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
@@ -2147,9 +2141,7 @@ function generateMap(w, h, seed=1234){
     }
   }
   
-  // Add jump gaps in narrow corridors
   const gapChance = 0.25;
-  // Vertical gaps
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       if (!walls[y][x-1] && !walls[y][x] &&
@@ -2160,7 +2152,6 @@ function generateMap(w, h, seed=1234){
       }
     }
   }
-  // Horizontal gaps
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       if (!walls[y-1][x] && !walls[y][x] &&
