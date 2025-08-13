@@ -240,12 +240,38 @@ export class Net {
 
     const unsub = onChildAdded(hitsRef, (snap) => {
       onHit(snap.val());
-      // Remove the hit after processing to prevent re-triggering on reload
       remove(snap.ref).catch(e => console.error("Failed to remove hit", e));
     });
 
-    this.playersUnsubs.push(unsub); // Add to cleanup array
+    this.playersUnsubs.push(unsub);
     return unsub;
+  }
+
+  async fireProjectile(projectileData) {
+      if (!this.currentLobbyId) return;
+      const projectilesRef = ref(this.db, `lobbies/${this.currentLobbyId}/projectiles`);
+      const newProjectileRef = push(projectilesRef);
+      await set(newProjectileRef, {
+          ...projectileData,
+          ts: rtdbServerTimestamp()
+      });
+  }
+
+  subscribeToProjectiles(onFire) {
+      if (!this.currentLobbyId) return () => {};
+      const projectilesRef = ref(this.db, `lobbies/${this.currentLobbyId}/projectiles`);
+      const q = query(projectilesRef, orderByChild('ts'), limitToLast(20));
+
+      const unsub = onChildAdded(q, (snap) => {
+          const projectileData = snap.val();
+          if (projectileData.ownerId === this.auth.currentUser?.uid) {
+              return; 
+          }
+          onFire(projectileData);
+      });
+
+      this.playersUnsubs.push(unsub);
+      return unsub;
   }
 
   async sendChat(text){

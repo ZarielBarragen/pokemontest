@@ -754,7 +754,6 @@ async function loadCharacterAssets(key) {
 
 // ---------- Net listeners ----------
 function startNetListeners(){
-  // NEW: Subscribe to hits for PvP damage
   net.subscribeToHits(hit => {
       if (state.invulnerableTimer > 0) return;
 
@@ -763,12 +762,25 @@ function startNetListeners(){
       state.anim = 'hurt';
       state.frameStep = 0;
       state.frameTime = 0;
-      net.updateState({ hp: state.hp }); // Report my new HP to others
+      net.updateState({ hp: state.hp }); 
 
       if (state.hp <= 0) {
           console.log("Player has been defeated!");
-          goBackToSelect(); // For now, just go back to select screen
+          goBackToSelect();
       }
+  });
+
+  net.subscribeToProjectiles(p_data => {
+      playerProjectiles.push({
+          x: p_data.x,
+          y: p_data.y,
+          vx: p_data.vx,
+          vy: p_data.vy,
+          damage: p_data.damage,
+          life: p_data.life,
+          ownerId: p_data.ownerId,
+          color: p_data.color
+      });
   });
   
   return net.subscribePlayers({
@@ -790,7 +802,7 @@ function startNetListeners(){
         assets,
         history: [{ t: performance.now()/1000, x: data.x, y: data.y }],
         lastProcessedAttackTs: 0,
-        showHpBarTimer: 0, // This will be triggered on damage
+        showHpBarTimer: 0,
       });
     },
     onChange: (uid, data)=>{
@@ -802,12 +814,11 @@ function startNetListeners(){
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
       
-      // If remote player took damage, trigger hurt animation and HP bar
       if (data.hp < r.hp) {
           r.anim = 'hurt';
           r.frameStep = 0;
           r.frameTime = 0;
-          r.showHpBarTimer = 2.0; // Show HP bar for 2 seconds
+          r.showHpBarTimer = 2.0;
       }
       r.hp = data.hp ?? r.hp;
 
@@ -1857,7 +1868,7 @@ function tryRangedAttack() {
     const frame = currentFrame();
     const startY = state.y - (frame ? (frame.oy * state.scale / 2) : (TILE * state.scale / 4));
 
-    playerProjectiles.push({
+    const p_data = {
         x: state.x,
         y: startY,
         vx: vx * projectileSpeed,
@@ -1866,7 +1877,10 @@ function tryRangedAttack() {
         life: 2.0,
         ownerId: net.auth.currentUser.uid, // Track owner for PvP
         color: cfg.projectileColor || '#FFFF00' // Projectile color
-    });
+    };
+    
+    playerProjectiles.push(p_data);
+    net.fireProjectile(p_data);
 }
 
 
@@ -2064,4 +2078,3 @@ function generateMap(w, h, seed=1234){
 
   return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed };
 }
-
