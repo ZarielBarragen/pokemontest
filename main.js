@@ -1414,37 +1414,6 @@ function update(dt){
       state.frameStep += 1;
     }
 
-    // Check if the damage-dealing frame has been crossed during this update
-    const damageFrame = Math.floor(attackFrames * 0.4); // Deal damage 40% of the way through the animation
-    if (state.attackType === 'melee' && oldFrameStep < damageFrame && state.frameStep >= damageFrame) {
-        const attackRange = TILE * 1.5;
-        const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
-
-        // Damage enemies
-        for (const enemy of enemies.values()) {
-            if (state.attackedThisTurn.has(enemy.id)) continue;
-            const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
-            if (dist < attackRange) {
-                enemy.hp = Math.max(0, enemy.hp - damage);
-                state.attackedThisTurn.add(enemy.id);
-                if (enemy.hp <= 0) {
-                    // TODO: Respawn logic...
-                }
-            }
-        }
-        
-        // Damage other players
-        for (const player of remote.values()) {
-            if (state.attackedThisTurn.has(player.uid)) continue;
-            const smoothedPos = getRemotePlayerSmoothedPos(player);
-            const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
-            if (dist < attackRange) {
-                net.dealDamage(player.uid, damage).catch(e => console.error("Deal damage failed", e));
-                state.attackedThisTurn.add(player.uid);
-            }
-        }
-    }
-
     if (state.frameStep >= attackFrames) {
       state.attacking = false;
       state.anim = 'stand';
@@ -2105,5 +2074,4 @@ function generateMap(w, h, seed=1234){
     if (!walls[ty][tx]){ sx=tx; sy=ty; break outer; }
   }
 
-  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed };
-}
+  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed }
