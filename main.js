@@ -134,7 +134,7 @@ const ENEMY_R = 16;  // Enemy collision radius
 const PROJECTILE_R = 6; // Projectile collision radius (adjusted for 8-bit square)
 const COIN_R = 10;
 const HEALTH_PACK_R = 10;
-const COIN_SCALE = 0.025; // Further reduced coin size
+const COIN_SCALE = 0.25; // Further reduced coin size
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
@@ -637,6 +637,8 @@ window.addEventListener("keydown", e=>{
       const clean = censorMessage(chatBuffer.trim());
       chatMode = false; state.typing = false; net.updateState({ typing:false }).catch(()=>{});
       if (clean && clean.length){
+        state.say = clean; 
+        state.sayTimer = chatShowTime; 
         net.sendChat(clean).catch(()=>{});
       }
       chatBuffer = "";
@@ -685,6 +687,8 @@ mobileChatForm.addEventListener("submit", (e) => {
     const clean = censorMessage(text);
     
     if (clean && clean.length) {
+        state.say = clean;
+        state.sayTimer = chatShowTime;
         net.sendChat(clean).catch(() => {});
     }
     
@@ -891,8 +895,7 @@ function startNetListeners(){
       const assets = await loadCharacterAssets(data.character);
       if (!assets) return;
       
-      chatMessages.push({ system: true, text: `${data.username} has joined the lobby.`, ts: Date.now() });
-      renderChatLog();
+      net.sendChat(`${data.username} has joined the lobby.`, true);
 
       remote.set(uid, {
         uid: uid,
@@ -946,11 +949,10 @@ function startNetListeners(){
       }
       r.username = data.username ?? r.username;
     },
-    onRemove: (uid)=> {
-        const player = remote.get(uid);
+    onRemove: (uid, val)=> {
+        const player = val || remote.get(uid);
         if (player) {
-            chatMessages.push({ system: true, text: `${player.username} has left the lobby.`, ts: Date.now() });
-            renderChatLog();
+            net.sendChat(`${player.username} has left the lobby.`, true);
         }
         remote.delete(uid);
     }
@@ -1165,35 +1167,40 @@ function tryStartHop(){
 // ---------- Animation helpers ----------
 function currentFrame(){
   let meta, strip, idx;
+  const fallbackFrame = state.animMeta.idle?.down?.[0] || null;
+
   if (state.anim === "walk"){
     meta = state.animMeta.walk; strip = meta?.[state.dir];
+    if (!strip || !strip.length) return fallbackFrame;
     idx = state.frameOrder[state.frameStep % state.frameOrder.length] % strip.length; return strip[idx];
   }
   if (state.anim === "idle"){
     meta = state.animMeta.idle; strip = meta?.[state.dir];
+    if (!strip || !strip.length) return fallbackFrame;
     idx = state.frameOrder[state.frameStep % state.frameOrder.length] % strip.length; return strip[idx];
   }
   if (state.anim === "hop"){
     meta = state.animMeta.hop; strip = meta?.[state.dir];
-    if (!strip) return null;
+    if (!strip || !strip.length) return fallbackFrame;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   if (state.anim === "hurt") {
     meta = state.animMeta.hurt; strip = meta?.[state.dir];
-    if (!strip) return null;
+    if (!strip || !strip.length) return fallbackFrame;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   if (state.anim === "attack") {
     meta = state.animMeta.attack; strip = meta?.[state.dir];
-    if (!strip) return null;
+    if (!strip || !strip.length) return fallbackFrame;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
   if (state.anim === "shoot") {
     meta = state.animMeta.shoot; strip = meta?.[state.dir];
-    if (!strip) return null;
+    if (!strip || !strip.length) return fallbackFrame;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
-  meta = state.animMeta.idle; strip = meta?.[state.dir]; return strip ? strip[0] : null;
+  
+  return fallbackFrame;
 }
 
 // ---------- Draw helpers ----------
