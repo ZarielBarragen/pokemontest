@@ -559,6 +559,7 @@ const state = {
   invulnerableTimer: 0,
   attackCooldown: 0,
   attacking: false,
+  attackedThisTurn: new Set(),
 };
 
 // ---------- Input ----------
@@ -1405,16 +1406,49 @@ function update(dt){
       state.frameStep = 0;
     }
   } else if (state.attacking) {
+    const oldFrameStep = state.frameStep;
     state.frameTime += dt;
     const tpf = 1 / ATTACK_FPS;
     const animData = (state.attackType === 'melee') ? CHARACTERS[selectedKey].attack : CHARACTERS[selectedKey].shoot;
     const attackFrames = animData.framesPerDir;
-    const frameOrder = [...Array(attackFrames).keys()];
+
     while (state.frameTime >= tpf) {
       state.frameTime -= tpf;
       state.frameStep += 1;
     }
-    if (state.frameStep >= frameOrder.length) {
+
+    // Check if the damage-dealing frame has been crossed during this update
+    const damageFrame = Math.floor(attackFrames * 0.4); // Deal damage 40% of the way through the animation
+    if (state.attackType === 'melee' && oldFrameStep < damageFrame && state.frameStep >= damageFrame) {
+        const attackRange = TILE * 1.5;
+        const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
+
+        // Damage enemies
+        for (const enemy of enemies.values()) {
+            if (state.attackedThisTurn.has(enemy.id)) continue;
+            const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
+            if (dist < attackRange) {
+                enemy.hp = Math.max(0, enemy.hp - damage);
+                state.attackedThisTurn.add(enemy.id);
+                if (enemy.hp <= 0) {
+                    // TODO: Respawn logic...
+                }
+            }
+        }
+        
+        // Damage other players
+        for (const player of remote.values()) {
+            if (state.attackedThisTurn.has(player.uid)) continue;
+            const smoothedPos = getRemotePlayerSmoothedPos(player);
+            const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
+            if (dist < attackRange) {
+                net.dealDamage(player.uid, damage).catch(e => console.error("Deal damage failed", e));
+                state.attackedThisTurn.add(player.uid);
+            }
+        }
+    }
+
+    if (state.frameStep >= attackFrames) {
       state.attacking = false;
       state.anim = 'stand';
       state.frameStep = 0;
@@ -1838,31 +1872,10 @@ function tryMeleeAttack() {
     state.frameStep = 0;
     state.frameTime = 0;
     state.attackCooldown = 0.5;
+    state.attackedThisTurn.clear(); // Reset hit targets for this new attack
 
-    // NEW: Broadcast that a melee attack is happening
+    // Broadcast that a melee attack is happening
     net.performMeleeAttack().catch(e => console.error("Failed to broadcast melee attack", e));
-
-    const attackRange = TILE * 1.5;
-    const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
-
-    for (const enemy of enemies.values()) {
-        const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
-        if (dist < attackRange) {
-            enemy.hp = Math.max(0, enemy.hp - damage);
-            if (enemy.hp <= 0) {
-                // Respawn logic...
-            }
-        }
-    }
-    
-    // PvP Melee Damage
-    for (const player of remote.values()) {
-        const smoothedPos = getRemotePlayerSmoothedPos(player);
-        const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
-        if (dist < attackRange) {
-            net.dealDamage(player.uid, damage).catch(e => console.error("Deal damage failed", e));
-        }
-    }
 }
 
 function tryRangedAttack() {
