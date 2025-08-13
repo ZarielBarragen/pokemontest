@@ -1757,7 +1757,7 @@ function updatePlayerProjectiles(dt) {
     if (!state.ready) return;
     for (let i = playerProjectiles.length - 1; i >= 0; i--) {
         const p = playerProjectiles[i];
-        if (!p) continue; // Guard against projectiles that were just removed
+        if (!p) continue; 
 
         p.x += p.vx * dt;
         p.y += p.vy * dt;
@@ -2064,3 +2064,4 @@ function generateMap(w, h, seed=1234){
 
   return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed };
 }
+
