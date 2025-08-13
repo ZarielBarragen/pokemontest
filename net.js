@@ -10,7 +10,7 @@ import {
 import {
   getDatabase, ref, set, update, remove, onDisconnect, push,
   onValue, onChildAdded, onChildChanged, onChildRemoved, get, child, query,
-  orderByChild, limitToLast, serverTimestamp as rtdbServerTimestamp
+  orderByChild, limitToLast, serverTimestamp as rtdbServerTimestamp, startAt
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 export const firebaseConfig = {
@@ -35,6 +35,7 @@ export class Net {
 
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
+    this.joinTimestamp = 0;
 
     this._playerRef = null;
     this._playerOnDisconnect = null;
@@ -143,6 +144,7 @@ export class Net {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
+    this.joinTimestamp = Date.now(); // Record join time
     try {
       const s = await get(child(ref(this.db), `lobbies/${lobbyId}/meta`));
       this.currentLobbyOwner = s.exists() ? (s.val().owner || null) : null;
@@ -188,7 +190,12 @@ export class Net {
       ts: rtdbServerTimestamp()
     };
     await set(this._playerRef, payload);
-    try { this._playerOnDisconnect = onDisconnect(this._playerRef); await this._playerOnDisconnect.remove(); } catch {}
+    try { 
+        this._playerOnDisconnect = onDisconnect(this._playerRef); 
+        await this._playerOnDisconnect.remove(); 
+    } catch (e) {
+        console.error("Failed to set onDisconnect handler:", e);
+    }
   }
 
   async updateState(partial){
@@ -237,8 +244,9 @@ export class Net {
     if (!this.currentLobbyId || !uid) return () => {};
 
     const hitsRef = ref(this.db, `lobbies/${this.currentLobbyId}/players/${uid}/hits`);
+    const q = query(hitsRef, orderByChild('ts'), startAt(this.joinTimestamp));
 
-    const unsub = onChildAdded(hitsRef, (snap) => {
+    const unsub = onChildAdded(q, (snap) => {
       onHit(snap.val());
       remove(snap.ref).catch(e => console.error("Failed to remove hit", e));
     });
@@ -260,7 +268,7 @@ export class Net {
   subscribeToProjectiles(onFire) {
       if (!this.currentLobbyId) return () => {};
       const projectilesRef = ref(this.db, `lobbies/${this.currentLobbyId}/projectiles`);
-      const q = query(projectilesRef, orderByChild('ts'), limitToLast(20));
+      const q = query(projectilesRef, orderByChild('ts'), startAt(this.joinTimestamp));
 
       const unsub = onChildAdded(q, (snap) => {
           const projectileData = snap.val();
@@ -290,7 +298,7 @@ export class Net {
   subscribeToMeleeAttacks(onAttack) {
       if (!this.currentLobbyId) return () => {};
       const meleeAttacksRef = ref(this.db, `lobbies/${this.currentLobbyId}/melee_attacks`);
-      const q = query(meleeAttacksRef, orderByChild('ts'), limitToLast(20));
+      const q = query(meleeAttacksRef, orderByChild('ts'), startAt(this.joinTimestamp));
 
       const unsub = onChildAdded(q, (snap) => {
           const attackData = snap.val();
