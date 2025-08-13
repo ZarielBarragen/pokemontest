@@ -1012,8 +1012,6 @@ function tryMove(dt, vx, vy){
     }
     state.y = newY;
   }
-  const adj = resolvePlayerCollisions(state.x, state.y);
-  state.x = adj.x; state.y = adj.y;
 }
 function tryStartHop(){
   if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking) return;
@@ -1391,7 +1389,6 @@ function update(dt){
         }
       }
     }
-    updateCamera();
   } else if (state.anim === 'hurt') {
     state.frameTime += dt;
     const tpf = 1 / HURT_FPS;
@@ -1462,14 +1459,18 @@ function update(dt){
     state.frameTime += dt;
     const tpf = 1 / HOP_FPS;
     while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep += 1; }
-    updateCamera();
+    
     if (state.hop.t >= 1){
       state.hopping = false; state.anim = state.moving ? "walk" : "stand";
       state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
     }
-    const adj = resolvePlayerCollisions(state.x, state.y);
-    state.x = adj.x; state.y = adj.y;
   }
+
+  // Always resolve collisions and update camera after any position change
+  const adj = resolvePlayerCollisions(state.x, state.y);
+  state.x = adj.x;
+  state.y = adj.y;
+  updateCamera();
 
   if (state.sayTimer > 0){ state.sayTimer -= dt; if (state.sayTimer <= 0){ state.sayTimer = 0; state.say = null; } }
   if (state.typing){ chatTypingDots = (chatTypingDots + dt*3) % 3; }
