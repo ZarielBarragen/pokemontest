@@ -121,7 +121,7 @@ const PLAYER_R = 12; // Player collision radius
 const ENEMY_R = 16;  // Enemy collision radius
 const PROJECTILE_R = 6; // Projectile collision radius (adjusted for 8-bit square)
 const COIN_R = 10;
-const COIN_SCALE = 1.5; // Controls the visual size of the coin sprite
+const COIN_SCALE = 0.75; // NEW: Reduced coin size
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
@@ -839,7 +839,7 @@ function startNetListeners(){
 
   net.subscribeCoins({
       onAdd: (id, data) => {
-          coins.set(id, { ...data, frame: 0, frameTime: 0 });
+          coins.set(id, data);
       },
       onRemove: (id) => {
           coins.delete(id);
@@ -1663,21 +1663,13 @@ function draw(){
     
     if (a.kind === 'coin') {
         if (TEX.coin) {
-            a.frameTime += frameDt;
-            const tpf = 1 / 10; // 10 FPS for coin animation
-            while (a.frameTime >= tpf) {
-                a.frameTime -= tpf;
-                a.frame = (a.frame + 1) % 9; // 9 frames in the sheet
-            }
-            const frameW = TEX.coin.width / 9;
-            const frameH = TEX.coin.height;
-            const dw = frameW * COIN_SCALE;
-            const dh = frameH * COIN_SCALE;
-
+            const dw = TEX.coin.width * COIN_SCALE;
+            const dh = TEX.coin.height * COIN_SCALE;
             ctx.drawImage(
                 TEX.coin,
-                a.frame * frameW, 0, frameW, frameH,
-                a.x - state.cam.x - dw / 2, a.y - state.cam.y - dh / 2, dw, dh
+                a.x - state.cam.x - dw / 2, 
+                a.y - state.cam.y - dh / 2, 
+                dw, dh
             );
         }
         continue;
