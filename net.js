@@ -273,6 +273,39 @@ export class Net {
       this.playersUnsubs.push(unsub);
       return unsub;
   }
+  
+  // NEW: Broadcast a melee attack event
+  async performMeleeAttack() {
+    if (!this.currentLobbyId) return;
+    const meleeAttacksRef = ref(this.db, `lobbies/${this.currentLobbyId}/melee_attacks`);
+    const newAttackRef = push(meleeAttacksRef);
+    // We just need to signal that an attack happened. The payload can be simple.
+    await set(newAttackRef, {
+      by: this.auth.currentUser?.uid,
+      ts: rtdbServerTimestamp()
+    });
+  }
+
+  // NEW: Listen for melee attack events from other players
+  subscribeToMeleeAttacks(onAttack) {
+      if (!this.currentLobbyId) return () => {};
+      const meleeAttacksRef = ref(this.db, `lobbies/${this.currentLobbyId}/melee_attacks`);
+      const q = query(meleeAttacksRef, orderByChild('ts'), limitToLast(20));
+
+      const unsub = onChildAdded(q, (snap) => {
+          const attackData = snap.val();
+          // Don't trigger animation for our own attacks that are already playing locally
+          if (attackData.by === this.auth.currentUser?.uid) {
+              return;
+          }
+          onAttack(attackData);
+          // Clean up the event so it doesn't fire again on a page refresh
+          remove(snap.ref).catch(e => console.error("Failed to remove melee attack event", e));
+      });
+
+      this.playersUnsubs.push(unsub);
+      return unsub;
+  }
 
   async sendChat(text){
     if (!this.currentLobbyId) return;

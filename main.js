@@ -783,6 +783,18 @@ function startNetListeners(){
       });
   });
   
+  // NEW: Listen for melee attacks from other players
+  net.subscribeToMeleeAttacks(attackData => {
+      const attackerId = attackData.by;
+      const remotePlayer = remote.get(attackerId);
+      if (remotePlayer) {
+          // Trigger the attack animation for the remote player
+          remotePlayer.anim = 'attack';
+          remotePlayer.frameStep = 0;
+          remotePlayer.frameTime = 0;
+      }
+  });
+
   return net.subscribePlayers({
     onAdd: async (uid, data)=>{
       const assets = await loadCharacterAssets(data.character);
@@ -1826,6 +1838,9 @@ function tryMeleeAttack() {
     state.frameStep = 0;
     state.frameTime = 0;
     state.attackCooldown = 0.5;
+
+    // NEW: Broadcast that a melee attack is happening
+    net.performMeleeAttack().catch(e => console.error("Failed to broadcast melee attack", e));
 
     const attackRange = TILE * 1.5;
     const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
