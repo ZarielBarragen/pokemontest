@@ -1787,6 +1787,10 @@ function updateProjectiles(dt) {
     if (!state.ready) return;
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
+        if (!p) { // FIX: Add a check to ensure projectile exists
+            projectiles.splice(i, 1);
+            continue;
+        }
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
