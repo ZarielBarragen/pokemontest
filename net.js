@@ -10,7 +10,7 @@ import {
 import {
   getDatabase, ref, set, update, remove, onDisconnect, push,
   onValue, onChildAdded, onChildChanged, onChildRemoved, get, child, query,
-  orderByChild, limitToLast, serverTimestamp as rtdbServerTimestamp, startAt
+  orderByChild, limitToLast, serverTimestamp as rtdbServerTimestamp, startAt, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
 export const firebaseConfig = {
@@ -55,6 +55,11 @@ export class Net {
   async signUp(username, password){
     const email = this._usernameToEmail(username);
     const cred = await createUserWithEmailAndPassword(this.auth, email, password);
+    await set(ref(this.db, `users/${cred.user.uid}`), {
+        level: 1,
+        xp: 0,
+        coins: 0
+    });
     try { await updateProfile(cred.user, { displayName: username }); } catch {}
     return cred.user;
   }
@@ -187,6 +192,7 @@ export class Net {
       scale: Number(state.scale)||3,
       hp: Number(state.hp) || 100,
       maxHp: Number(state.maxHp) || 100,
+      level: state.level || 1, // Add level to lobby data
       ts: rtdbServerTimestamp()
     };
     await set(this._playerRef, payload);
@@ -226,15 +232,57 @@ export class Net {
     this.playersUnsubs.push(unsub);
     return unsub;
   }
+  
+    // ---------- USER STATS (persistent) ----------
+  async getUserStats() {
+      const uid = this.auth.currentUser?.uid;
+      if (!uid) return { level: 1, xp: 0, coins: 0 };
+      const userRef = ref(this.db, `users/${uid}`);
+      const snap = await get(userRef);
+      if (snap.exists()) {
+          return snap.val();
+      } else {
+          // If user exists but has no stats, create them.
+          const defaultStats = { level: 1, xp: 0, coins: 0 };
+          await set(userRef, defaultStats);
+          return defaultStats;
+      }
+  }
+
+  async updatePlayerStats(statsUpdate) {
+      const uid = this.auth.currentUser?.uid;
+      if (!uid) return;
+      const userRef = ref(this.db, `users/${uid}`);
+      // Use a transaction to safely update stats like XP and coins
+      return runTransaction(userRef, (currentData) => {
+          if (currentData) {
+              if (statsUpdate.xp) {
+                  currentData.xp = (currentData.xp || 0) + statsUpdate.xp;
+              }
+              if (statsUpdate.coins) {
+                  currentData.coins = (currentData.coins || 0) + statsUpdate.coins;
+              }
+              if (statsUpdate.level) {
+                  currentData.level = statsUpdate.level;
+              }
+               if (statsUpdate.xpSet) { // To reset XP on level up/down
+                  currentData.xp = statsUpdate.xpSet;
+              }
+          }
+          return currentData;
+      });
+  }
+
 
   // ---------- PVP & CHAT (RTDB) ----------
-  async dealDamage(targetUid, damage) {
+  async dealDamage(targetUid, damage, isKill) {
     if (!this.currentLobbyId || !targetUid) return;
     const hitsRef = ref(this.db, `lobbies/${this.currentLobbyId}/players/${targetUid}/hits`);
     const newHitRef = push(hitsRef);
     await set(newHitRef, {
       damage: damage,
       from: this.auth.currentUser?.uid,
+      isKill: !!isKill,
       ts: rtdbServerTimestamp()
     });
   }
@@ -351,7 +399,6 @@ export class Net {
   // ---------- ENEMIES (RTDB) ----------
   async setInitialEnemies(enemiesData) {
     const uid = this.auth.currentUser?.uid;
-    // Only the lobby owner can set the initial enemy state.
     if (!this.currentLobbyId || uid !== this.currentLobbyOwner) return;
     const enemiesRef = ref(this.db, `lobbies/${this.currentLobbyId}/enemies`);
     await set(enemiesRef, enemiesData);
@@ -384,6 +431,36 @@ export class Net {
       });
 
       const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
+      this.playersUnsubs.push(unsub);
+      return unsub;
+  }
+
+    // ---------- COINS (RTDB) ----------
+  async setInitialCoins(coinsData) {
+      const uid = this.auth.currentUser?.uid;
+      if (!this.currentLobbyId || uid !== this.currentLobbyOwner) return;
+      const coinsRef = ref(this.db, `lobbies/${this.currentLobbyId}/coins`);
+      await set(coinsRef, coinsData);
+  }
+
+  async removeCoin(coinId) {
+      if (!this.currentLobbyId || !coinId) return;
+      const coinRef = ref(this.db, `lobbies/${this.currentLobbyId}/coins/${coinId}`);
+      await remove(coinRef);
+  }
+
+  subscribeCoins({ onAdd, onRemove }) {
+      if (!this.currentLobbyId) return () => {};
+      const base = ref(this.db, `lobbies/${this.currentLobbyId}/coins`);
+
+      const a = onChildAdded(base, (snap) => {
+          onAdd && onAdd(snap.key, snap.val());
+      });
+      const r = onChildRemoved(base, (snap) => {
+          onRemove && onRemove(snap.key);
+      });
+
+      const unsub = () => { try{a();}catch{} try{r();}catch{} };
       this.playersUnsubs.push(unsub);
       return unsub;
   }
