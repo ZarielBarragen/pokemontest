@@ -1694,6 +1694,12 @@ function loop(ts){
 }
 
 // ---------- Enemy and Projectile Logic ----------
+function handleEnemyDefeat(enemy) {
+    if (enemies.has(enemy.id)) {
+        enemies.delete(enemy.id);
+    }
+}
+
 function spawnEnemies(map) {
     enemies.clear();
     projectiles.length = 0;
@@ -1854,7 +1860,7 @@ function updatePlayerProjectiles(dt) {
                     enemy.hp = Math.max(0, enemy.hp - p.damage);
                     hit = true;
                     if (enemy.hp <= 0) {
-                        // TODO: Add enemy respawn logic
+                        handleEnemyDefeat(enemy);
                     }
                     break; 
                 }
@@ -1928,7 +1934,7 @@ function tryMeleeAttack() {
         if (dist < attackRange && isFacing(state, enemy)) {
             enemy.hp = Math.max(0, enemy.hp - damage);
             if (enemy.hp <= 0) {
-                // TODO: Respawn logic...
+                handleEnemyDefeat(enemy);
             }
         }
     }
