@@ -20,6 +20,7 @@ const remote = new Map();
 const enemies = new Map();
 const projectiles = [];
 const playerProjectiles = [];
+const coins = new Map();
 
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
@@ -119,16 +120,19 @@ const BASELINE_NUDGE_Y = 0;
 const PLAYER_R = 12; // Player collision radius
 const ENEMY_R = 16;  // Enemy collision radius
 const PROJECTILE_R = 6; // Projectile collision radius (adjusted for 8-bit square)
+const COIN_R = 10;
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
 const EDGE_LIP    = "rgba(255,255,255,0.08)";
 
-const TEX = { floor: null, wall: null };
+const TEX = { floor: null, wall: null, coin: null };
 const BG_TILE_SCALE = 3.0; // visual scale for floor & wall tiles (option 2)
 
 loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{});
 loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
+loadImage("assets/coin.png").then(im => TEX.coin = im).catch(() => {});
+
 
 // ---------- SFX ----------
 function makeAudioPool(url, poolSize = 6){
@@ -528,7 +532,8 @@ function _hasMeaningfulChange() {
          state.anim !== _lastSent.anim ||
          selectedKey !== _lastSent.character ||
          state.typing !== _lastSent.typing ||
-         state.hp !== _lastSent.hp;
+         state.hp !== _lastSent.hp ||
+         state.level !== _lastSent.level;
 }
 
 function makePingPong(n){
@@ -560,13 +565,25 @@ const state = {
   invulnerableTimer: 0,
   attackCooldown: 0,
   attacking: false,
+  // NEW: Player Stats
+  level: 1,
+  xp: 0,
+  xpToNextLevel: 100,
+  coins: 0,
 };
 
 // ---------- Input ----------
 function goBackToSelect() {
-    keys.clear(); // FIX: Clear input state to prevent automatic actions on rejoin.
+    // On death, lose a level
+    const newLevel = Math.max(1, state.level - 1);
+    if (newLevel < state.level) {
+        net.updatePlayerStats({ level: newLevel, xpSet: 0 });
+    }
+
+    keys.clear(); 
     remote.clear();
     enemies.clear();
+    coins.clear();
     projectiles.length = 0;
     playerProjectiles.length = 0;
     net.leaveLobby().catch(()=>{});
@@ -768,6 +785,13 @@ function startNetListeners(){
       state.frameStep = 0;
       state.frameTime = 0;
       net.updateState({ hp: state.hp }); 
+      
+      if(hit.from) {
+          const attacker = remote.get(hit.from) || {uid: net.auth.currentUser.uid};
+          if(attacker) {
+              addXp(5, attacker.uid); // Award XP to attacker
+          }
+      }
 
       if (state.hp <= 0) {
           goBackToSelect();
@@ -797,7 +821,6 @@ function startNetListeners(){
       }
   });
 
-  // NEW: Subscribe to enemy state changes
   net.subscribeEnemies({
     onAdd: (id, data) => {
         enemies.set(id, data);
@@ -811,6 +834,15 @@ function startNetListeners(){
     onRemove: (id) => {
         enemies.delete(id);
     }
+  });
+
+  net.subscribeCoins({
+      onAdd: (id, data) => {
+          coins.set(id, { ...data, frame: 0, frameTime: 0 });
+      },
+      onRemove: (id) => {
+          coins.delete(id);
+      }
   });
 
   return net.subscribePlayers({
@@ -829,6 +861,7 @@ function startNetListeners(){
         say:null, sayTimer:0,
         hp: data.hp ?? assets.cfg.hp,
         maxHp: assets.cfg.hp,
+        level: data.level || 1,
         assets,
         history: [{ t: performance.now()/1000, x: data.x, y: data.y }],
         lastProcessedAttackTs: 0,
@@ -843,6 +876,7 @@ function startNetListeners(){
       if (r.history.length>40) r.history.shift();
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
+      r.level = data.level ?? r.level;
       
       if (data.hp < r.hp) {
           r.anim = 'hurt';
@@ -896,6 +930,13 @@ function startChatSubscription(){
 // ---------- Boot character in map ----------
 async function startWithCharacter(cfg, map){
   state.ready = false;
+  
+  const stats = await net.getUserStats();
+  state.level = stats.level;
+  state.xp = stats.xp;
+  state.coins = stats.coins;
+  state.xpToNextLevel = 100 * Math.pow(1.2, state.level - 1);
+
   state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{}, attack:{}, shoot:{} };
   state.scale = cfg.scale ?? 3;
   state.map = map;
@@ -924,10 +965,9 @@ async function startWithCharacter(cfg, map){
     state.invulnerableTimer = 0;
     state.attackCooldown = 0;
 
-    // The lobby owner is responsible for spawning enemies in the database.
-    // Other clients will receive them via the real-time listener.
     if (net.auth.currentUser?.uid === net.currentLobbyOwner) {
         spawnEnemies(map);
+        spawnCoins(map);
     }
     
     updateCamera();
@@ -938,7 +978,7 @@ async function startWithCharacter(cfg, map){
       character: selectedKey,
       x: state.x, y: state.y, dir: state.dir,
       anim: state.anim, scale: state.scale, typing:false,
-      hp: state.hp, maxHp: state.maxHp
+      hp: state.hp, maxHp: state.maxHp, level: state.level
     });
     startNetListeners();
   } catch (err){
@@ -1175,18 +1215,19 @@ function drawMap(){
     }
   }
 }
-function drawNameTagAbove(name, frame, wx, wy, z, scale){
+function drawNameTagAbove(name, level, frame, wx, wy, z, scale){
   if (!frame) return;
   const topWorldY = wy - frame.oy * scale - (z || 0);
   const sx = Math.round(wx - state.cam.x);
   const sy = Math.round(topWorldY - state.cam.y) - 8;
+  const displayName = `Lvl ${level} ${name}`;
   ctx.font = '12px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.lineWidth = 3;
   ctx.strokeStyle = "rgba(0,0,0,0.65)";
-  ctx.strokeText(name, sx, sy);
+  ctx.strokeText(displayName, sx, sy);
   ctx.fillStyle = "#ffea7a";
-  ctx.fillText(name, sx, sy);
+  ctx.fillText(displayName, sx, sy);
 }
 function drawShadow(wx, wy, z, scale, overGap){
   const squash  = z ? 1 - 0.35*Math.sin(Math.min(1, z / (HOP_HEIGHT*scale)) * Math.PI) : 1;
@@ -1287,51 +1328,24 @@ function updatePlayerHUD() {
         return;
     }
 
-    playerHudEl.innerHTML = ''; // Clear previous state
-
-    const p = {
-        uid: net.auth.currentUser.uid,
-        username: localUsername,
-        character: selectedKey,
-        hp: state.hp,
-        maxHp: state.maxHp,
-        assets: { cfg: CHARACTERS[selectedKey] }
-    };
-
-    if (!p.assets?.cfg) return;
-
-    const card = document.createElement('div');
-    card.className = 'player-card';
-    card.dataset.uid = p.uid;
-
-    const portrait = document.createElement('img');
-    portrait.className = 'portrait';
-    const charCfg = CHARACTERS[p.character];
-    if (charCfg) {
-        portrait.src = charCfg.base + charCfg.portrait;
-    }
-    
-    const info = document.createElement('div');
-    info.className = 'info';
-
-    const usernameEl = document.createElement('div');
-    usernameEl.className = 'username';
-    usernameEl.textContent = p.username;
-
-    const hpBarBg = document.createElement('div');
-    hpBarBg.className = 'hp-bar-bg';
-    
-    const hpBar = document.createElement('div');
-    hpBar.className = 'hp-bar';
-    const hpPercent = (p.hp / p.maxHp) * 100;
-    hpBar.style.width = `${hpPercent}%`;
-
-    hpBarBg.appendChild(hpBar);
-    info.appendChild(usernameEl);
-    info.appendChild(hpBarBg);
-    card.appendChild(portrait);
-    card.appendChild(info);
-    playerHudEl.appendChild(card);
+    playerHudEl.innerHTML = `
+      <div class="player-card">
+        <img class="portrait" src="${CHARACTERS[selectedKey].base + CHARACTERS[selectedKey].portrait}">
+        <div class="info">
+          <div class="username">Lvl ${state.level} ${localUsername}</div>
+          <div class="hp-bar-bg">
+            <div class="hp-bar" style="width: ${ (state.hp / state.maxHp) * 100}%;"></div>
+          </div>
+          <div class="xp-bar-bg">
+            <div class="xp-bar" style="width: ${ (state.xp / state.xpToNextLevel) * 100}%;"></div>
+          </div>
+        </div>
+        <div class="coins">
+          <img src="assets/coin.png" class="coin-icon">
+          <span>${state.coins}</span>
+        </div>
+      </div>
+    `;
 }
 
 function getRemotePlayerSmoothedPos(r) {
@@ -1471,14 +1485,15 @@ function update(dt){
   updateEnemies(dt);
   updateProjectiles(dt);
   updatePlayerProjectiles(dt);
+  checkCoinCollision();
 
   if (selectedKey && state.ready){
     _netAccum += dt; _heartbeat += dt;
     if (_netAccum >= NET_INTERVAL){
       _netAccum = 0;
       if (_hasMeaningfulChange() || _heartbeat >= 3){
-        net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing, hp: state.hp });
-        _lastSent = { x: state.x, y: state.y, dir: state.dir, anim: state.anim, character: selectedKey, typing: state.typing, hp: state.hp };
+        net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing, hp: state.hp, level: state.level });
+        _lastSent = { x: state.x, y: state.y, dir: state.dir, anim: state.anim, character: selectedKey, typing: state.typing, hp: state.hp, level: state.level };
         _heartbeat = 0;
       }
     }
@@ -1594,7 +1609,7 @@ function draw(){
     actors.push({
       kind:"remote", uid: r.uid, name: r.username || "player",
       x:smx, y:smy, z:r.z, frame:f, src, scale:r.scale,
-      typing:r.typing, say:r.say, sayTimer:r.sayTimer
+      typing:r.typing, say:r.say, sayTimer:r.sayTimer, level: r.level
     });
   }
 
@@ -1609,12 +1624,29 @@ function draw(){
     actors.push({
       kind:"local", name: localUsername || "you",
       x:state.x, y:state.y, z, frame:lf, src, scale:state.scale,
-      typing: state.typing, say: state.say, sayTimer: state.sayTimer
+      typing: state.typing, say: state.say, sayTimer: state.sayTimer, level: state.level
     });
   }
 
   actors.sort((a,b)=> (a.y - (a.z || 0)*0.35) - (b.y - (b.z || 0)*0.35));
   
+    for (const coin of coins.values()) {
+        if (TEX.coin) {
+            coin.frameTime += frameDt;
+            const tpf = 1 / 10; // 10 FPS for coin animation
+            while (coin.frameTime >= tpf) {
+                coin.frameTime -= tpf;
+                coin.frame = (coin.frame + 1) % 9; // 9 frames in the sheet
+            }
+            const frameW = TEX.coin.width / 9;
+            ctx.drawImage(
+                TEX.coin,
+                coin.frame * frameW, 0, frameW, TEX.coin.height,
+                coin.x - state.cam.x - frameW/2, coin.y - state.cam.y - TEX.coin.height/2, frameW, TEX.coin.height
+            );
+        }
+    }
+
   for (const a of actors){
     if (a.kind === 'enemy') {
         const sx = Math.round(a.x - state.cam.x);
@@ -1654,7 +1686,7 @@ function draw(){
     
     ctx.globalAlpha = 1.0;
 
-    drawNameTagAbove(a.name, f, a.x, a.y, a.z, a.scale);
+    drawNameTagAbove(a.name, a.level, f, a.x, a.y, a.z, a.scale);
 
     if (a.kind === 'remote') {
         const r = remote.get(a.uid);
@@ -1704,10 +1736,7 @@ function loop(ts){
 
 // ---------- Enemy and Projectile Logic ----------
 function spawnEnemies(map) {
-    // This function now only generates the initial enemy data object.
-    // The lobby owner will push this to Firebase.
-    // All clients (including the owner) will then receive the data via the real-time listener.
-    enemies.clear(); // Clear local list to prevent duplicates before listener populates it.
+    enemies.clear();
     projectiles.length = 0;
 
     const enemyRng = mulberry32(map.seed);
@@ -1726,7 +1755,7 @@ function spawnEnemies(map) {
         [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
     }
 
-    const enemiesData = {}; // Create a plain object for Firebase.
+    const enemiesData = {};
 
     for (const pos of validSpawns) {
         if (spawned >= maxEnemies) break;
@@ -1751,9 +1780,40 @@ function spawnEnemies(map) {
         spawned++;
     }
 
-    // The lobby owner is responsible for creating the initial enemies in the database.
     net.setInitialEnemies(enemiesData).catch(e => console.error("Failed to set initial enemies", e));
 }
+
+function spawnCoins(map) {
+    coins.clear();
+    const coinRng = mulberry32(map.seed + 1); // Use a different seed for coins
+    let spawned = 0;
+    const maxCoins = Math.floor((map.w * map.h) / 100);
+    const validSpawns = [];
+     for (let y = 1; y < map.h - 1; y++) {
+        for (let x = 1; x < map.w - 1; x++) {
+            if (!map.walls[y][x]) {
+                validSpawns.push({ x, y });
+            }
+        }
+    }
+    for (let i = validSpawns.length - 1; i > 0; i--) {
+        const j = Math.floor(coinRng() * (i + 1));
+        [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
+    }
+
+    const coinsData = {};
+
+    for (const pos of validSpawns) {
+        if (spawned >= maxCoins) break;
+        const id = `coin_${spawned}`;
+        const worldPos = tileCenter(pos.x, pos.y);
+        coinsData[id] = { id, x: worldPos.x, y: worldPos.y };
+        spawned++;
+    }
+
+    net.setInitialCoins(coinsData).catch(e => console.error("Failed to set initial coins", e));
+}
+
 
 function updateEnemies(dt) {
     if (!state.ready) return;
@@ -1859,12 +1919,14 @@ function updatePlayerProjectiles(dt) {
             let hit = false;
             
             for (const enemy of enemies.values()) {
-                if (enemy.hp <= 0) continue; // Don't hit already defeated enemies.
+                if (enemy.hp <= 0) continue; 
 
                 const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
                 if (dist < ENEMY_R + PROJECTILE_R) {
                     const newHp = Math.max(0, enemy.hp - p.damage);
+                    addXp(10);
                     if (newHp <= 0) {
+                        addXp(50);
                         net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
                     } else {
                         net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
@@ -1883,7 +1945,9 @@ function updatePlayerProjectiles(dt) {
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
-                    net.dealDamage(player.uid, p.damage).catch(e => console.error("Deal damage failed", e));
+                    const isKill = (player.hp - p.damage) <= 0;
+                    if(isKill) addXp(100);
+                    net.dealDamage(player.uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
                     hit = true;
                     break;
                 }
@@ -1895,6 +1959,31 @@ function updatePlayerProjectiles(dt) {
         }
     }
 }
+
+function checkCoinCollision() {
+    if (!state.ready) return;
+    for (const [id, coin] of coins.entries()) {
+        const dist = Math.hypot(state.x - coin.x, state.y - coin.y);
+        if (dist < PLAYER_R + COIN_R) {
+            state.coins++;
+            net.updatePlayerStats({ coins: 1 });
+            net.removeCoin(id);
+        }
+    }
+}
+
+function addXp(amount) {
+    state.xp += amount;
+    net.updatePlayerStats({ xp: amount });
+
+    while (state.xp >= state.xpToNextLevel) {
+        state.level++;
+        state.xp -= state.xpToNextLevel;
+        state.xpToNextLevel = Math.floor(100 * Math.pow(1.2, state.level - 1));
+        net.updatePlayerStats({ level: state.level, xpSet: state.xp });
+    }
+}
+
 
 function isFacing(player, target) {
     const dx = target.x - player.x;
@@ -1934,7 +2023,9 @@ function tryMeleeAttack() {
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackRange && isFacing(state, enemy)) {
             const newHp = Math.max(0, enemy.hp - damage);
+            addXp(10);
             if (newHp <= 0) {
+                addXp(50);
                 net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
             } else {
                 net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
@@ -1946,7 +2037,9 @@ function tryMeleeAttack() {
         const smoothedPos = getRemotePlayerSmoothedPos(player);
         const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
         if (dist < attackRange && isFacing(state, { x: smoothedPos.x, y: smoothedPos.y })) {
-            net.dealDamage(player.uid, damage).catch(e => console.error("Deal damage failed", e));
+            const isKill = (player.hp - damage) <= 0;
+            if(isKill) addXp(100);
+            net.dealDamage(player.uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
         }
     }
 }
