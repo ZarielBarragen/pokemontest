@@ -96,7 +96,8 @@ export class Net {
     await set(ref(this.db, `users/${cred.user.uid}`), {
         level: 1,
         xp: 0,
-        coins: 0
+        coins: 0,
+        inventory: {}
     });
     try { await updateProfile(cred.user, { displayName: username }); } catch {}
     return cred.user;
@@ -240,6 +241,7 @@ export class Net {
       maxHp: Number(state.maxHp) || 100,
       level: state.level || 1, // Add level to lobby data
       originalCharacterKey: state.originalCharacterKey,
+      equippedItem: state.equippedItem || null,
       ts: rtdbServerTimestamp()
     };
     await set(this._playerRef, payload);
@@ -283,14 +285,14 @@ export class Net {
     // ---------- USER STATS (persistent) ----------
   async getUserStats() {
       const uid = this.auth.currentUser?.uid;
-      if (!uid) return { level: 1, xp: 0, coins: 0 };
+      if (!uid) return { level: 1, xp: 0, coins: 0, inventory: {}, equippedItem: null };
       const userRef = ref(this.db, `users/${uid}`);
       const snap = await get(userRef);
       if (snap.exists()) {
           return snap.val();
       } else {
           // If user exists but has no stats, create them.
-          const defaultStats = { level: 1, xp: 0, coins: 0 };
+          const defaultStats = { level: 1, xp: 0, coins: 0, inventory: {}, equippedItem: null };
           await set(userRef, defaultStats);
           return defaultStats;
       }
@@ -318,6 +320,30 @@ export class Net {
           }
           return currentData;
       });
+  }
+
+  async purchaseItem(item) {
+      const uid = this.auth.currentUser?.uid;
+      if (!uid) return;
+      const userRef = ref(this.db, `users/${uid}`);
+      return runTransaction(userRef, (currentData) => {
+          if (currentData && currentData.coins >= item.price) {
+              currentData.coins -= item.price;
+              if (!currentData.inventory) {
+                  currentData.inventory = {};
+              }
+              currentData.inventory[item.id] = (currentData.inventory[item.id] || 0) + 1;
+          }
+          return currentData;
+      });
+  }
+
+  async equipItem(itemId) {
+      const uid = this.auth.currentUser?.uid;
+      if (!uid) return;
+      const userRef = ref(this.db, `users/${uid}`);
+      await update(userRef, { equippedItem: itemId });
+      await this.updateState({ equippedItem: itemId });
   }
 
 

@@ -66,6 +66,12 @@ const mobileChatForm = document.getElementById("mobile-chat-form");
 const mobileChatInput = document.getElementById("mobile-chat-input");
 const leaveLobbyBtn = document.getElementById("leaveLobbyBtn");
 const onlineCountEl = document.getElementById("online-count");
+const shopIcon = document.getElementById("shop-icon");
+const shopModal = document.getElementById("shop-modal");
+const closeShopBtn = document.getElementById("close-shop-btn");
+const shopItemsContainer = document.getElementById("shop-items");
+const inventoryDisplay = document.getElementById("inventory-display");
+const inventoryItemsContainer = document.getElementById("inventory-items");
 
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
@@ -124,7 +130,14 @@ function unmountChatLog(){
 const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
-function currentSpeedMult(){ const cfg = CHARACTERS[selectedKey]; return (cfg && cfg.speed) ? cfg.speed : 1.0; }
+function currentSpeedMult(){ 
+    const cfg = CHARACTERS[selectedKey]; 
+    let mult = (cfg && cfg.speed) ? cfg.speed : 1.0;
+    if (state.equippedItem === 'cyclizarMotor') {
+        mult *= (selectedKey === 'Cyclizar' ? 3 : 2);
+    }
+    return mult;
+}
 const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12, ATTACK_FPS = 12, SLEEP_FPS = 4;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
@@ -205,7 +218,7 @@ let CHARACTERS = {};
 // We will fetch this from the JSON file now
 async function fetchCharacterData() {
     try {
-        const response = await fetch('assets/characters.json');
+        const response = await fetch('characters.json');
         const data = await response.json();
         return data;
     } catch (error) {
@@ -490,6 +503,8 @@ async function createLobbyFlow(type) {
         startChatSubscription();
         playerHudEl.classList.remove("hidden");
         leaveLobbyBtn.classList.remove("hidden");
+        shopIcon.classList.remove("hidden");
+        inventoryDisplay.classList.remove("hidden");
         if (inputMode === 'touch') {
             mobileControls.classList.remove("hidden");
         }
@@ -526,6 +541,8 @@ async function joinLobbyFlow(lobbyId, btnEl){
     startChatSubscription();
     playerHudEl.classList.remove("hidden");
     leaveLobbyBtn.classList.remove("hidden");
+    shopIcon.classList.remove("hidden");
+    inventoryDisplay.classList.remove("hidden");
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
@@ -625,6 +642,8 @@ const state = {
   abilityTargetingMode: null, // e.g., 'transform', 'illusion', 'hypnotize'
   highlightedPlayers: [],
   regenTimer: 0,
+  inventory: {},
+  equippedItem: null,
 };
 
 // ---------- Input ----------
@@ -663,6 +682,8 @@ function goBackToSelect(isSafeLeave = false) {
     mobileChatOverlay.classList.add("hidden");
     mobileChatInput.blur();
     leaveLobbyBtn.classList.add("hidden");
+    shopIcon.classList.add("hidden");
+    inventoryDisplay.classList.add("hidden");
 }
 
 leaveLobbyBtn.onclick = () => goBackToSelect(true);
@@ -976,8 +997,15 @@ function startNetListeners(){
 
   net.subscribeToStatusEvents(event => {
       if (event.type === 'sleep') {
+          let duration = event.duration;
+          if (event.from) {
+              const attacker = remote.get(event.from);
+              if (attacker && attacker.equippedItem === 'hypnosPendulum') {
+                  duration = 8000;
+              }
+          }
           state.isAsleep = true;
-          state.sleepTimer = event.duration / 1000;
+          state.sleepTimer = duration / 1000;
           state.anim = 'sleep';
           state.frameStep = 0;
           state.frameTime = 0;
@@ -1049,6 +1077,7 @@ function startNetListeners(){
         isIllusion: data.isIllusion || false,
         illusionTarget: data.illusionTarget || null,
         originalCharacterKey: data.originalCharacterKey || data.character,
+        equippedItem: data.equippedItem || null,
       });
     },
     onChange: (uid, data)=>{
@@ -1061,6 +1090,7 @@ function startNetListeners(){
       r.typing = !!data.typing;
       r.level = data.level ?? r.level;
       r.isPhasing = data.isPhasing ?? r.isPhasing;
+      r.equippedItem = data.equippedItem ?? r.equippedItem;
       
       if (data.isAsleep === false && r.isAsleep === true) {
           r.isAsleep = false;
@@ -1138,6 +1168,8 @@ async function startWithCharacter(cfg, map){
   state.level = stats.level;
   state.xp = stats.xp;
   state.coins = stats.coins;
+  state.inventory = stats.inventory || {};
+  state.equippedItem = stats.equippedItem || null;
   state.xpToNextLevel = 100 * Math.pow(1.2, state.level - 1);
 
   state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{}, attack:{}, shoot:{}, sleep:{} };
@@ -1185,9 +1217,11 @@ async function startWithCharacter(cfg, map){
       x: state.x, y: state.y, dir: state.dir,
       anim: state.anim, scale: state.scale, typing:false,
       hp: state.hp, maxHp: state.maxHp, level: state.level,
-      originalCharacterKey: selectedKey
+      originalCharacterKey: selectedKey,
+      equippedItem: state.equippedItem
     });
     startNetListeners();
+    updateInventoryUI();
   } catch (err){
     console.error(err);
     alert(`Failed to load ${cfg.name}. Check assets/ paths or server.`);
@@ -1715,20 +1749,28 @@ function update(dt){
     tryRangedAttack();
   }
 
-  // Handle passive abilities
+  // Handle passive abilities and item effects
   const myConfig = CHARACTERS[selectedKey];
-  if (myConfig && myConfig.ability && myConfig.ability.type === 'passive') {
-      switch (myConfig.ability.name) {
-          case 'regenerate':
-              state.regenTimer += dt;
-              if (state.regenTimer >= myConfig.ability.interval) {
-                  state.regenTimer = 0;
-                  if (state.hp < state.maxHp) {
-                      state.hp = Math.min(state.maxHp, state.hp + myConfig.ability.rate);
-                      net.updateState({ hp: state.hp });
-                  }
-              }
-              break;
+  let regenRate = 0;
+  let regenInterval = Infinity;
+
+  if (myConfig && myConfig.ability && myConfig.ability.type === 'passive' && myConfig.ability.name === 'regenerate') {
+      regenRate = myConfig.ability.rate;
+      regenInterval = myConfig.ability.interval;
+  }
+  if (state.equippedItem === 'quagsireScale') {
+      regenRate += (selectedKey === 'Quagsire' ? 2 : 1);
+      regenInterval = Math.min(regenInterval, 2);
+  }
+
+  if (regenRate > 0) {
+      state.regenTimer += dt;
+      if (state.regenTimer >= regenInterval) {
+          state.regenTimer = 0;
+          if (state.hp < state.maxHp) {
+              state.hp = Math.min(state.maxHp, state.hp + regenRate);
+              net.updateState({ hp: state.hp });
+          }
       }
   }
   
@@ -2474,8 +2516,12 @@ function checkCoinCollision() {
     for (const [id, coin] of coins.entries()) {
         const dist = Math.hypot(state.x - coin.x, state.y - coin.y);
         if (dist < PLAYER_R + COIN_R) {
-            state.coins++;
-            net.updatePlayerStats({ coins: 1 });
+            let coinValue = 1;
+            if (state.equippedItem === 'sableyeGem') {
+                coinValue = (selectedKey === 'Sableye' ? 4 : 2);
+            }
+            state.coins += coinValue;
+            net.updatePlayerStats({ coins: coinValue });
             net.removeCoin(id);
             sfx.coin.play();
         }
@@ -2606,22 +2652,33 @@ function tryRangedAttack() {
     }
 
     const startY = state.y - (TILE * 0.5);
-
-    const p_data = {
-        x: state.x,
-        y: startY,
-        vx: vx * projectileSpeed,
-        vy: vy * projectileSpeed,
-        damage: 20,
-        life: 2.0,
-        ownerId: net.auth.currentUser.uid,
-        color: cfg.projectileColor || '#FFFF00',
-        homing: cfg.ability?.name === 'aimbot',
-        targetId: targetId
-    };
     
-    playerProjectiles.push(p_data);
-    net.fireProjectile(p_data);
+    let damage = 20;
+    if (state.equippedItem === 'blastoiseBlaster' && selectedKey === 'Blastoise') {
+        damage *= 2;
+    }
+
+    const fire = (offsetX = 0) => {
+        const p_data = {
+            x: state.x + offsetX,
+            y: startY,
+            vx: vx * projectileSpeed,
+            vy: vy * projectileSpeed,
+            damage: damage,
+            life: 2.0,
+            ownerId: net.auth.currentUser.uid,
+            color: cfg.projectileColor || '#FFFF00',
+            homing: cfg.ability?.name === 'aimbot',
+            targetId: targetId
+        };
+        playerProjectiles.push(p_data);
+        net.fireProjectile(p_data);
+    };
+
+    fire();
+    if (state.equippedItem === 'blastoiseBlaster') {
+        fire(5); // second bullet
+    }
 }
 
 // ---------- ABILITY LOGIC ----------
@@ -2796,7 +2853,11 @@ async function applyCharacterChange(newKey) {
 
 function hypnotize(targetPlayer) {
     const cfg = CHARACTERS[selectedKey];
-    net.applyStatus(targetPlayer.uid, { type: 'sleep', duration: 5000 });
+    let duration = 5000;
+    if (state.equippedItem === 'hypnosPendulum' && selectedKey === 'Hypno') {
+        duration = 8000;
+    }
+    net.applyStatus(targetPlayer.uid, { type: 'sleep', duration: duration, from: net.auth.currentUser.uid });
     state.abilityCooldown = cfg.ability.cooldown;
 }
 
@@ -2832,6 +2893,90 @@ async function handleRemoteRevertIllusion(player) {
     player.illusionTarget = null;
     player.illusionAssets = null; // Clear illusion assets
 }
+
+// ---------- Shop and Inventory Logic ----------
+const SHOP_ITEMS = {
+    quagsireScale: { name: "Quagsire Scale", price: 100, description: "Slowly regenerate health." },
+    sableyeGem: { name: "Sableye Gem", price: 150, description: "Coins are worth double." },
+    blastoiseBlaster: { name: "Blastoise Blaster", price: 200, description: "Ranged attackers fire two projectiles." },
+    hypnosPendulum: { name: "Hypno's Pendulum", price: 120, description: "Slows nearby players." },
+    cyclizarMotor: { name: "Cyclizar Motor", price: 250, description: "Doubles your speed." },
+};
+
+function openShop() {
+    shopModal.classList.remove("hidden");
+    populateShop();
+}
+
+function closeShop() {
+    shopModal.classList.add("hidden");
+}
+
+function populateShop() {
+    shopItemsContainer.innerHTML = "";
+    for (const [id, item] of Object.entries(SHOP_ITEMS)) {
+        const itemEl = document.createElement("div");
+        itemEl.className = "shop-item";
+        itemEl.innerHTML = `
+            <h4>${item.name}</h4>
+            <p>${item.description}</p>
+            <p>Cost: ${item.price} coins</p>
+            <button class="button8" data-item-id="${id}">Buy</button>
+        `;
+        shopItemsContainer.appendChild(itemEl);
+    }
+}
+
+shopItemsContainer.addEventListener('click', async (e) => {
+    if (e.target.tagName === 'BUTTON') {
+        const itemId = e.target.dataset.itemId;
+        const item = { id: itemId, ...SHOP_ITEMS[itemId] };
+        if (state.coins >= item.price) {
+            await net.purchaseItem(item);
+            const stats = await net.getUserStats();
+            state.coins = stats.coins;
+            state.inventory = stats.inventory;
+            updateInventoryUI();
+        } else {
+            alert("Not enough coins!");
+        }
+    }
+});
+
+function updateInventoryUI() {
+    inventoryItemsContainer.innerHTML = "";
+    for (const [itemId, count] of Object.entries(state.inventory)) {
+        const item = SHOP_ITEMS[itemId];
+        if (item) {
+            const itemEl = document.createElement("div");
+            itemEl.className = "inventory-item";
+            if (state.equippedItem === itemId) {
+                itemEl.classList.add("equipped");
+            }
+            itemEl.textContent = `${item.name} (x${count})`;
+            itemEl.dataset.itemId = itemId;
+            inventoryItemsContainer.appendChild(itemEl);
+        }
+    }
+}
+
+inventoryItemsContainer.addEventListener('click', (e) => {
+    const itemEl = e.target.closest('.inventory-item');
+    if (itemEl) {
+        const itemId = itemEl.dataset.itemId;
+        if (state.equippedItem === itemId) {
+            state.equippedItem = null; // Unequip
+        } else {
+            state.equippedItem = itemId;
+        }
+        net.equipItem(state.equippedItem);
+        updateInventoryUI();
+    }
+});
+
+
+shopIcon.onclick = openShop;
+closeShopBtn.onclick = closeShop;
 
 
 // ---------- Init ----------
