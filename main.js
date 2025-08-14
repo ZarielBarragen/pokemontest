@@ -1,3 +1,5 @@
+// main.js — select → lobby list → create/join → multiplayer + chat (seeded maps)
+// global to avoid strict-mode ReferenceError on auth
 let localUsername = "";
 let lobbyUnsub = null; // unsubscribe fn for lobby snapshot
 
@@ -179,7 +181,7 @@ const sfx = {
   hover:  makeAudioPool("assets/sfx/blipHover.wav"),
   select: makeAudioPool("assets/sfx/blipSelect.wav"),
   jump:   makeAudioPool("assets/sfx/jump.wav"),
-  coin:   makeAudioPool("assets/sfx/coin.mp3"),
+  coin:   makeAudioPool("assets/sfx/pickupCoin.wav"),
   heal:   makeAudioPool("assets/sfx/heal.wav"),
 };
 
@@ -437,12 +439,11 @@ function renderLobbyList(list){
     wrap.style.alignItems = "flex-start";
     const w = lob.mapMeta?.w ?? "?";
     const h = lob.mapMeta?.h ?? "?";
-    const type = lob.mapMeta?.type || 'dungeon';
     wrap.innerHTML = `
       <div style="display:grid;gap:6px;">
         <div><strong>${lob.name}</strong></div>
         <div style="font-size:11px;opacity:.9">Players: ${lob.playersCount|0}</div>
-        <div style="font-size:11px;opacity:.8">Map: ${type.charAt(0).toUpperCase() + type.slice(1)} ${w}×${h}</div>
+        <div style="font-size:11px;opacity:.8">Map: ${w}×${h}</div>
       </div>
     `;
     wrap.onclick = () => {
@@ -1227,6 +1228,12 @@ function currentFrame(){
     if (!strip || !strip.length) return fallbackFrame;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
   }
+  // Stand animation should use the first idle frame for the current direction
+  if (state.anim === "stand"){
+    meta = state.animMeta.idle; strip = meta?.[state.dir];
+    if (!strip || !strip.length) return fallbackFrame;
+    return strip[0];
+  }
   
   return fallbackFrame;
 }
@@ -1234,7 +1241,7 @@ function currentFrame(){
 // ---------- Draw helpers ----------
 const BG_FLOOR = "#08242b", BG_WALL  = "#12333c";
 function isOverGapWorld(x, y){
-  const m = state.map; if (!m || m.type !== 'dungeon') return false;
+  const m = state.map; if (!m) return false;
   const ty = Math.floor(y / TILE);
   const xbCandidates = [Math.round(x / TILE), Math.round(x / TILE) - 1];
   for (const xb of xbCandidates){
@@ -1255,75 +1262,118 @@ function drawMap(){
   const m = state.map; if (!m) return;
   const xs = Math.max(0, Math.floor(state.cam.x / TILE));
   const ys = Math.max(0, Math.floor(state.cam.y / TILE));
-  const xe = Math.min(m.w-1, Math.ceil((state.cam.x + canvas.width ) / TILE));
-  const ye = Math.min(m.h-1, Math.ceil((state.cam.y + canvas.height) / TILE));
+  const xe = Math.min(m.w - 1, Math.ceil((state.cam.x + canvas.width) / TILE));
+  const ye = Math.min(m.h - 1, Math.ceil((state.cam.y + canvas.height) / TILE));
 
+  // Render plains maps differently from dungeon maps
   if (m.type === 'plains') {
-    // Plains rendering
+    // First pass: draw base terrain (grass or water)
     for (let y = ys; y <= ye; y++) {
       for (let x = xs; x <= xe; x++) {
         const dx = x * TILE - state.cam.x;
         const dy = y * TILE - state.cam.y;
-        const tileId = m.walls[y][x];
-        let tileTex = TEX.grass;
-        if (tileId === 2) tileTex = TEX.water;
-        else if (tileId === 3) tileTex = TEX.grass_water_transition;
-
-        if (tileTex) {
-            ctx.drawImage(tileTex, 0, 0, tileTex.width, tileTex.height, dx, dy, TILE, TILE);
-        }
-        if (tileId === 1) { // Palm Tree
-            if (TEX.palm_tree) {
-                 ctx.drawImage(TEX.palm_tree, 0, 0, TEX.palm_tree.width, TEX.palm_tree.height, dx, dy, TILE, TILE);
-            }
+        const cell = m.walls[y][x];
+        if (cell === 2) {
+          // Water tile
+          if (TEX.water) {
+            ctx.drawImage(TEX.water, 0, 0, TEX.water.width, TEX.water.height, dx, dy, TILE, TILE);
+          } else {
+            ctx.fillStyle = '#183b5f';
+            ctx.fillRect(dx, dy, TILE, TILE);
+          }
+        } else {
+          // Grass tile or tree tile base is grass
+          if (TEX.grass) {
+            ctx.drawImage(TEX.grass, 0, 0, TEX.grass.width, TEX.grass.height, dx, dy, TILE, TILE);
+          } else {
+            ctx.fillStyle = '#2a6b29';
+            ctx.fillRect(dx, dy, TILE, TILE);
+          }
         }
       }
     }
-  } else { // Dungeon rendering
-      if (TEX.floor){
-        for (let y=ys; y<=ye; y++){
-          for (let x=xs; x<=xe; x++){
-            const fx = x*TILE - state.cam.x - (BG_TILE_SCALE-1)*TILE/2;
-            const fy = y*TILE - state.cam.y - (BG_TILE_SCALE-1)*TILE/2;
-            ctx.drawImage(TEX.floor, 0,0, TEX.floor.width, TEX.floor.height, fx, fy, TILE*BG_TILE_SCALE, TILE*BG_TILE_SCALE);
-            }
+    // Third pass: draw trees
+    for (let y = ys; y <= ye; y++) {
+      for (let x = xs; x <= xe; x++) {
+        if (m.walls[y][x] !== 1) continue;
+        const dx = x * TILE - state.cam.x;
+        const dy = y * TILE - state.cam.y;
+        if (TEX.palm_tree) {
+          ctx.drawImage(TEX.palm_tree, 0, 0, TEX.palm_tree.width, TEX.palm_tree.height, dx, dy, TILE, TILE);
+        } else {
+          // fallback: draw a dark green square for trees
+          ctx.fillStyle = '#1c431b';
+          ctx.fillRect(dx, dy, TILE, TILE);
         }
-      } else { ctx.fillStyle = BG_FLOOR; ctx.fillRect(0,0,canvas.width,canvas.height); }
+      }
+    }
+    return;
+  }
 
-      for (let y=ys; y<=ye; y++){
-        for (let x=xs; x<=xe; x++){
-          if (!m.walls[y][x]) continue;
-          const dx = x*TILE - state.cam.x, dy = y*TILE - state.cam.y;
-          if (TEX.wall){
-            const wx = dx - (BG_TILE_SCALE-1)*TILE/2; const wy = dy - (BG_TILE_SCALE-1)*TILE/2;
-            ctx.save();
-            ctx.beginPath(); ctx.rect(dx, dy, TILE, TILE); ctx.clip();
-            ctx.drawImage(TEX.wall, 0,0, TEX.wall.width, TEX.wall.height, wx, wy, TILE*BG_TILE_SCALE, TILE*BG_TILE_SCALE);
-            ctx.restore();
-          } else { ctx.fillStyle = BG_WALL; ctx.fillRect(dx, dy, TILE, TILE); }
-        }
+  // Dungeon (default) rendering: floor, walls, and edges
+  // Draw floor background
+  if (TEX.floor) {
+    for (let y = ys; y <= ye; y++) {
+      for (let x = xs; x <= xe; x++) {
+        const fx = x * TILE - state.cam.x - (BG_TILE_SCALE - 1) * TILE / 2;
+        const fy = y * TILE - state.cam.y - (BG_TILE_SCALE - 1) * TILE / 2;
+        ctx.drawImage(TEX.floor, 0, 0, TEX.floor.width, TEX.floor.height, fx, fy, TILE * BG_TILE_SCALE, TILE * BG_TILE_SCALE);
       }
-
-      for (let y=ys; y<=ye; y++){
-        for (let xb=Math.max(1,xs); xb<=Math.min(m.w-1, xe); xb++){
-          if (!m.edgesV[y][xb]) continue;
-          const cx = xb*TILE - state.cam.x, y0 = y*TILE - state.cam.y;
-          ctx.fillStyle = EDGE_DARK;   ctx.fillRect(Math.floor(cx - GAP_W/2), y0, GAP_W, TILE);
-          ctx.fillStyle = EDGE_DARKER; ctx.fillRect(Math.floor(cx - GAP_W/6), y0, Math.ceil(GAP_W/3), TILE);
-          ctx.fillStyle = EDGE_LIP;    ctx.fillRect(Math.floor(cx - GAP_W/2) - 1, y0, 1, TILE);
-                                       ctx.fillRect(Math.floor(cx + GAP_W/2),     y0, 1, TILE);
-        }
+    }
+  } else {
+    ctx.fillStyle = BG_FLOOR;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  // Draw walls
+  for (let y = ys; y <= ye; y++) {
+    for (let x = xs; x <= xe; x++) {
+      if (!m.walls[y][x]) continue;
+      const dx = x * TILE - state.cam.x;
+      const dy = y * TILE - state.cam.y;
+      if (TEX.wall) {
+        const wx = dx - (BG_TILE_SCALE - 1) * TILE / 2;
+        const wy = dy - (BG_TILE_SCALE - 1) * TILE / 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(dx, dy, TILE, TILE);
+        ctx.clip();
+        ctx.drawImage(TEX.wall, 0, 0, TEX.wall.width, TEX.wall.height, wx, wy, TILE * BG_TILE_SCALE, TILE * BG_TILE_SCALE);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = BG_WALL;
+        ctx.fillRect(dx, dy, TILE, TILE);
       }
-      for (let yb=Math.max(1,ys); yb<=Math.min(m.h-1,ye); yb++){
-        for (let x=xs; x<=xe; x++){
-          if (!m.edgesH[yb][x]) continue;
-          const cy = yb*TILE - state.cam.y, x0 = x*TILE - state.cam.x;
-          ctx.fillStyle = EDGE_DARK;   ctx.fillRect(x0, Math.floor(cy - GAP_W/2), TILE, GAP_W);
-          ctx.fillStyle = EDGE_DARKER; ctx.fillRect(x0, Math.floor(cy - GAP_W/6), TILE, Math.ceil(GAP_W/3));
-          ctx.fillStyle = EDGE_LIP;    ctx.fillRect(x0, Math.floor(cy - GAP_W/2) - 1, TILE, 1);
-                                       ctx.fillRect(x0, Math.floor(cy + GAP_W/2),     TILE, 1);
-        }
-      }
+    }
+  }
+  // Draw vertical edges
+  for (let y = ys; y <= ye; y++) {
+    for (let xb = Math.max(1, xs); xb <= Math.min(m.w - 1, xe); xb++) {
+      if (!m.edgesV[y][xb]) continue;
+      const cx = xb * TILE - state.cam.x;
+      const y0 = y * TILE - state.cam.y;
+      ctx.fillStyle = EDGE_DARK;
+      ctx.fillRect(Math.floor(cx - GAP_W / 2), y0, GAP_W, TILE);
+      ctx.fillStyle = EDGE_DARKER;
+      ctx.fillRect(Math.floor(cx - GAP_W / 6), y0, Math.ceil(GAP_W / 3), TILE);
+      ctx.fillStyle = EDGE_LIP;
+      ctx.fillRect(Math.floor(cx - GAP_W / 2) - 1, y0, 1, TILE);
+      ctx.fillRect(Math.floor(cx + GAP_W / 2), y0, 1, TILE);
+    }
+  }
+  // Draw horizontal edges
+  for (let yb = Math.max(1, ys); yb <= Math.min(m.h - 1, ye); yb++) {
+    for (let x = xs; x <= xe; x++) {
+      if (!m.edgesH[yb][x]) continue;
+      const cy = yb * TILE - state.cam.y;
+      const x0 = x * TILE - state.cam.x;
+      ctx.fillStyle = EDGE_DARK;
+      ctx.fillRect(x0, Math.floor(cy - GAP_W / 2), TILE, GAP_W);
+      ctx.fillStyle = EDGE_DARKER;
+      ctx.fillRect(x0, Math.floor(cy - GAP_W / 6), TILE, Math.ceil(GAP_W / 3));
+      ctx.fillStyle = EDGE_LIP;
+      ctx.fillRect(x0, Math.floor(cy - GAP_W / 2) - 1, TILE, 1);
+      ctx.fillRect(x0, Math.floor(cy + GAP_W / 2), TILE, 1);
+    }
   }
 }
 function drawNameTagAbove(name, level, frame, wx, wy, z, scale){
@@ -1530,13 +1580,17 @@ function update(dt){
       while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep = (state.frameStep + 1) % state.frameOrder.length; }
     } else {
       const iFrames = CHARACTERS[selectedKey].idle.framesPerDir;
+      // When the player stops moving, switch to a single-frame stand animation and reset counters
       if (state.prevMoving && !state.moving){
         state.anim = "stand"; state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
       }
+      // Accumulate idle time only when anim is not idle
       if (state.anim !== "idle") state.idleAccum += dt;
+      // After enough idle time, switch into the idle animation loop
       if (state.anim !== "idle" && state.idleAccum >= IDLE_INTERVAL){
         state.anim = "idle"; state.frameOrder = makePingPong(iFrames); state.frameStep = 0; state.frameTime = 0;
       }
+      // When in idle animation, advance frames and loop back to stand when finished
       if (state.anim === "idle"){
         state.frameTime += dt;
         const tpf = 1 / IDLE_FPS;
@@ -1692,7 +1746,21 @@ function draw(){
             fps = ATTACK_FPS;
             order = [...Array(Math.max(frames, 1)).keys()];
             break;
-        default: // idle or stand
+        case "stand":
+            // Stand uses the first idle frame of the current direction
+            meta = assets.meta.idle;
+            frames = 1;
+            fps = IDLE_FPS;
+            order = [0];
+            break;
+        case "idle":
+            meta = assets.meta.idle;
+            frames = assets.cfg.idle.framesPerDir;
+            fps = IDLE_FPS;
+            order = makePingPong(Math.max(frames, 1));
+            break;
+        default:
+            // Fallback to idle meta if unknown state
             meta = assets.meta.idle;
             frames = assets.cfg.idle.framesPerDir;
             fps = IDLE_FPS;
@@ -2149,7 +2217,7 @@ function checkCoinCollision() {
             state.coins++;
             net.updatePlayerStats({ coins: 1 });
             net.removeCoin(id);
-            sfx.coin.play(0.7);
+            sfx.coin.play();
         }
     }
 }
@@ -2162,7 +2230,7 @@ function checkHealthPackCollision() {
             state.hp = Math.min(state.maxHp, state.hp + 50); // Heal for 50 HP
             net.updateState({ hp: state.hp });
             net.removeHealthPack(id);
-            sfx.heal.play(0.8);
+            sfx.heal.play();
         }
     }
 }
@@ -2305,222 +2373,214 @@ function tileCenter(tx, ty) {
 }
 
 function canWalk(tx, ty, map) {
-    if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) return false;
-    const tileId = map.walls[ty][tx];
     if (map.type === 'plains') {
         const waterPokemon = ["Quagsire", "Empoleon", "Primarina", "Dewgong"];
-        if (tileId === 2) { // Water tile
+        if (map.walls[ty][tx] === 2) { // Water tile
             return waterPokemon.includes(selectedKey);
         }
-        return tileId !== 1; // Trees are walls
     }
-    // Dungeon logic
-    return !tileId;
+  return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[ty][tx];
 }
 
 function generateMap(w, h, seed=1234, type = 'dungeon'){
+  // Plains map generation
+  if (type === 'plains') {
+    // Use a deterministic RNG seeded by the given seed
+    const rnd = mulberry32((seed >>> 0) ^ 0x6D2B79F5);
+    // Initialize walls: 0 = grass, 1 = tree, 2 = water
+    const walls = Array.from({ length: h }, () => Array(w).fill(0));
+    // Edge arrays unused for plains
+    const edgesV = Array.from({ length: h }, () => Array(w + 1).fill(false));
+    const edgesH = Array.from({ length: h + 1 }, () => Array(w).fill(false));
+    // Randomly place water bodies
+    const numWater = Math.max(1, Math.floor((w * h) / 600));
+    for (let i = 0; i < numWater; i++) {
+      const cx = Math.floor(rnd() * w);
+      const cy = Math.floor(rnd() * h);
+      const radius = 2 + Math.floor(rnd() * 4); // radius 2–5
+      for (let yy = Math.max(0, cy - radius); yy <= Math.min(h - 1, cy + radius); yy++) {
+        for (let xx = Math.max(0, cx - radius); xx <= Math.min(w - 1, cx + radius); xx++) {
+          if (Math.hypot(xx - cx, yy - cy) <= radius) {
+            walls[yy][xx] = 2;
+          }
+        }
+      }
+    }
+    // Randomly place tree clusters
+    const numTrees = Math.max(1, Math.floor((w * h) / 500));
+    for (let i = 0; i < numTrees; i++) {
+      const cx = Math.floor(rnd() * w);
+      const cy = Math.floor(rnd() * h);
+      const radius = 1 + Math.floor(rnd() * 3); // radius 1–3
+      for (let yy = Math.max(0, cy - radius); yy <= Math.min(h - 1, cy + radius); yy++) {
+        for (let xx = Math.max(0, cx - radius); xx <= Math.min(w - 1, cx + radius); xx++) {
+          if (Math.hypot(xx - cx, yy - cy) <= radius && walls[yy][xx] === 0) {
+            walls[yy][xx] = 1;
+          }
+        }
+      }
+    }
+    // Choose a spawn location on grass
+    let spawn = { x: Math.floor(w / 2), y: Math.floor(h / 2) };
+    let tries = 0;
+    while (tries < 200) {
+      const sx = Math.floor(rnd() * w);
+      const sy = Math.floor(rnd() * h);
+      if (walls[sy][sx] === 0) {
+        spawn = { x: sx, y: sy };
+        break;
+      }
+      tries++;
+    }
+    return { w, h, walls, edgesV, edgesH, spawn, seed, type };
+  }
+
   const rnd = mulberry32((seed>>>0) ^ 0x9E3779B9);
-  // Tile IDs: 0=walkable, 1=wall/tree, 2=water, 3=transition
-  const walls = Array.from({length:h}, ()=> Array(w).fill(type === 'plains' ? 0 : true));
+  const walls = Array.from({length:h}, ()=> Array(w).fill(true));
   const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
   const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
 
-  if (type === 'plains') {
-      // Generate water bodies
-      const waterBodies = Math.floor(rnd() * 5) + 3;
-      for (let i = 0; i < waterBodies; i++) {
-          const centerX = Math.floor(rnd() * w);
-          const centerY = Math.floor(rnd() * h);
-          const radiusX = Math.floor(rnd() * 5) + 4;
-          const radiusY = Math.floor(rnd() * 5) + 4;
-          for (let y = 0; y < h; y++) {
-              for (let x = 0; x < w; x++) {
-                  const dx = (x - centerX) / radiusX;
-                  const dy = (y - centerY) / radiusY;
-                  if (dx * dx + dy * dy < 1) {
-                      walls[y][x] = 2; // Water
-                  }
-              }
-          }
+  const hallW = 2;
+  const radius = 1;
+  const margin = Math.max(3, radius+2);
+  const cellStep = Math.max(hallW + 3, Math.floor(Math.min(w,h)/8));
+
+  const gx0 = margin, gy0 = margin;
+  const gx1 = w - margin - 1, gy1 = h - margin - 1;
+  const cols = Math.max(2, Math.floor((gx1 - gx0) / cellStep));
+  const rows = Math.max(2, Math.floor((gy1 - gy0) / cellStep));
+
+  const nodes = [];
+  for (let r=0; r<=rows; r++){
+    for (let c=0; c<=cols; c++){
+      const jitterX = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
+      const jitterY = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
+      const x = gx0 + Math.floor(c * ((gx1-gx0)/Math.max(1,cols))) + jitterX;
+      const y = gy0 + Math.floor(r * ((gy1-gy0)/Math.max(1,rows))) + jitterY;
+      nodes.push({x: Math.max(margin, Math.min(w-margin-1, x)),
+                  y: Math.max(margin, Math.min(h-margin-1, y)),
+                  ix: c, iy: r, i: r*(cols+1)+c});
+    }
+  }
+  const idx = (c,r)=> r*(cols+1)+c;
+
+  const visited = new Set();
+  const stack = [];
+  const startC = Math.floor(rnd()*(cols+1));
+  const startR = Math.floor(rnd()*(rows+1));
+  stack.push([startC, startR]);
+  const links = new Set();
+
+  const dirs4 = [[0,-1],[1,0],[0,1],[-1,0]];
+  while (stack.length){
+    const [c,r] = stack[stack.length-1];
+    const here = idx(c,r);
+    visited.add(here);
+    const nbs = [];
+    for (const [dx,dy] of dirs4){
+      const nc = c+dx, nr = r+dy;
+      if (nc<0||nr<0||nc>cols||nr>rows) continue;
+      const j = idx(nc,nr);
+      if (!visited.has(j)) nbs.push([nc,nr]);
+    }
+    for (let i=nbs.length-1;i>0;i--){
+      const j = Math.floor(rnd()*(i+1)); const t = nbs[i]; nbs[i] = nbs[j]; nbs[j] = t;
+    }
+    if (nbs.length){
+      const [nc,nr] = nbs[0];
+      const a = Math.min(here, idx(nc,nr));
+      const b = Math.max(here, idx(nc,nr));
+      links.add(a+"-"+b);
+      stack.push([nc,nr]);
+    } else {
+      stack.pop();
+    }
+  }
+
+  const diagDirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
+  const extraDiags = Math.floor((cols+1)*(rows+1)*0.15);
+  for (let k=0;k<extraDiags;k++){
+    const c = Math.floor(rnd()*(cols+1));
+    const r = Math.floor(rnd()*(rows+1));
+    const [dx,dy] = diagDirs[Math.floor(rnd()*diagDirs.length)];
+    const nc = c+dx, nr = r+dy;
+    if (nc<0||nr<0||nc>cols||nr>rows) continue;
+    const a = Math.min(idx(c,r), idx(nc,nr));
+    const b = Math.max(idx(c,r), idx(nc,nr));
+    links.add(a+"-"+b);
+  }
+
+  function carveDisk(cx, cy, rad){
+    for (let yy = cy-rad; yy<=cy+rad; yy++){
+      if (yy<=0 || yy>=h-1) continue;
+      for (let xx = cx-rad; xx<=cx+rad; xx++){
+        if (xx<=0 || xx>=w-1) continue;
+        const dx = xx-cx, dy = yy-cy;
+        if (dx*dx + dy*dy <= rad*rad) walls[yy][xx] = false;
       }
-      // Generate transition tiles
-      for (let y = 1; y < h - 1; y++) {
-          for (let x = 1; x < w - 1; x++) {
-              if (walls[y][x] === 0) { // is grass
-                  let isAdjacentToWater = false;
-                  for(let ny = y-1; ny <= y+1; ny++) {
-                      for(let nx = x-1; nx <= x+1; nx++) {
-                          if(walls[ny][nx] === 2) {
-                              isAdjacentToWater = true;
-                              break;
-                          }
-                      }
-                      if(isAdjacentToWater) break;
-                  }
-                  if(isAdjacentToWater) {
-                      walls[y][x] = 3; // grass-water-transition
-                  }
-              }
-          }
-      }
+    }
+  }
+  function carveLine(x0,y0,x1,y1, rad){
+    x0|=0; y0|=0; x1|=0; y1|=0;
+    let dx = Math.abs(x1-x0), sx = x0<x1 ? 1 : -1;
+    let dy = -Math.abs(y1-y0), sy = y0<y1 ? 1 : -1;
+    let err = dx + dy, e2;
+    while (true){
+      carveDisk(x0, y0, rad);
+      if (x0===x1 && y0===y1) break;
+      e2 = 2*err;
+      if (e2 >= dy){ err += dy; x0 += sx; }
+      if (e2 <= dx){ err += dx; y0 += sy; }
+    }
+  }
 
-      // Generate tree groups
-      const treeGroups = Math.floor(rnd() * 8) + 5;
-      for (let i = 0; i < treeGroups; i++) {
-          const groupCenterX = Math.floor(rnd() * w);
-          const groupCenterY = Math.floor(rnd() * h);
-          const groupSize = Math.floor(rnd() * 6) + 3;
-          for (let j = 0; j < groupSize; j++) {
-              const treeX = groupCenterX + Math.floor((rnd() - 0.5) * 5);
-              const treeY = groupCenterY + Math.floor((rnd() - 0.5) * 5);
-              if (treeX > 0 && treeX < w - 1 && treeY > 0 && treeY < h - 1 && walls[treeY][treeX] === 0) {
-                  walls[treeY][treeX] = 1; // Tree
-              }
-          }
-      }
+  const nodeRadius = Math.max(2, radius+1);
+  nodes.forEach(n => carveDisk(n.x, n.y, nodeRadius));
+  for (const key of links){
+    const [a,b] = key.split("-").map(s=>+s);
+    const na = nodes[a], nb = nodes[b];
+    carveLine(na.x, na.y, nb.x, nb.y, radius);
+  }
 
-  } else { // Dungeon generation logic
-      const hallW = 2;
-      const radius = 1;
-      const margin = Math.max(3, radius+2);
-      const cellStep = Math.max(hallW + 3, Math.floor(Math.min(w,h)/8));
-
-      const gx0 = margin, gy0 = margin;
-      const gx1 = w - margin - 1, gy1 = h - margin - 1;
-      const cols = Math.max(2, Math.floor((gx1 - gx0) / cellStep));
-      const rows = Math.max(2, Math.floor((gy1 - gy0) / cellStep));
-
-      const nodes = [];
-      for (let r=0; r<=rows; r++){
-        for (let c=0; c<=cols; c++){
-          const jitterX = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
-          const jitterY = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
-          const x = gx0 + Math.floor(c * ((gx1-gx0)/Math.max(1,cols))) + jitterX;
-          const y = gy0 + Math.floor(r * ((gy1-gy0)/Math.max(1,rows))) + jitterY;
-          nodes.push({x: Math.max(margin, Math.min(w-margin-1, x)),
-                      y: Math.max(margin, Math.min(h-margin-1, y)),
-                      ix: c, iy: r, i: r*(cols+1)+c});
+  for (let pass=0; pass<2; pass++){
+    for (let y=1; y<h-1; y++){
+      for (let x=1; x<w-1; x++){
+        if (walls[y][x]){
+          let floorN=0;
+          for (let yy=y-1; yy<=y+1; yy++)
+            for (let xx=x-1; xx<=x+1; xx++)
+              if (!(xx===x&&yy===y) && !walls[yy][xx]) floorN++;
+          if (floorN >= 6) walls[y][x] = false;
         }
       }
-      const idx = (c,r)=> r*(cols+1)+c;
-
-      const visited = new Set();
-      const stack = [];
-      const startC = Math.floor(rnd()*(cols+1));
-      const startR = Math.floor(rnd()*(rows+1));
-      stack.push([startC, startR]);
-      const links = new Set();
-
-      const dirs4 = [[0,-1],[1,0],[0,1],[-1,0]];
-      while (stack.length){
-        const [c,r] = stack[stack.length-1];
-        const here = idx(c,r);
-        visited.add(here);
-        const nbs = [];
-        for (const [dx,dy] of dirs4){
-          const nc = c+dx, nr = r+dy;
-          if (nc<0||nr<0||nc>cols||nr>rows) continue;
-          const j = idx(nc,nr);
-          if (!visited.has(j)) nbs.push([nc,nr]);
-        }
-        for (let i=nbs.length-1;i>0;i--){
-          const j = Math.floor(rnd()*(i+1)); const t = nbs[i]; nbs[i] = nbs[j]; nbs[j] = t;
-        }
-        if (nbs.length){
-          const [nc,nr] = nbs[0];
-          const a = Math.min(here, idx(nc,nr));
-          const b = Math.max(here, idx(nc,nr));
-          links.add(a+"-"+b);
-          stack.push([nc,nr]);
-        } else {
-          stack.pop();
-        }
+    }
+  }
+  
+  const gapChance = 0.25;
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      if (!walls[y][x-1] && !walls[y][x] &&
+          walls[y-1][x-1] && walls[y-1][x] &&
+          walls[y+1][x-1] && walls[y+1][x] &&
+          rnd() < gapChance) {
+        edgesV[y][x] = true;
       }
-
-      const diagDirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
-      const extraDiags = Math.floor((cols+1)*(rows+1)*0.15);
-      for (let k=0;k<extraDiags;k++){
-        const c = Math.floor(rnd()*(cols+1));
-        const r = Math.floor(rnd()*(rows+1));
-        const [dx,dy] = diagDirs[Math.floor(rnd()*diagDirs.length)];
-        const nc = c+dx, nr = r+dy;
-        if (nc<0||nr<0||nc>cols||nr>rows) continue;
-        const a = Math.min(idx(c,r), idx(nc,nr));
-        const b = Math.max(idx(c,r), idx(nc,nr));
-        links.add(a+"-"+b);
+    }
+  }
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      if (!walls[y-1][x] && !walls[y][x] &&
+          walls[y-1][x-1] && walls[y][x-1] &&
+          walls[y-1][x+1] && walls[y][x+1] &&
+          rnd() < gapChance) {
+        edgesH[y][x] = true;
       }
-
-      function carveDisk(cx, cy, rad){
-        for (let yy = cy-rad; yy<=cy+rad; yy++){
-          if (yy<=0 || yy>=h-1) continue;
-          for (let xx = cx-rad; xx<=cx+rad; xx++){
-            if (xx<=0 || xx>=w-1) continue;
-            const dx = xx-cx, dy = yy-cy;
-            if (dx*dx + dy*dy <= rad*rad) walls[yy][xx] = false;
-          }
-        }
-      }
-      function carveLine(x0,y0,x1,y1, rad){
-        x0|=0; y0|=0; x1|=0; y1|=0;
-        let dx = Math.abs(x1-x0), sx = x0<x1 ? 1 : -1;
-        let dy = -Math.abs(y1-y0), sy = y0<y1 ? 1 : -1;
-        let err = dx + dy, e2;
-        while (true){
-          carveDisk(x0, y0, rad);
-          if (x0===x1 && y0===y1) break;
-          e2 = 2*err;
-          if (e2 >= dy){ err += dy; x0 += sx; }
-          if (e2 <= dx){ err += dx; y0 += sy; }
-        }
-      }
-
-      const nodeRadius = Math.max(2, radius+1);
-      nodes.forEach(n => carveDisk(n.x, n.y, nodeRadius));
-      for (const key of links){
-        const [a,b] = key.split("-").map(s=>+s);
-        const na = nodes[a], nb = nodes[b];
-        carveLine(na.x, na.y, nb.x, nb.y, radius);
-      }
-
-      for (let pass=0; pass<2; pass++){
-        for (let y=1; y<h-1; y++){
-          for (let x=1; x<w-1; x++){
-            if (walls[y][x]){
-              let floorN=0;
-              for (let yy=y-1; yy<=y+1; yy++)
-                for (let xx=x-1; xx<=x+1; xx++)
-                  if (!(xx===x&&yy===y) && !walls[yy][xx]) floorN++;
-              if (floorN >= 6) walls[y][x] = false;
-            }
-          }
-        }
-      }
-      
-      const gapChance = 0.25;
-      for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-          if (!walls[y][x-1] && !walls[y][x] &&
-              walls[y-1][x-1] && walls[y-1][x] &&
-              walls[y+1][x-1] && walls[y+1][x] &&
-              rnd() < gapChance) {
-            edgesV[y][x] = true;
-          }
-        }
-      }
-      for (let y = 1; y < h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
-          if (!walls[y-1][x] && !walls[y][x] &&
-              walls[y-1][x-1] && walls[y][x-1] &&
-              walls[y-1][x+1] && walls[y][x+1] &&
-              rnd() < gapChance) {
-            edgesH[y][x] = true;
-          }
-        }
-      }
+    }
   }
 
 
-  let sx = 1, sy = 1;
+  let sx = nodes.length ? nodes[0].x|0 : 1;
+  let sy = nodes.length ? nodes[0].y|0 : 1;
   outer: for (let tries=0; tries<500; tries++){
     const tx = 1 + Math.floor(rnd()*(w-2));
     const ty = 1 + Math.floor(rnd()*(h-2));
