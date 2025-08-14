@@ -125,7 +125,7 @@ const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
 function currentSpeedMult(){ const cfg = CHARACTERS[selectedKey]; return (cfg && cfg.speed) ? cfg.speed : 1.0; }
-const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12, ATTACK_FPS = 12;
+const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12, ATTACK_FPS = 12, SLEEP_FPS = 4;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
 const BASELINE_NUDGE_Y = 0;
@@ -202,39 +202,23 @@ function makeRowDirGrid() {
 }
 let CHARACTERS = {};
 
-const CHARACTERS_DATA = {
-  "$schemaVersion": 1,
-  "defaults": { "scale": 3, "speed": 1.0, "hp": 100, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "hurt": { "sheet": "Hurt-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "attack": { "sheet": "Attack-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 11, "rows": 8, "framesPerDir": 11, "dirGrid": "row" } },
-  "characters": {
-    "Sableye": { "name": "Sableye", "base": "assets/Sableye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 150, "ranged": true, "projectileColor": "#4B0082", "shoot": { "sheet": "SpAttack-Anim.png", "cols": 17, "rows": 8, "framesPerDir": 17, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" } },
-    "Ditto": { "name": "Ditto", "base": "assets/Ditto/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 120, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 5, "rows": 8, "framesPerDir": 5, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Hisuian Zoroark": { "name": "Hisuian Zoroark", "base": "assets/Hisuian Zoroark/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.0, "hp": 160, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Hypno": { "name": "Hypno", "base": "assets/Hypno/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 185, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Mimikyu": { "name": "Mimikyu", "base": "assets/Mimikyu/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 155, "ranged": true, "projectileColor": "#C71585", "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Quagsire": { "name": "Quagsire", "base": "assets/Quagsire/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "ranged": true, "projectileColor": "#87CEEB", "shoot": { "sheet": "Shoot-Anim.png", "cols": 11, "rows": 8, "framesPerDir": 11, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Smeargle": { "name": "Smeargle", "base": "assets/Smeargle/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 155, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Corviknight": { "name": "Corviknight", "base": "assets/Corviknight/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 198, "attack": { "cols": 15, "rows": 8, "framesPerDir": 15 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Cacturne": { "name": "Cacturne", "base": "assets/Cacturne/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "ranged": true, "projectileColor": "#006400", "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Decidueye": { "name": "Decidueye", "base": "assets/Decidueye/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 178, "ranged": true, "projectileColor": "#FFA500", "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "shoot": { "sheet": "Shoot-Anim.png", "cols": 12, "rows": 8, "framesPerDir": 12, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Blaziken": { "name": "Blaziken", "base": "assets/Blaziken/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 180, "attack": { "cols": 9, "rows": 8, "framesPerDir": 9 }, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Snorlax": { "name": "Snorlax", "base": "assets/Snorlax/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 260, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Chandelure": { "name": "Chandelure", "base": "assets/Chandelure/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 160, "ranged": true, "projectileColor": "#00008B", "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "shoot": { "sheet": "SpAttack-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 8, "rows": 8, "framesPerDir": 8, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Empoleon": { "name": "Empoleon", "base": "assets/Empoleon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 184, "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Jolteon": { "name": "Jolteon", "base": "assets/Jolteon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "ranged": true, "projectileColor": "#FFFF00", "shoot": { "sheet": "SpAttack-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Pangoro": { "name": "Pangoro", "base": "assets/Pangoro/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 195, "attack": { "cols": 12, "rows": 8, "framesPerDir": 12 }, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Scrafty": { "name": "Scrafty", "base": "assets/Scrafty/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 165, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Cyclizar": { "name": "Cyclizar", "base": "assets/Cyclizar/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 170, "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 }, "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Axew": { "name": "Axew", "base": "assets/Axew/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 146, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Obstagoon": { "name": "Obstagoon", "base": "assets/Obstagoon/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 193, "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 }, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Primarina": { "name": "Primarina", "base": "assets/Primarina/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.02, "hp": 180, "ranged": true, "projectileColor": "#FFC0CB", "shoot": { "sheet": "SpAttack-Anim.png", "cols": 13, "rows": 8, "framesPerDir": 13, "dirGrid": "row" }, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Dewgong": { "name": "Dewgong", "base": "assets/Dewgong/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.01, "hp": 190, "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Scolipede": { "name": "Scolipede", "base": "assets/Scolipede/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.12, "hp": 160, "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } },
-    "Lycanroc": { "name": "Lycanroc", "base": "assets/Lycanroc/", "portrait": "portrait.png", "scale": 3.0, "speed": 1.08, "hp": 185, "idle": { "sheet": "Idle-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }, "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" }, "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" } }
-  }
-};
+// We will fetch this from the JSON file now
+async function fetchCharacterData() {
+    try {
+        const response = await fetch('assets/characters.json');
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Could not fetch characters.json:", error);
+        return null;
+    }
+}
 
-function processCharacterData() {
-    const data = CHARACTERS_DATA;
+
+async function processCharacterData() {
+    const data = await fetchCharacterData();
+    if (!data) return;
+
     const def = data.defaults || {};
     function mergeAnim(defAnim={}, chAnim={}){
       const d = defAnim || {};
@@ -258,12 +242,14 @@ function processCharacterData() {
         hp: ch.hp ?? def.hp ?? 100,
         ranged: ch.ranged ?? false,
         projectileColor: ch.projectileColor || "#FFFFFF",
+        ability: ch.ability || null, // Add ability
         idle: mergeAnim(def.idle, ch.idle),
         walk: mergeAnim(def.walk, ch.walk),
         hop:  mergeAnim(def.hop,  ch.hop),
         hurt: mergeAnim(def.hurt, ch.hurt),
         attack: mergeAnim(def.attack, ch.attack),
         shoot: ch.ranged ? mergeAnim(def.shoot, ch.shoot) : null,
+        sleep: mergeAnim(def.sleep, ch.sleep) // Add sleep animation
       };
     }
     
@@ -587,7 +573,9 @@ function _hasMeaningfulChange() {
          selectedKey !== _lastSent.character ||
          state.typing !== _lastSent.typing ||
          state.hp !== _lastSent.hp ||
-         state.level !== _lastSent.level;
+         state.level !== _lastSent.level ||
+         state.isPhasing !== _lastSent.isPhasing ||
+         state.isAsleep !== _lastSent.isAsleep;
 }
 
 function makePingPong(n){
@@ -605,8 +593,8 @@ const state = {
   frameTime:0, frameStep:0, frameOrder: makePingPong(4),
   anim:"stand", idleAccum:0,
   scale:3,
-  walkImg:null, idleImg:null, hopImg:null, hurtImg: null, attackImg: null, shootImg: null,
-  animMeta:{walk:null, idle:null, hop:null, hurt: null, attack: null, shoot: null},
+  walkImg:null, idleImg:null, hopImg:null, hurtImg: null, attackImg: null, shootImg: null, sleepImg: null,
+  animMeta:{walk:null, idle:null, hop:null, hurt: null, attack: null, shoot: null, sleep: null},
   hopping:false,
   hop:{sx:0,sy:0,tx:0,ty:0,t:0,dur:0,z:0},
   map:null, cam:{x:0,y:0},
@@ -624,6 +612,19 @@ const state = {
   xp: 0,
   xpToNextLevel: 100,
   coins: 0,
+  // NEW: Abilities State
+  abilityCooldown: 0,
+  isPhasing: false,
+  phaseDamageTimer: 0,
+  isTransformed: false,
+  originalCharacterKey: null,
+  isIllusion: false,
+  illusionTarget: null, // { username, level, character }
+  isAsleep: false,
+  sleepTimer: 0,
+  abilityTargetingMode: null, // e.g., 'transform', 'illusion', 'hypnotize'
+  highlightedPlayers: [],
+  regenTimer: 0,
 };
 
 // ---------- Input ----------
@@ -686,14 +687,25 @@ window.addEventListener("keydown", e=>{
   }
 
   // If the game isn't active, don't hijack keyboard inputs.
-  if (!state.ready) return;
+  if (!state.ready || state.isAsleep) return;
+
+  // Handle ability key press
+  if (e.key.toLowerCase() === 'e') {
+      e.preventDefault();
+      handleAbilityKeyPress();
+  }
 
   // Prevent default browser action for game keys
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K"].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
-    goBackToSelect(true); // Treat Escape as a safe leave
+    if (state.abilityTargetingMode) {
+        state.abilityTargetingMode = null;
+        state.highlightedPlayers = [];
+    } else {
+        goBackToSelect(true); // Treat Escape as a safe leave
+    }
     return;
   }
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
@@ -702,6 +714,38 @@ window.addEventListener("keydown", e=>{
   keys.add(e.key);
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
+
+// Handle mouse clicks for targeting
+canvas.addEventListener('click', (event) => {
+    if (!state.abilityTargetingMode) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mouseX = (event.clientX - rect.left) * scaleX;
+    const mouseY = (event.clientY - rect.top) * scaleY;
+
+    const worldX = mouseX + state.cam.x;
+    const worldY = mouseY + state.cam.y;
+
+    let clickedPlayer = null;
+    for (const [uid, player] of remote.entries()) {
+        const dist = Math.hypot(worldX - player.x, worldY - player.y);
+        if (dist < PLAYER_R * 2) { // Generous click radius
+            clickedPlayer = { uid, ...player };
+            break;
+        }
+    }
+
+    if (clickedPlayer) {
+        activateTargetedAbility(clickedPlayer);
+    }
+
+    // Always exit targeting mode after a click
+    state.abilityTargetingMode = null;
+    state.highlightedPlayers = [];
+});
+
 
 backBtnMobile.onclick = () => goBackToSelect(true);
 
@@ -803,10 +847,11 @@ async function loadCharacterAssets(key) {
       loadImage(cfg.base + cfg.hurt.sheet),
       loadImage(cfg.base + cfg.attack.sheet),
       cfg.shoot ? loadImage(cfg.base + cfg.shoot.sheet) : Promise.resolve(null),
+      cfg.sleep ? loadImage(cfg.base + cfg.sleep.sheet) : Promise.resolve(null),
       loadImage(cfg.base + cfg.portrait)
     ];
 
-    const [wRes, iRes, hRes, huRes, aRes, sRes, pRes] = await Promise.allSettled(promises);
+    const [wRes, iRes, hRes, huRes, aRes, sRes, slRes, pRes] = await Promise.allSettled(promises);
 
     if (wRes.status !== "fulfilled" || iRes.status !== "fulfilled") {
       throw new Error(`Core sheets (walk/idle) missing for ${key}`);
@@ -818,6 +863,7 @@ async function loadCharacterAssets(key) {
     const hurtImg = (huRes.status === "fulfilled") ? huRes.value : null;
     const attackImg = (aRes.status === "fulfilled") ? aRes.value : null;
     const shootImg = (sRes.status === "fulfilled") ? sRes.value : null;
+    const sleepImg = (slRes.status === "fulfilled") ? slRes.value : null;
     const portraitImg = (pRes.status === "fulfilled") ? pRes.value : null;
 
     const meta = {
@@ -827,9 +873,10 @@ async function loadCharacterAssets(key) {
       hurt: hurtImg ? sliceSheet(hurtImg, cfg.hurt.cols, cfg.hurt.rows, cfg.hurt.dirGrid, cfg.hurt.framesPerDir) : {},
       attack: attackImg ? sliceSheet(attackImg, cfg.attack.cols, cfg.attack.rows, cfg.attack.dirGrid, cfg.attack.framesPerDir) : {},
       shoot: shootImg && cfg.shoot ? sliceSheet(shootImg, cfg.shoot.cols, cfg.shoot.rows, cfg.shoot.dirGrid, cfg.shoot.framesPerDir) : {},
+      sleep: sleepImg && cfg.sleep ? sliceSheet(sleepImg, cfg.sleep.cols, cfg.sleep.rows, cfg.sleep.dirGrid, cfg.sleep.framesPerDir) : {},
     };
 
-    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, hurt: hurtImg, attack: attackImg, shoot: shootImg, portrait: portraitImg, meta };
+    const assets = { cfg, walk: walkImg, idle: idleImg, hop: hopImg, hurt: hurtImg, attack: attackImg, shoot: shootImg, sleep: sleepImg, portrait: portraitImg, meta };
     _assetCache.set(key, assets);
     return assets;
 
@@ -843,6 +890,17 @@ async function loadCharacterAssets(key) {
 function startNetListeners(){
   net.subscribeToHits(hit => {
       if (state.invulnerableTimer > 0) return;
+
+      // If in illusion, break it
+      if (state.isIllusion) {
+          revertIllusion();
+      }
+      // If asleep, wake up
+      if (state.isAsleep) {
+          state.isAsleep = false;
+          state.sleepTimer = 0;
+          net.updateState({ isAsleep: false });
+      }
 
       state.hp = Math.max(0, state.hp - hit.damage);
       state.invulnerableTimer = 0.7;
@@ -885,6 +943,38 @@ function startNetListeners(){
           remotePlayer.frameTime = 0;
       }
   });
+
+  net.subscribeToAbilities(abilityData => {
+      const player = remote.get(abilityData.by);
+      if (!player) return;
+
+      switch (abilityData.name) {
+          case 'transform':
+              handleRemoteTransform(player, abilityData.targetCharacterKey);
+              break;
+          case 'illusion':
+              handleRemoteIllusion(player, abilityData.target);
+              break;
+          case 'revertIllusion':
+              handleRemoteRevertIllusion(player);
+              break;
+          case 'hypnotize':
+              // This is handled by status events now
+              break;
+      }
+  });
+
+  net.subscribeToStatusEvents(event => {
+      if (event.type === 'sleep') {
+          state.isAsleep = true;
+          state.sleepTimer = event.duration / 1000;
+          state.anim = 'sleep';
+          state.frameStep = 0;
+          state.frameTime = 0;
+          net.updateState({ isAsleep: true });
+      }
+  });
+
 
   net.subscribeEnemies({
     onAdd: (id, data) => {
@@ -943,6 +1033,12 @@ function startNetListeners(){
         history: [{ t: performance.now()/1000, x: data.x, y: data.y }],
         lastProcessedAttackTs: 0,
         showHpBarTimer: 0,
+        isPhasing: data.isPhasing || false,
+        isAsleep: data.isAsleep || false,
+        isTransformed: data.isTransformed || false,
+        isIllusion: data.isIllusion || false,
+        illusionTarget: data.illusionTarget || null,
+        originalCharacterKey: data.originalCharacterKey || data.character,
       });
     },
     onChange: (uid, data)=>{
@@ -954,8 +1050,16 @@ function startNetListeners(){
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
       r.level = data.level ?? r.level;
+      r.isPhasing = data.isPhasing ?? r.isPhasing;
+      r.isAsleep = data.isAsleep ?? r.isAsleep;
       
       if (data.hp < r.hp) {
+          if (r.isIllusion) {
+              handleRemoteRevertIllusion(r);
+          }
+          if (r.isAsleep) {
+              r.isAsleep = false;
+          }
           r.anim = 'hurt';
           r.frameStep = 0;
           r.frameTime = 0;
@@ -1020,7 +1124,7 @@ async function startWithCharacter(cfg, map){
   state.coins = stats.coins;
   state.xpToNextLevel = 100 * Math.pow(1.2, state.level - 1);
 
-  state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{}, attack:{}, shoot:{} };
+  state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{}, attack:{}, shoot:{}, sleep:{} };
   state.scale = cfg.scale ?? 3;
   state.map = map;
   state.maxHp = cfg.hp;
@@ -1036,6 +1140,7 @@ async function startWithCharacter(cfg, map){
     state.hurtImg = assets.hurt;
     state.attackImg = assets.attack;
     state.shootImg = assets.shoot;
+    state.sleepImg = assets.sleep;
     state.animMeta = assets.meta;
 
     const spawn = tileCenter(map.spawn.x, map.spawn.y);
@@ -1047,6 +1152,7 @@ async function startWithCharacter(cfg, map){
     state.say = null; state.sayTimer = 0; state.typing = false;
     state.invulnerableTimer = 0;
     state.attackCooldown = 0;
+    state.abilityCooldown = 0;
 
     if (net.auth.currentUser?.uid === net.currentLobbyOwner) {
         spawnEnemies(map);
@@ -1077,7 +1183,7 @@ const DIR_VECS = {
   up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1], 
 };
 function getInputVec(){
-  if (chatMode) return {vx:0, vy:0};
+  if (chatMode || state.isAsleep) return {vx:0, vy:0};
   const up = keys.has("w") || keys.has("ArrowUp");
   const down = keys.has("s") || keys.has("ArrowDown");
   const left = keys.has("a") || keys.has("ArrowLeft");
@@ -1108,9 +1214,11 @@ function updateCamera(){
 }
 
 function resolvePlayerCollisions(nx, ny){
+  if (state.isPhasing) return { x: nx, y: ny }; // No collision while phasing
   let x = nx, y = ny;
   const myR = PLAYER_R; 
   for (const r of remote.values()){
+    if (r.isPhasing) continue; // Ignore phasing players
     const rr = PLAYER_R;
     const minD = myR + rr;
 
@@ -1144,7 +1252,7 @@ function tryMove(dt, vx, vy){
       if (!canWalk(tx1, ty, state.map)){ newX = oldX; }
       else {
         const xB = stepX > 0 ? tx0+1 : tx0;
-        if (!state.hopping && state.map.edgesV[ty][xB]) newX = oldX;
+        if (!state.hopping && !state.isPhasing && state.map.edgesV[ty][xB]) newX = oldX;
       }
     }
     state.x = newX;
@@ -1159,14 +1267,14 @@ function tryMove(dt, vx, vy){
       if (!canWalk(tx, ty1, state.map)){ newY = oldY; }
       else {
         const yB = stepY > 0 ? ty0+1 : ty0;
-        if (!state.hopping && state.map.edgesH[yB][tx]) newY = oldY;
+        if (!state.hopping && !state.isPhasing && state.map.edgesH[yB][tx]) newY = oldY;
       }
     }
     state.y = newY;
   }
 }
 function tryStartHop(){
-  if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking) return;
+  if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking || state.isAsleep) return;
   const cfg = CHARACTERS[selectedKey];
   const strip = state.animMeta.hop?.[state.dir];
   if (!cfg?.hop || !state.hopImg || !strip || strip.length === 0) return;
@@ -1180,34 +1288,19 @@ function tryStartHop(){
   let tx = tx0 + dx;
   let ty = ty0 + dy;
 
-  // Determine destination tile for hop. By default hop one tile in the
-  // direction of movement if that tile is walkable. If it isn't
-  // walkable, allow skipping over a single water tile (for plains
-  // maps) when the tile beyond is walkable. This enables players to
-  // hop across narrow rivers while still preventing hopping over
-  // solid walls or wider bodies of water. Water‑type characters
-  // already treat water as walkable via canWalk, so this logic only
-  // applies when canWalk() returns false.
   if (!canWalk(tx, ty, state.map)) {
-    // Attempt to hop over one water tile if we're on a plains map
-    // and the immediate tile is a water tile. Only do this for
-    // non‑water Pokémon (canWalk() would return true for water Pokémon
-    // on water, so this branch wouldn't run for them).
     const m = state.map;
     if (m && m.type === 'plains' && ty >= 0 && ty < m.h && tx >= 0 && tx < m.w && m.walls[ty][tx] === 2) {
       const tx2 = tx0 + dx * 2;
       const ty2 = ty0 + dy * 2;
-      // Ensure the tile beyond is within bounds and walkable (i.e. not water or tree).
       if (tx2 >= 0 && ty2 >= 0 && tx2 < m.w && ty2 < m.h && canWalk(tx2, ty2, m)) {
         tx = tx2;
         ty = ty2;
       } else {
-        // Can't hop over this water; stay on original tile.
         tx = tx0;
         ty = ty0;
       }
     } else {
-      // Not water or can't hop; stay on original tile.
       tx = tx0;
       ty = ty0;
     }
@@ -1260,6 +1353,11 @@ function currentFrame(){
     meta = state.animMeta.shoot; strip = meta?.[state.dir];
     if (!strip || !strip.length) return fallbackFrame;
     idx = Math.min(state.frameStep, strip.length - 1); return strip[idx];
+  }
+  if (state.anim === "sleep") {
+    meta = state.animMeta.sleep; strip = meta?.[state.dir] || meta?.down; // Sleep might not have all directions
+    if (!strip || !strip.length) return fallbackFrame;
+    idx = state.frameOrder[state.frameStep % state.frameOrder.length] % strip.length; return strip[idx];
   }
   // Stand animation should use the first idle frame for the current direction
   if (state.anim === "stand"){
@@ -1530,12 +1628,16 @@ function updatePlayerHUD() {
         playerHudEl.innerHTML = '';
         return;
     }
+    
+    const character = state.isIllusion ? CHARACTERS[state.illusionTarget.character] : CHARACTERS[selectedKey];
+    const username = state.isIllusion ? state.illusionTarget.username : localUsername;
+    const level = state.isIllusion ? state.illusionTarget.level : state.level;
 
     playerHudEl.innerHTML = `
       <div class="player-card">
-        <img class="portrait" src="${CHARACTERS[selectedKey].base + CHARACTERS[selectedKey].portrait}">
+        <img class="portrait" src="${character.base + character.portrait}">
         <div class="info">
-          <div class="username">Lvl ${state.level} ${localUsername}</div>
+          <div class="username">Lvl ${level} ${username}</div>
           <div class="hp-bar-bg">
             <div class="hp-bar" style="width: ${ (state.hp / state.maxHp) * 100}%;"></div>
           </div>
@@ -1566,8 +1668,8 @@ function getRemotePlayerSmoothedPos(r) {
       }
       const denom = Math.max(0.0001, b.t - a.t);
       const t = Math.max(0, Math.min(1, (target - a.t) / denom));
-      const smx = a.x + (b.x - a.x) * t;
-      const smy = a.y + (b.y - a.y) * t;
+      const smx = lerp(a.x, b.x, t);
+      const smy = lerp(a.y, b.y, t);
       return { x: smx, y: smy };
     }
     return { x: r.x, y: r.y };
@@ -1585,6 +1687,9 @@ function update(dt){
   if (state.attackCooldown > 0) {
     state.attackCooldown -= dt;
   }
+  if (state.abilityCooldown > 0) {
+      state.abilityCooldown -= dt;
+  }
   
   if (keys.has("j") || keys.has("J")) {
     tryMeleeAttack();
@@ -1593,11 +1698,52 @@ function update(dt){
     tryRangedAttack();
   }
 
+  // Handle passive abilities
+  const myConfig = CHARACTERS[selectedKey];
+  if (myConfig && myConfig.ability && myConfig.ability.type === 'passive') {
+      switch (myConfig.ability.name) {
+          case 'regenerate':
+              state.regenTimer += dt;
+              if (state.regenTimer >= myConfig.ability.interval) {
+                  state.regenTimer = 0;
+                  if (state.hp < state.maxHp) {
+                      state.hp = Math.min(state.maxHp, state.hp + myConfig.ability.rate);
+                      net.updateState({ hp: state.hp });
+                  }
+              }
+              break;
+      }
+  }
+  
+  // Handle active ability states
+  if (state.isPhasing) {
+      state.phaseDamageTimer += dt;
+      if (state.phaseDamageTimer >= 10) {
+          state.phaseDamageTimer = 0;
+          const damage = Math.floor(state.maxHp / 16);
+          state.hp = Math.max(0, state.hp - damage);
+          net.updateState({ hp: state.hp });
+          if (state.hp <= 0) {
+              goBackToSelect();
+          }
+      }
+  }
+
+  if (state.isAsleep) {
+      state.sleepTimer -= dt;
+      if (state.sleepTimer <= 0) {
+          state.isAsleep = false;
+          state.anim = 'stand';
+          net.updateState({ isAsleep: false });
+      }
+  }
+
+
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
 
-  if (!state.hopping && state.anim !== 'hurt' && !state.attacking){
+  if (!state.hopping && state.anim !== 'hurt' && !state.attacking && !state.isAsleep){
     state.dir = vecToDir(vx, vy);
 
     if (state.moving){
@@ -1649,6 +1795,15 @@ function update(dt){
       state.anim = 'stand';
       state.frameStep = 0;
     }
+  } else if (state.anim === 'sleep') {
+      state.frameTime += dt;
+      const tpf = 1 / SLEEP_FPS;
+      const sleepFrames = CHARACTERS[selectedKey].sleep.framesPerDir;
+      state.frameOrder = makePingPong(sleepFrames);
+      while (state.frameTime >= tpf) {
+          state.frameTime -= tpf;
+          state.frameStep = (state.frameStep + 1) % state.frameOrder.length;
+      }
   } else if (state.attacking) {
     state.frameTime += dt;
     const tpf = 1 / ATTACK_FPS;
@@ -1700,8 +1855,13 @@ function update(dt){
     if (_netAccum >= NET_INTERVAL){
       _netAccum = 0;
       if (_hasMeaningfulChange() || _heartbeat >= 3){
-        net.updateState({ x:state.x, y:state.y, dir:state.dir, anim:state.anim, character:selectedKey, typing: state.typing, hp: state.hp, level: state.level });
-        _lastSent = { x: state.x, y: state.y, dir: state.dir, anim: state.anim, character: selectedKey, typing: state.typing, hp: state.hp, level: state.level };
+        const payload = { 
+            x:state.x, y:state.y, dir:state.dir, anim:state.anim, 
+            character:selectedKey, typing: state.typing, hp: state.hp, level: state.level,
+            isPhasing: state.isPhasing, isAsleep: state.isAsleep
+        };
+        net.updateState(payload);
+        _lastSent = { ..._lastSent, ...payload };
         _heartbeat = 0;
       }
     }
@@ -1748,7 +1908,10 @@ function draw(){
     
     let meta, strip, frames, fps, order;
     
-    switch(r.anim) {
+    let currentAnim = r.anim;
+    if (r.isAsleep) currentAnim = 'sleep';
+    
+    switch(currentAnim) {
         case "walk":
             meta = assets.meta.walk;
             frames = assets.cfg.walk.framesPerDir;
@@ -1779,8 +1942,13 @@ function draw(){
             fps = ATTACK_FPS;
             order = [...Array(Math.max(frames, 1)).keys()];
             break;
+        case "sleep":
+            meta = assets.meta.sleep;
+            frames = assets.cfg.sleep.framesPerDir;
+            fps = SLEEP_FPS;
+            order = makePingPong(Math.max(frames, 1));
+            break;
         case "stand":
-            // Stand uses the first idle frame of the current direction
             meta = assets.meta.idle;
             frames = 1;
             fps = IDLE_FPS;
@@ -1793,7 +1961,6 @@ function draw(){
             order = makePingPong(Math.max(frames, 1));
             break;
         default:
-            // Fallback to idle meta if unknown state
             meta = assets.meta.idle;
             frames = assets.cfg.idle.framesPerDir;
             fps = IDLE_FPS;
@@ -1805,7 +1972,7 @@ function draw(){
     if (!strip || !strip.length) continue;
 
 
-    if ((r.anim === "walk") || (r.anim === "hop") || (r.anim === "hurt") || (r.anim === "attack") || (r.anim === "shoot") || (r.anim === "idle" && r.idlePlaying)){
+    if ((r.anim !== "stand") || (r.anim === "idle" && r.idlePlaying)){
       r.frameTime += frameDt;
       const tpf = 1 / fps;
       while (r.frameTime >= tpf){
@@ -1831,6 +1998,7 @@ function draw(){
                 r.anim === "hurt" ? assets.hurt :
                 r.anim === "attack" ? assets.attack :
                 r.anim === "shoot" ? assets.shoot :
+                r.anim === "sleep" ? assets.sleep :
                 assets.idle;
 
     const smoothedPos = getRemotePlayerSmoothedPos(r);
@@ -1842,10 +2010,15 @@ function draw(){
     
     if (r.showHpBarTimer > 0) r.showHpBarTimer -= frameDt;
 
+    const displayName = r.isIllusion ? r.illusionTarget.username : r.username;
+    const displayLevel = r.isIllusion ? r.illusionTarget.level : r.level;
+
     actors.push({
-      kind:"remote", uid: r.uid, name: r.username || "player",
+      kind:"remote", uid: r.uid, name: displayName || "player",
       x:smx, y:smy, z:r.z, frame:f, src, scale:r.scale,
-      typing:r.typing, say:r.say, sayTimer:r.sayTimer, level: r.level
+      typing:r.typing, say:r.say, sayTimer:r.sayTimer, level: displayLevel,
+      isPhasing: r.isPhasing,
+      isHighlighted: state.highlightedPlayers.includes(r.uid)
     });
   }
 
@@ -1856,11 +2029,17 @@ function draw(){
                 (state.anim === "walk" ? state.walkImg : 
                 (state.anim === "hurt" ? state.hurtImg : 
                 (state.anim === "attack" ? state.attackImg :
-                (state.anim === "shoot" ? state.shootImg : state.idleImg))));
+                (state.anim === "shoot" ? state.shootImg : 
+                (state.anim === "sleep" ? state.sleepImg : state.idleImg)))));
+                
+    const displayName = state.isIllusion ? state.illusionTarget.username : localUsername;
+    const displayLevel = state.isIllusion ? state.illusionTarget.level : state.level;
+
     actors.push({
-      kind:"local", name: localUsername || "you",
+      kind:"local", name: displayName || "you",
       x:state.x, y:state.y, z, frame:lf, src, scale:state.scale,
-      typing: state.typing, say: state.say, sayTimer: state.sayTimer, level: state.level
+      typing: state.typing, say: state.say, sayTimer: state.sayTimer, level: displayLevel,
+      isPhasing: state.isPhasing
     });
   }
 
@@ -1929,12 +2108,21 @@ function draw(){
     const overGap = isOverGapWorld(a.x, a.y);
     drawShadow(a.x, a.y, a.z, a.scale, overGap);
     
-    if (a.kind === 'local' && state.invulnerableTimer > 0) {
-        ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 1.0;
+    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
+        ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
+    }
+
+    if (a.isHighlighted) {
+        ctx.save();
+        ctx.filter = 'drop-shadow(0 0 8px #ffffaa) brightness(1.5)';
     }
 
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
     
+    if (a.isHighlighted) {
+        ctx.restore();
+    }
+
     ctx.globalAlpha = 1.0;
 
     drawNameTagAbove(a.name, a.level, f, a.x, a.y, a.z, a.scale);
@@ -2100,8 +2288,9 @@ function spawnHealthPacks(map) {
 function updateEnemies(dt) {
     if (!state.ready) return;
 
-    const allPlayers = [{ id: net.auth.currentUser.uid, x: state.x, y: state.y }];
+    const allPlayers = [{ id: net.auth.currentUser.uid, x: state.x, y: state.y, isPhasing: state.isPhasing }];
     for (const [uid, player] of remote.entries()) {
+        if (player.isPhasing) continue; // Enemies ignore phasing players
         const pos = getRemotePlayerSmoothedPos(player);
         allPlayers.push({ id: uid, x: pos.x, y: pos.y });
     }
@@ -2160,7 +2349,7 @@ function updateProjectiles(dt) {
             continue;
         }
         
-        if (state.invulnerableTimer <= 0) {
+        if (state.invulnerableTimer <= 0 && !state.isPhasing) {
             const dist = Math.hypot(p.x - state.x, p.y - state.y);
             if (dist < PLAYER_R + PROJECTILE_R) {
                 state.hp = Math.max(0, state.hp - p.damage);
@@ -2224,6 +2413,7 @@ function updatePlayerProjectiles(dt) {
             }
 
             for (const [uid, player] of remote.entries()) {
+                if (player.isPhasing) continue;
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
@@ -2300,7 +2490,7 @@ function isFacing(player, target) {
 }
 
 function tryMeleeAttack() {
-    if (!state.ready || state.attacking || state.attackCooldown > 0) return;
+    if (!state.ready || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
 
     state.attacking = true;
     state.attackType = 'melee';
@@ -2331,6 +2521,7 @@ function tryMeleeAttack() {
     }
 
     for (const [uid, player] of remote.entries()) {
+        if (player.isPhasing) continue;
         const smoothedPos = getRemotePlayerSmoothedPos(player);
         const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
         if (dist < attackRange && isFacing(state, { x: smoothedPos.x, y: smoothedPos.y })) {
@@ -2343,7 +2534,7 @@ function tryMeleeAttack() {
 
 function tryRangedAttack() {
     const cfg = CHARACTERS[selectedKey];
-    if (!state.ready || !cfg.ranged || state.attacking || state.attackCooldown > 0) return;
+    if (!state.ready || !cfg.ranged || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
 
     state.attacking = true;
     state.attackType = 'ranged';
@@ -2353,7 +2544,27 @@ function tryRangedAttack() {
     state.attackCooldown = 0.8;
 
     const projectileSpeed = TILE * 8;
-    const [vx, vy] = DIR_VECS[state.dir];
+    let [vx, vy] = DIR_VECS[state.dir];
+
+    // Decidueye's Aimbot passive
+    if (cfg.ability?.name === 'aimbot') {
+        let closestEnemy = null;
+        let minDistance = Infinity;
+        for (const enemy of enemies.values()) {
+            const dist = Math.hypot(enemy.x - state.x, enemy.y - state.y);
+            if (dist < minDistance) {
+                minDistance = dist;
+                closestEnemy = enemy;
+            }
+        }
+        if (closestEnemy) {
+            const dx = closestEnemy.x - state.x;
+            const dy = closestEnemy.y - state.y;
+            const dist = Math.hypot(dx, dy);
+            vx = dx / dist;
+            vy = dy / dist;
+        }
+    }
 
     const startY = state.y - (TILE * 0.5);
 
@@ -2372,10 +2583,170 @@ function tryRangedAttack() {
     net.fireProjectile(p_data);
 }
 
+// ---------- ABILITY LOGIC ----------
+
+function handleAbilityKeyPress() {
+    if (state.abilityCooldown > 0) return;
+
+    const cfg = CHARACTERS[selectedKey];
+    if (!cfg.ability || cfg.ability.type !== 'active') return;
+
+    // Handle abilities that can be toggled off
+    if (cfg.ability.name === 'phase' && state.isPhasing) {
+        togglePhase();
+        return;
+    }
+    if (cfg.ability.name === 'transform' && state.isTransformed) {
+        revertTransform();
+        return;
+    }
+    if (cfg.ability.name === 'illusion' && state.isIllusion) {
+        revertIllusion();
+        return;
+    }
+
+    // Handle abilities that require targeting
+    if (['transform', 'illusion', 'hypnotize'].includes(cfg.ability.name)) {
+        state.abilityTargetingMode = cfg.ability.name;
+        state.highlightedPlayers = Array.from(remote.keys());
+        return;
+    }
+
+    // Handle abilities that activate instantly
+    if (cfg.ability.name === 'phase') {
+        togglePhase();
+    }
+}
+
+function activateTargetedAbility(targetPlayer) {
+    const cfg = CHARACTERS[selectedKey];
+    if (!cfg || !cfg.ability) return;
+
+    switch (state.abilityTargetingMode) {
+        case 'transform':
+            transformInto(targetPlayer);
+            break;
+        case 'illusion':
+            createIllusion(targetPlayer);
+            break;
+        case 'hypnotize':
+            const dist = Math.hypot(state.x - targetPlayer.x, state.y - targetPlayer.y);
+            if (dist <= cfg.ability.range) {
+                hypnotize(targetPlayer);
+            } else {
+                // Maybe show a "too far" message
+            }
+            break;
+    }
+}
+
+function togglePhase() {
+    state.isPhasing = !state.isPhasing;
+    state.phaseDamageTimer = 0; // Reset timer
+    net.updateState({ isPhasing: state.isPhasing });
+    
+    // You don't set cooldown here, as it's a toggle. 
+    // Cooldown could be applied when phasing *ends* if desired.
+}
+
+async function transformInto(targetPlayer) {
+    state.isTransformed = true;
+    state.originalCharacterKey = selectedKey;
+    const targetKey = targetPlayer.originalCharacterKey || targetPlayer.character;
+    selectedKey = targetKey; // Change local character key
+
+    // Reload assets for the new character
+    const assets = await loadCharacterAssets(selectedKey);
+    if (assets) {
+        state.walkImg = assets.walk;
+        state.idleImg = assets.idle;
+        // ... and so on for all other assets
+        state.animMeta = assets.meta;
+        state.maxHp = assets.cfg.hp;
+        // Optionally adjust current HP
+        state.hp = Math.min(state.hp, state.maxHp);
+    }
+
+    net.broadcastAbility({ name: 'transform', targetCharacterKey: selectedKey });
+    net.updateState({ character: selectedKey, hp: state.hp, maxHp: state.maxHp });
+
+    const cfg = CHARACTERS[state.originalCharacterKey];
+    state.abilityCooldown = cfg.ability.cooldown;
+}
+
+async function revertTransform() {
+    state.isTransformed = false;
+    selectedKey = state.originalCharacterKey;
+    state.originalCharacterKey = null;
+
+    const assets = await loadCharacterAssets(selectedKey);
+    if (assets) {
+        state.walkImg = assets.walk;
+        state.idleImg = assets.idle;
+        // ... and so on
+        state.animMeta = assets.meta;
+        state.maxHp = assets.cfg.hp;
+        state.hp = Math.min(state.hp, state.maxHp);
+    }
+    
+    net.broadcastAbility({ name: 'transform', targetCharacterKey: selectedKey });
+    net.updateState({ character: selectedKey, hp: state.hp, maxHp: state.maxHp });
+}
+
+function createIllusion(targetPlayer) {
+    state.isIllusion = true;
+    state.illusionTarget = {
+        username: targetPlayer.username,
+        level: targetPlayer.level,
+        character: targetPlayer.originalCharacterKey || targetPlayer.character
+    };
+    
+    net.broadcastAbility({ name: 'illusion', target: state.illusionTarget });
+    
+    const cfg = CHARACTERS[selectedKey];
+    state.abilityCooldown = cfg.ability.cooldown;
+}
+
+function revertIllusion() {
+    state.isIllusion = false;
+    state.illusionTarget = null;
+    net.broadcastAbility({ name: 'revertIllusion' });
+}
+
+function hypnotize(targetPlayer) {
+    const cfg = CHARACTERS[selectedKey];
+    net.applyStatus(targetPlayer.uid, { type: 'sleep', duration: 5000 });
+    state.abilityCooldown = cfg.ability.cooldown;
+}
+
+// Handle remote ability effects
+async function handleRemoteTransform(player, targetKey) {
+    player.isTransformed = (player.originalCharacterKey !== targetKey);
+    player.character = targetKey;
+    player.assets = await loadCharacterAssets(targetKey);
+    if (player.assets) {
+        player.maxHp = player.assets.cfg.hp;
+    }
+}
+
+async function handleRemoteIllusion(player, target) {
+    player.isIllusion = true;
+    player.illusionTarget = target;
+    // We need to load the assets for the illusion character if we don't have them
+    player.assets = await loadCharacterAssets(target.character);
+}
+
+async function handleRemoteRevertIllusion(player) {
+    player.isIllusion = false;
+    player.illusionTarget = null;
+    // Revert back to original assets
+    player.assets = await loadCharacterAssets(player.originalCharacterKey);
+}
+
 
 // ---------- Init ----------
-function init() {
-    processCharacterData();
+async function init() {
+    await processCharacterData();
     buildSelectUI();
     requestAnimationFrame(loop);
 }
@@ -2406,6 +2777,7 @@ function tileCenter(tx, ty) {
 }
 
 function canWalk(tx, ty, map) {
+    if (state.isPhasing) return true; // Can walk through anything while phasing
     if (map.type === 'plains') {
         const waterPokemon = ["Quagsire", "Empoleon", "Primarina", "Dewgong"];
         if (map.walls[ty][tx] === 2) { // Water tile
@@ -2466,37 +2838,24 @@ function generateMap(w, h, seed=1234, type = 'dungeon'){
       tries++;
     }
 
-    // Generate additional long bodies of water (rivers) that wind across the map. Rivers are one
-    // tile wide and take random diagonal turns to appear more natural. They act as
-    // narrow obstacles which players can hop across but cannot walk upon unless they
-    // are water‑type Pokémon. We generate these after choosing spawn so we can avoid
-    // overwriting the spawn location. The number and length of rivers scales with
-    // the map size.
     const riverCount = Math.max(1, Math.floor(Math.min(w, h) / 20));
-    // Possible directions for river paths: cardinal and diagonal
     const dirs = [ [1,0], [0,1], [-1,0], [0,-1], [1,1], [-1,-1], [1,-1], [-1,1] ];
     for (let i = 0; i < riverCount; i++) {
-      // Choose a random starting point away from the border to reduce immediate termination
       let rx = 2 + Math.floor(rnd() * Math.max(1, w - 4));
       let ry = 2 + Math.floor(rnd() * Math.max(1, h - 4));
-      // Random initial direction
       let [dx, dy] = dirs[Math.floor(rnd() * dirs.length)];
-      // River length proportional to map size
       const minLen = Math.floor(Math.min(w, h) * 0.5);
       const maxLen = Math.floor(Math.min(w, h) * 0.9);
       const length = minLen + Math.floor(rnd() * Math.max(1, maxLen - minLen + 1));
       for (let step = 0; step < length; step++) {
         if (rx < 0 || ry < 0 || rx >= w || ry >= h) break;
-        // Avoid overwriting the spawn tile
         if (!(rx === spawn.x && ry === spawn.y)) {
           walls[ry][rx] = 2;
         }
-        // Occasionally change direction to create turns; avoid reversing direction directly
         if (rnd() < 0.25) {
           const possible = dirs.filter(([nx, ny]) => !(nx === -dx && ny === -dy));
           [dx, dy] = possible[Math.floor(rnd() * possible.length)];
         }
-        // Move to next tile
         rx += dx;
         ry += dy;
       }

@@ -320,17 +320,74 @@ export class Net {
   }
 
 
+  // ---------- STATUS EVENTS (e.g., Sleep) ----------
+  async applyStatus(targetUid, status) {
+    if (!this.currentLobbyId || !targetUid || !status) return;
+    const refPath = ref(this.db, `lobbies/${this.currentLobbyId}/players/${targetUid}/status_events`);
+    const newRef = push(refPath);
+    await set(newRef, { ...status, from: this.auth.currentUser?.uid, ts: rtdbServerTimestamp() });
+  }
+
+  subscribeToStatusEvents(onEvent) {
+    const uid = this.auth.currentUser?.uid;
+    if (!this.currentLobbyId || !uid) return () => {};
+    const statusRef = ref(this.db, `lobbies/${this.currentLobbyId}/players/${uid}/status_events`);
+    const q = query(statusRef, orderByChild('ts'), startAt(this.joinTimestamp));
+    const unsub = onChildAdded(q, (snap) => {
+      const val = snap.val();
+      try { onEvent && onEvent(val); } catch(e){ console.error(e); }
+      remove(snap.ref).catch(()=>{});
+    });
+    this.playersUnsubs.push(unsub);
+    return unsub;
+  }
+
+  // ---------- ABILITY EVENTS ----------
+  async broadcastAbility(abilityData) {
+      if (!this.currentLobbyId) return;
+      const abilityEventsRef = ref(this.db, `lobbies/${this.currentLobbyId}/ability_events`);
+      const newEventRef = push(abilityEventsRef);
+      await set(newEventRef, {
+          by: this.auth.currentUser?.uid,
+          ...abilityData,
+          ts: rtdbServerTimestamp()
+      });
+  }
+
+  subscribeToAbilities(onAbility) {
+      if (!this.currentLobbyId) return () => {};
+      const abilityEventsRef = ref(this.db, `lobbies/${this.currentLobbyId}/ability_events`);
+      const q = query(abilityEventsRef, orderByChild('ts'), startAt(this.joinTimestamp));
+
+      const unsub = onChildAdded(q, (snap) => {
+          const abilityData = snap.val();
+          if (abilityData.by === this.auth.currentUser?.uid) {
+              return;
+          }
+          onAbility(abilityData);
+          // It's often better to let the host clean up old events, but for simple cases, this is fine.
+          remove(snap.ref).catch(e => console.error("Failed to remove ability event", e));
+      });
+
+      this.playersUnsubs.push(unsub);
+      return unsub;
+  }
+
   // ---------- PVP & CHAT (RTDB) ----------
-  async dealDamage(targetUid, damage, isKill) {
+  async dealDamage(targetUid, damage, isKill, fromAbility = null) {
     if (!this.currentLobbyId || !targetUid) return;
     const hitsRef = ref(this.db, `lobbies/${this.currentLobbyId}/players/${targetUid}/hits`);
     const newHitRef = push(hitsRef);
-    await set(newHitRef, {
+    const payload = {
       damage: damage,
       from: this.auth.currentUser?.uid,
       isKill: !!isKill,
       ts: rtdbServerTimestamp()
-    });
+    };
+    if (fromAbility) {
+        payload.fromAbility = fromAbility;
+    }
+    await set(newHitRef, payload);
   }
 
   subscribeToHits(onHit) {
