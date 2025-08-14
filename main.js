@@ -44,6 +44,7 @@ const lobbyListEl    = document.getElementById("lobbyList");
 const lobbyHintEl    = document.getElementById("lobbyHint");
 const newLobbyNameEl = document.getElementById("newLobbyName");
 const createLobbyBtn = document.getElementById("createLobbyBtn");
+const createPlainsLobbyBtn = document.getElementById("createPlainsLobbyBtn");
 const refreshBtn     = document.getElementById("refreshLobbiesBtn");
 const backBtn        = document.getElementById("backToSelectBtn");
 const authEl         = document.getElementById("auth");
@@ -140,19 +141,30 @@ const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
 const EDGE_LIP    = "rgba(255,255,255,0.08)";
 
-const TEX = { floor: null, wall: null, coin: null, health: null };
+const TEX = { 
+    floor: null, wall: null, coin: null, health: null,
+    grass: null, water: null, grass_water_transition: null, palm_tree: null
+};
 const BG_TILE_SCALE = 3.0; // visual scale for floor & wall tiles (option 2)
 
 loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{});
 loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
 loadImage("assets/coin.png").then(im => TEX.coin = im).catch(() => {});
 loadImage("assets/health.png").then(im => TEX.health = im).catch(() => {});
+loadImage("assets/grass.png").then(im => TEX.grass = im).catch(() => {});
+loadImage("assets/water.png").then(im => TEX.water = im).catch(() => {});
+loadImage("assets/grass_water_transition.png").then(im => TEX.grass_water_transition = im).catch(() => {});
+loadImage("assets/palm_tree.png").then(im => TEX.palm_tree = im).catch(() => {});
 
 
 // ---------- SFX & Music ----------
 const lobbyMusic = new Audio('assets/sfx/lobby.mp3');
 lobbyMusic.loop = true;
 lobbyMusic.volume = 0.3;
+
+const dungeonMusic = new Audio('assets/sfx/dungeon.mp3');
+dungeonMusic.loop = true;
+dungeonMusic.volume = 0.3;
 
 function makeAudioPool(url, poolSize = 6){
   const pool = Array.from({length: poolSize}, () => new Audio(url));
@@ -169,6 +181,8 @@ const sfx = {
   hover:  makeAudioPool("assets/sfx/blipHover.wav"),
   select: makeAudioPool("assets/sfx/blipSelect.wav"),
   jump:   makeAudioPool("assets/sfx/jump.wav"),
+  coin:   makeAudioPool("assets/sfx/coin.wav"),
+  heal:   makeAudioPool("assets/sfx/heal.wav"),
 };
 
 // ---------- Chat filter ----------
@@ -463,40 +477,49 @@ refreshBtn.onclick = ()=>{
 function randSeed(){ return (Math.random()*0xFFFFFFFF)>>>0; }
 function mulberry32(a){ return function(){ let t=a+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
 
-createLobbyBtn.onclick = async ()=>{
-  const btnLabel = createLobbyBtn.textContent;
-  createLobbyBtn.disabled = true;
-  createLobbyBtn.textContent = "Creating…";
-  try{
-    const cfg = CHARACTERS[selectedKey];
-    if (!cfg) throw new Error("Pick a character first");
-    const visW = Math.floor(canvas.width / TILE);
-    const visH = Math.floor(canvas.height / TILE);
-    const w = visW * MAP_SCALE;
-    const h = visH * MAP_SCALE;
-    const seed = randSeed();
-    const lobbyId = await net.createLobby((newLobbyNameEl.value||"").trim(), { w,h,seed });
-    await net.joinLobby(lobbyId);
-    const map = generateMap(w, h, seed);
-    await startWithCharacter(cfg, map);
-    watchdogEnsureGame(cfg, map);
-    overlayLobbies.classList.add("hidden");
-    mountChatLog();
-    startChatSubscription();
-    playerHudEl.classList.remove("hidden");
-    leaveLobbyBtn.classList.remove("hidden");
-    if (inputMode === 'touch') {
-        mobileControls.classList.remove("hidden");
+createLobbyBtn.onclick = () => createLobbyFlow('dungeon');
+createPlainsLobbyBtn.onclick = () => createLobbyFlow('plains');
+
+async function createLobbyFlow(type) {
+    const btn = (type === 'dungeon') ? createLobbyBtn : createPlainsLobbyBtn;
+    const btnLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Creating…";
+
+    try {
+        const cfg = CHARACTERS[selectedKey];
+        if (!cfg) throw new Error("Pick a character first");
+        const visW = Math.floor(canvas.width / TILE);
+        const visH = Math.floor(canvas.height / TILE);
+        const w = visW * MAP_SCALE;
+        const h = visH * MAP_SCALE;
+        const seed = randSeed();
+        const lobbyId = await net.createLobby((newLobbyNameEl.value || "").trim(), { w, h, seed, type });
+        await net.joinLobby(lobbyId);
+        const map = generateMap(w, h, seed, type);
+        await startWithCharacter(cfg, map);
+        watchdogEnsureGame(cfg, map);
+        overlayLobbies.classList.add("hidden");
+        mountChatLog();
+        startChatSubscription();
+        playerHudEl.classList.remove("hidden");
+        leaveLobbyBtn.classList.remove("hidden");
+        if (inputMode === 'touch') {
+            mobileControls.classList.remove("hidden");
+        }
+        if (type === 'dungeon') {
+            dungeonMusic.play().catch(() => {});
+        } else {
+            lobbyMusic.play().catch(() => {});
+        }
+    } catch (e) {
+        console.error("Create lobby failed:", e);
+        alert("Create lobby failed: " + (e?.message || e));
+    } finally {
+        btn.disabled = false;
+        btn.textContent = btnLabel;
     }
-    try { lobbyMusic.play(); } catch(e) {}
-  } catch(e){
-    console.error("Create lobby failed:", e);
-    alert("Create lobby failed: " + (e?.message || e));
-  } finally {
-    createLobbyBtn.disabled = false;
-    createLobbyBtn.textContent = btnLabel;
-  }
-};
+}
 
 async function joinLobbyFlow(lobbyId, btnEl){
   isJoiningLobby = true;
@@ -507,9 +530,9 @@ async function joinLobbyFlow(lobbyId, btnEl){
     const cfg = CHARACTERS[selectedKey];
     if (!cfg) { alert("Pick a character first"); return; }
     const lobby = await net.getLobby(lobbyId);
-    const { w,h,seed } = lobby.mapMeta || {};
+    const { w,h,seed, type } = lobby.mapMeta || {};
     await net.joinLobby(lobbyId);
-    const map = generateMap(w||48,h||32,seed??1234);
+    const map = generateMap(w||48,h||32,seed??1234, type);
     await startWithCharacter(cfg, map);
     watchdogEnsureGame(cfg, map);
     overlayLobbies.classList.add("hidden");
@@ -520,7 +543,11 @@ async function joinLobbyFlow(lobbyId, btnEl){
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
-    try { lobbyMusic.play(); } catch(e) {}
+    if (type === 'dungeon') {
+        dungeonMusic.play().catch(() => {});
+    } else {
+        lobbyMusic.play().catch(() => {});
+    }
   } catch(e){
     console.error("Join lobby failed:", e);
     alert("Join lobby failed: " + (e?.message || e));
@@ -608,6 +635,8 @@ function goBackToSelect(isSafeLeave = false) {
         }
     }
     try { lobbyMusic.pause(); lobbyMusic.currentTime = 0; } catch(e) {}
+    try { dungeonMusic.pause(); dungeonMusic.currentTime = 0; } catch(e) {}
+
 
     keys.clear(); 
     remote.clear();
@@ -2098,6 +2127,7 @@ function checkCoinCollision() {
             state.coins++;
             net.updatePlayerStats({ coins: 1 });
             net.removeCoin(id);
+            sfx.coin.play();
         }
     }
 }
@@ -2110,6 +2140,7 @@ function checkHealthPackCollision() {
             state.hp = Math.min(state.maxHp, state.hp + 50); // Heal for 50 HP
             net.updateState({ hp: state.hp });
             net.removeHealthPack(id);
+            sfx.heal.play();
         }
     }
 }
