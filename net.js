@@ -31,7 +31,30 @@ export class Net {
     this.db   = getDatabase(this.app);
 
     this._authCb = () => {};
-    this._authUnsub = onAuthStateChanged(this.auth, (u)=>{
+    this._authUnsub = onAuthStateChanged(this.auth, async (u) => {
+        if (u) {
+            const userRef = ref(this.db, `users/${u.uid}`);
+            const snap = await get(userRef);
+            if (snap.exists()) {
+                const userData = snap.val();
+                // If the database record exists but is missing a username...
+                if (!userData.username && u.email) {
+                    // ...derive the username from the email and update the record.
+                    const usernameFromEmail = u.email.split('@')[0];
+                    await update(userRef, { username: usernameFromEmail });
+                }
+            } else if (u.email) {
+                // This handles the rare case a user exists in Auth but has no DB record.
+                const usernameFromEmail = u.email.split('@')[0];
+                await set(userRef, {
+                    username: usernameFromEmail,
+                    level: 1,
+                    xp: 0,
+                    coins: 0,
+                    inventory: {}
+                });
+            }
+        }
         this._authCb(u);
         this.setupPresence();
     });
@@ -55,7 +78,7 @@ export class Net {
   setupPresence() {
       const uid = this.auth.currentUser?.uid;
       if (uid) {
-          const userStatusDatabaseRef = ref(this.db, '/presence/' + uid); // Changed path
+          const userStatusDatabaseRef = ref(this.db, '/presence/' + uid);
           const isOfflineForDatabase = { state: 'offline', last_changed: rtdbServerTimestamp() };
           const isOnlineForDatabase = { state: 'online', last_changed: rtdbServerTimestamp() };
 
@@ -71,7 +94,7 @@ export class Net {
   }
   
   subscribeOnlineCount(cb) {
-      const connectionsRef = ref(this.db, '/presence'); // Changed path
+      const connectionsRef = ref(this.db, '/presence');
       const handler = onValue(connectionsRef, (snap) => {
           let count = 0;
           if (snap.exists()) {
@@ -93,6 +116,8 @@ export class Net {
   async signUp(username, password){
     const email = this._usernameToEmail(username);
     const cred = await createUserWithEmailAndPassword(this.auth, email, password);
+    await updateProfile(cred.user, { displayName: username });
+    
     await set(ref(this.db, `users/${cred.user.uid}`), {
         username: username,
         level: 1,
@@ -100,7 +125,7 @@ export class Net {
         coins: 0,
         inventory: {}
     });
-    try { await updateProfile(cred.user, { displayName: username }); } catch {}
+
     return cred.user;
   }
   async logIn(username, password){
@@ -109,7 +134,7 @@ export class Net {
     return cred.user;
   }
   async logOut(){
-    const userStatusDatabaseRef = ref(this.db, '/presence/' + this.auth.currentUser.uid); // Changed path
+    const userStatusDatabaseRef = ref(this.db, '/presence/' + this.auth.currentUser.uid);
     await set(userStatusDatabaseRef, { state: 'offline', last_changed: rtdbServerTimestamp() });
     try { await this.leaveLobby(); } catch {}
     return signOut(this.auth);
@@ -122,7 +147,6 @@ export class Net {
     const lobbiesRef = ref(this.db, "lobbies");
     const newRef = push(lobbiesRef);
     const id = newRef.key;
-    // Preserve any extra fields (like type) in mapMeta when creating a lobby.
     const meta = {
       name: name || `Lobby ${Math.floor(Math.random() * 9999)}`,
       owner: uid,
@@ -197,7 +221,7 @@ export class Net {
     const uid = this.auth.currentUser?.uid;
     if (!uid) throw new Error("Not signed in");
     this.currentLobbyId = lobbyId;
-    this.joinTimestamp = Date.now(); // Record the time the player joins
+    this.joinTimestamp = Date.now();
     try {
       const s = await get(child(ref(this.db), `lobbies/${lobbyId}/meta`));
       this.currentLobbyOwner = s.exists() ? (s.val().owner || null) : null;
@@ -240,7 +264,7 @@ export class Net {
       scale: Number(state.scale)||3,
       hp: Number(state.hp) || 100,
       maxHp: Number(state.maxHp) || 100,
-      level: state.level || 1, // Add level to lobby data
+      level: state.level || 1,
       originalCharacterKey: state.originalCharacterKey,
       equippedItem: state.equippedItem || null,
       ts: rtdbServerTimestamp()
@@ -292,7 +316,6 @@ export class Net {
       if (snap.exists()) {
           return snap.val();
       } else {
-          // If user exists but has no stats, create them.
           const defaultStats = { level: 1, xp: 0, coins: 0, inventory: {}, equippedItem: null };
           await set(userRef, defaultStats);
           return defaultStats;
@@ -303,7 +326,6 @@ export class Net {
       const uid = this.auth.currentUser?.uid;
       if (!uid) return;
       const userRef = ref(this.db, `users/${uid}`);
-      // Use a transaction to safely update stats like XP and coins
       return runTransaction(userRef, (currentData) => {
           if (currentData) {
               if (statsUpdate.xp) {
@@ -351,14 +373,18 @@ export class Net {
   subscribeToLeaderboard(type, cb) {
       const usersRef = ref(this.db, 'users');
       const q = query(usersRef, orderByChild(type), limitToLast(5));
+
       const handler = onValue(q, (snap) => {
           const leaderboard = [];
           if (snap.exists()) {
               snap.forEach(childSnap => {
                   leaderboard.push(childSnap.val());
               });
+              leaderboard.reverse();
           }
-          cb(leaderboard.reverse());
+          cb(leaderboard);
+      }, (error) => {
+          console.error("Failed to fetch user data for leaderboard:", error);
       });
       return handler;
   }
@@ -409,7 +435,6 @@ export class Net {
               return;
           }
           onAbility(abilityData);
-          // It's often better to let the host clean up old events, but for simple cases, this is fine.
           remove(snap.ref).catch(e => console.error("Failed to remove ability event", e));
       });
 

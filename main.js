@@ -493,7 +493,9 @@ function renderLeaderboard(type, data) {
     let listHtml = '<ol>';
     data.forEach(player => {
         const value = type === 'level' ? `Lvl ${player.level}` : `${player.coins} Coins`;
-        listHtml += `<li>${player.username} - ${value}</li>`;
+        // Add a fallback for players who might not have a username set in the database
+        const playerName = player.username || 'Anonymous';
+        listHtml += `<li>${playerName} - ${value}</li>`;
     });
     listHtml += '</ol>';
     leaderboardEl.innerHTML = `<h3>${title}</h3>${listHtml}`;
