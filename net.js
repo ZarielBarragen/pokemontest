@@ -1,17 +1,14 @@
-// net.js — ALL multiplayer on Realtime Database (RTDB): lobbies, players, chat
-// Drop-in replacement for previous Net API.
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { initializeApp } from "[https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js](https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js)";
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, updateProfile, signOut
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+} from "[https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js](https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js)";
 
 import {
   getDatabase, ref, set, update, remove, onDisconnect, push,
   onValue, onChildAdded, onChildChanged, onChildRemoved, get, child, query,
   orderByChild, limitToLast, serverTimestamp as rtdbServerTimestamp, startAt, runTransaction
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+} from "[https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js](https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js)";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyAKYjaxMsnZZ_QeNxHZAFHQokGjhoYnT4Q",
@@ -21,7 +18,7 @@ export const firebaseConfig = {
   messagingSenderId: "874372031897",
   appId: "1:874372031897:web:bd7bdfe8338d36d086df08",
   measurementId: "G-HFXK2J605R",
-  databaseURL: "https://poketest-4d108-default-rtdb.firebaseio.com"
+  databaseURL: "[https://poketest-4d108-default-rtdb.firebaseio.com](https://poketest-4d108-default-rtdb.firebaseio.com)"
 };
 
 export class Net {
@@ -107,8 +104,11 @@ export class Net {
     return cred.user;
   }
   async logOut(){
-    const userStatusDatabaseRef = ref(this.db, '/connections/' + this.auth.currentUser.uid);
-    await set(userStatusDatabaseRef, { state: 'offline', last_changed: rtdbServerTimestamp() });
+    const uid = this.auth.currentUser?.uid;
+    if (uid) {
+        const userStatusDatabaseRef = ref(this.db, '/connections/' + uid);
+        await set(userStatusDatabaseRef, { state: 'offline', last_changed: rtdbServerTimestamp() });
+    }
     try { await this.leaveLobby(); } catch {}
     return signOut(this.auth);
   }
@@ -124,7 +124,12 @@ export class Net {
       name: name || `Lobby ${Math.floor(Math.random()*9999)}`,
       owner: uid,
       createdAt: rtdbServerTimestamp(),
-      mapMeta: { w: Number(mapMeta?.w)||48, h: Number(mapMeta?.h)||32, seed: Number(mapMeta?.seed)||1234 },
+      mapMeta: { 
+          w: Number(mapMeta?.w)||48, 
+          h: Number(mapMeta?.h)||32, 
+          seed: Number(mapMeta?.seed)||1234,
+          type: mapMeta?.type || 'dungeon'
+      },
       active: true
     };
     await set(ref(this.db, `lobbies/${id}/meta`), meta);
@@ -156,7 +161,7 @@ export class Net {
           name: meta.name || "Lobby",
           owner: meta.owner || "",
           createdAt: meta.createdAt || 0,
-          mapMeta: meta.mapMeta || { w:48, h:32, seed:1234 },
+          mapMeta: meta.mapMeta || { w:48, h:32, seed:1234, type: 'dungeon' },
           active: meta.active !== false,
           playersCount: Object.keys(players).length
         };
@@ -511,7 +516,7 @@ export class Net {
           onRemove && onRemove(snap.key);
       });
 
-      const unsub = () => { try{a();}catch{} try{r();}catch{} };
+      const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
       this.playersUnsubs.push(unsub);
       return unsub;
   }
@@ -541,7 +546,7 @@ export class Net {
           onRemove && onRemove(snap.key);
       });
 
-      const unsub = () => { try{a();}catch{} try{r();}catch{} };
+      const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
       this.playersUnsubs.push(unsub);
       return unsub;
   }
