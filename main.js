@@ -205,7 +205,7 @@ let CHARACTERS = {};
 // We will fetch this from the JSON file now
 async function fetchCharacterData() {
     try {
-        const response = await fetch('assets/characters.json');
+        const response = await fetch('characters.json');
         const data = await response.json();
         return data;
     } catch (error) {
@@ -639,8 +639,9 @@ function goBackToSelect(isSafeLeave = false) {
     try { dungeonMusic.pause(); dungeonMusic.currentTime = 0; } catch(e) {}
 
     // Reset illusion state on leaving
-    state.isIllusion = false;
-    state.illusionTarget = null;
+    if (state.isIllusion) {
+        revertIllusion(true); // silent revert
+    }
     if (state.isTransformed) {
         revertTransform(true); // silent revert
     }
@@ -959,7 +960,7 @@ function startNetListeners(){
 
       switch (abilityData.name) {
           case 'transform':
-              handleRemoteTransform(player, abilityData.targetCharacterKey);
+              handleRemoteTransform(player, abilityData.targetCharacterKey, abilityData.isRevert);
               break;
           case 'illusion':
               handleRemoteIllusion(player, abilityData.target);
@@ -1060,7 +1061,13 @@ function startNetListeners(){
       r.typing = !!data.typing;
       r.level = data.level ?? r.level;
       r.isPhasing = data.isPhasing ?? r.isPhasing;
-      r.isAsleep = data.isAsleep ?? r.isAsleep;
+      
+      if (data.isAsleep === false && r.isAsleep === true) {
+          r.isAsleep = false;
+          r.anim = 'stand';
+      } else {
+         r.isAsleep = data.isAsleep ?? r.isAsleep;
+      }
       
       if (data.hp < r.hp) {
           if (r.isIllusion) {
@@ -1177,7 +1184,8 @@ async function startWithCharacter(cfg, map){
       character: selectedKey,
       x: state.x, y: state.y, dir: state.dir,
       anim: state.anim, scale: state.scale, typing:false,
-      hp: state.hp, maxHp: state.maxHp, level: state.level
+      hp: state.hp, maxHp: state.maxHp, level: state.level,
+      originalCharacterKey: selectedKey
     });
     startNetListeners();
   } catch (err){
@@ -2619,9 +2627,9 @@ function tryRangedAttack() {
 // ---------- ABILITY LOGIC ----------
 
 function handleAbilityKeyPress() {
-    if (state.abilityCooldown > 0) return;
+    if (state.abilityCooldown > 0 && !state.isIllusion) return;
 
-    const cfg = CHARACTERS[selectedKey];
+    const cfg = CHARACTERS[state.originalCharacterKey || selectedKey];
     if (!cfg.ability || cfg.ability.type !== 'active') return;
 
     // Handle abilities that can be toggled off
@@ -2652,7 +2660,7 @@ function handleAbilityKeyPress() {
 }
 
 function activateTargetedAbility(targetPlayer) {
-    const cfg = CHARACTERS[selectedKey];
+    const cfg = CHARACTERS[state.originalCharacterKey || selectedKey];
     if (!cfg || !cfg.ability) return;
 
     switch (state.abilityTargetingMode) {
@@ -2683,58 +2691,47 @@ function togglePhase() {
 }
 
 async function transformInto(targetPlayer) {
+    if (state.isTransformed) return;
     state.isTransformed = true;
     state.originalCharacterKey = selectedKey;
     const targetKey = targetPlayer.originalCharacterKey || targetPlayer.character;
-    selectedKey = targetKey; // Change local character key
+    
+    // Update local state to the new character
+    await applyCharacterChange(targetKey);
 
-    // Reload assets for the new character
-    const assets = await loadCharacterAssets(selectedKey);
-    if (assets) {
-        state.walkImg = assets.walk;
-        state.idleImg = assets.idle;
-        state.hopImg = assets.hop;
-        state.hurtImg = assets.hurt;
-        state.attackImg = assets.attack;
-        state.shootImg = assets.shoot;
-        state.sleepImg = assets.sleep;
-        state.animMeta = assets.meta;
-        state.maxHp = assets.cfg.hp;
-        // Optionally adjust current HP
-        state.hp = Math.min(state.hp, state.maxHp);
-    }
-
-    net.broadcastAbility({ name: 'transform', targetCharacterKey: selectedKey });
-    net.updateState({ character: selectedKey, hp: state.hp, maxHp: state.maxHp });
+    net.broadcastAbility({ name: 'transform', targetCharacterKey: targetKey });
+    net.updateState({ 
+        character: targetKey, 
+        isTransformed: true, 
+        originalCharacterKey: state.originalCharacterKey,
+        hp: state.hp, 
+        maxHp: state.maxHp 
+    });
 
     const cfg = CHARACTERS[state.originalCharacterKey];
     state.abilityCooldown = cfg.ability.cooldown;
 }
 
 async function revertTransform(silent = false) {
+    if (!state.isTransformed) return;
+    const originalKey = state.originalCharacterKey;
     state.isTransformed = false;
-    selectedKey = state.originalCharacterKey;
     state.originalCharacterKey = null;
 
-    const assets = await loadCharacterAssets(selectedKey);
-    if (assets) {
-        state.walkImg = assets.walk;
-        state.idleImg = assets.idle;
-        state.hopImg = assets.hop;
-        state.hurtImg = assets.hurt;
-        state.attackImg = assets.attack;
-        state.shootImg = assets.shoot;
-        state.sleepImg = assets.sleep;
-        state.animMeta = assets.meta;
-        state.maxHp = assets.cfg.hp;
-        state.hp = Math.min(state.hp, state.maxHp);
-    }
+    await applyCharacterChange(originalKey);
     
     if (!silent) {
-        net.broadcastAbility({ name: 'transform', targetCharacterKey: selectedKey });
-        net.updateState({ character: selectedKey, hp: state.hp, maxHp: state.maxHp });
+        net.broadcastAbility({ name: 'transform', targetCharacterKey: originalKey, isRevert: true });
+        net.updateState({ 
+            character: originalKey, 
+            isTransformed: false, 
+            originalCharacterKey: null,
+            hp: state.hp, 
+            maxHp: state.maxHp 
+        });
     }
 }
+
 
 async function createIllusion(targetPlayer) {
     state.isIllusion = true;
@@ -2758,17 +2755,29 @@ async function createIllusion(targetPlayer) {
     }
     
     net.broadcastAbility({ name: 'illusion', target: state.illusionTarget });
-    
+    net.updateState({ isIllusion: true, illusionTarget: state.illusionTarget });
+
     const cfg = CHARACTERS[selectedKey];
     state.abilityCooldown = cfg.ability.cooldown;
 }
 
-async function revertIllusion() {
+async function revertIllusion(silent = false) {
     state.isIllusion = false;
     state.illusionTarget = null;
+    state.abilityCooldown = 0;
 
     // Revert to original assets
-    const assets = await loadCharacterAssets(selectedKey);
+    await applyCharacterChange(state.originalCharacterKey || selectedKey);
+
+    if (!silent) {
+        net.broadcastAbility({ name: 'revertIllusion' });
+        net.updateState({ isIllusion: false, illusionTarget: null });
+    }
+}
+
+async function applyCharacterChange(newKey) {
+    selectedKey = newKey;
+    const assets = await loadCharacterAssets(newKey);
     if (assets) {
         state.walkImg = assets.walk;
         state.idleImg = assets.idle;
@@ -2778,10 +2787,12 @@ async function revertIllusion() {
         state.shootImg = assets.shoot;
         state.sleepImg = assets.sleep;
         state.animMeta = assets.meta;
+        state.maxHp = assets.cfg.hp;
+        state.hp = Math.min(state.hp, state.maxHp);
+        state.scale = assets.cfg.scale;
     }
-
-    net.broadcastAbility({ name: 'revertIllusion' });
 }
+
 
 function hypnotize(targetPlayer) {
     const cfg = CHARACTERS[selectedKey];
@@ -2790,12 +2801,18 @@ function hypnotize(targetPlayer) {
 }
 
 // Handle remote ability effects
-async function handleRemoteTransform(player, targetKey) {
-    player.isTransformed = (player.originalCharacterKey !== targetKey);
+async function handleRemoteTransform(player, targetKey, isRevert = false) {
     player.character = targetKey;
-    player.assets = await loadCharacterAssets(targetKey);
+    player.isTransformed = !isRevert;
+    
+    // If reverting, we need to know the player's *true* original character
+    // This assumes the `originalCharacterKey` is correctly set on the player object from their initial spawn data
+    const keyToLoad = isRevert ? player.originalCharacterKey : targetKey;
+
+    player.assets = await loadCharacterAssets(keyToLoad);
     if (player.assets) {
         player.maxHp = player.assets.cfg.hp;
+        player.scale = player.assets.cfg.scale;
     }
 }
 
@@ -2803,14 +2820,17 @@ async function handleRemoteIllusion(player, target) {
     player.isIllusion = true;
     player.illusionTarget = target;
     // We need to load the assets for the illusion character if we don't have them
-    player.assets = await loadCharacterAssets(target.character);
+    // This is a visual change only, so we temporarily swap assets for drawing.
+    const illusionAssets = await loadCharacterAssets(target.character);
+    if (illusionAssets) {
+        player.illusionAssets = illusionAssets;
+    }
 }
 
 async function handleRemoteRevertIllusion(player) {
     player.isIllusion = false;
     player.illusionTarget = null;
-    // Revert back to original assets
-    player.assets = await loadCharacterAssets(player.originalCharacterKey);
+    player.illusionAssets = null; // Clear illusion assets
 }
 
 

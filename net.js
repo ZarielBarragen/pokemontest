@@ -239,6 +239,7 @@ export class Net {
       hp: Number(state.hp) || 100,
       maxHp: Number(state.maxHp) || 100,
       level: state.level || 1, // Add level to lobby data
+      originalCharacterKey: state.originalCharacterKey,
       ts: rtdbServerTimestamp()
     };
     await set(this._playerRef, payload);
