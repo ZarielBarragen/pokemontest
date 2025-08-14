@@ -2446,7 +2446,7 @@ function updatePlayerProjectiles(dt) {
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
-                    const isKill = (player.hp - damage) <= 0;
+                    const isKill = (player.hp - p.damage) <= 0;
                     if(isKill) addXp(100);
                     net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
                     hit = true;
