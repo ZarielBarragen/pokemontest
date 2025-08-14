@@ -94,6 +94,7 @@ export class Net {
     const email = this._usernameToEmail(username);
     const cred = await createUserWithEmailAndPassword(this.auth, email, password);
     await set(ref(this.db, `users/${cred.user.uid}`), {
+        username: username,
         level: 1,
         xp: 0,
         coins: 0,
@@ -344,6 +345,22 @@ export class Net {
       const userRef = ref(this.db, `users/${uid}`);
       await update(userRef, { equippedItem: itemId });
       await this.updateState({ equippedItem: itemId });
+  }
+
+  // ---------- Leaderboard ----------
+  subscribeToLeaderboard(type, cb) {
+      const usersRef = ref(this.db, 'users');
+      const q = query(usersRef, orderByChild(type), limitToLast(5));
+      const handler = onValue(q, (snap) => {
+          const leaderboard = [];
+          if (snap.exists()) {
+              snap.forEach(childSnap => {
+                  leaderboard.push(childSnap.val());
+              });
+          }
+          cb(leaderboard.reverse());
+      });
+      return handler;
   }
 
 

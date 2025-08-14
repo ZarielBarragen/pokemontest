@@ -72,6 +72,7 @@ const closeShopBtn = document.getElementById("close-shop-btn");
 const shopItemsContainer = document.getElementById("shop-items");
 const inventoryDisplay = document.getElementById("inventory-display");
 const inventoryItemsContainer = document.getElementById("inventory-items");
+const leaderboardEl = document.getElementById("leaderboard");
 
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
@@ -427,6 +428,8 @@ function buildSelectUI(){
 
 // ---------- Lobbies ----------
 let isJoiningLobby = false;
+let leaderboardInterval = null;
+let leaderboardUnsub = null;
 
 function renderLobbyList(list){
   lobbyListEl.innerHTML = "";
@@ -461,11 +464,47 @@ function showLobbies(){
   net.subscribeOnlineCount(count => {
       onlineCountEl.textContent = count;
   });
+  startLeaderboardCycle();
 }
+
+function startLeaderboardCycle() {
+    let currentLeaderboard = 'level';
+
+    function updateLeaderboard() {
+        if (leaderboardUnsub) leaderboardUnsub();
+        leaderboardUnsub = net.subscribeToLeaderboard(currentLeaderboard, (data) => {
+            renderLeaderboard(currentLeaderboard, data);
+        });
+        currentLeaderboard = currentLeaderboard === 'level' ? 'coins' : 'level';
+    }
+
+    updateLeaderboard();
+    leaderboardInterval = setInterval(updateLeaderboard, 10000);
+}
+
+function stopLeaderboardCycle() {
+    if (leaderboardInterval) clearInterval(leaderboardInterval);
+    if (leaderboardUnsub) leaderboardUnsub();
+    leaderboardEl.innerHTML = "";
+}
+
+function renderLeaderboard(type, data) {
+    const title = type === 'level' ? 'Top Players by Level' : 'Richest Players';
+    let listHtml = '<ol>';
+    data.forEach(player => {
+        const value = type === 'level' ? `Lvl ${player.level}` : `${player.coins} Coins`;
+        listHtml += `<li>${player.username} - ${value}</li>`;
+    });
+    listHtml += '</ol>';
+    leaderboardEl.innerHTML = `<h3>${title}</h3>${listHtml}`;
+}
+
+
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
   overlaySelect.classList.remove("hidden"); 
   mobileControls.classList.add("hidden");
+  stopLeaderboardCycle();
 };
 refreshBtn.onclick = ()=>{
   if (lobbyUnsub) { try{ unsubscribeLobby(); }catch{} lobbyUnsub = null; }
@@ -505,6 +544,7 @@ async function createLobbyFlow(type) {
         leaveLobbyBtn.classList.remove("hidden");
         shopIcon.classList.remove("hidden");
         inventoryDisplay.classList.remove("hidden");
+        stopLeaderboardCycle();
         if (inputMode === 'touch') {
             mobileControls.classList.remove("hidden");
         }
@@ -543,6 +583,7 @@ async function joinLobbyFlow(lobbyId, btnEl){
     leaveLobbyBtn.classList.remove("hidden");
     shopIcon.classList.remove("hidden");
     inventoryDisplay.classList.remove("hidden");
+    stopLeaderboardCycle();
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
@@ -1052,7 +1093,9 @@ function startNetListeners(){
       const assets = await loadCharacterAssets(data.character);
       if (!assets) return;
       
-      net.sendChat(`${data.username} has joined the lobby.`, true);
+      if (net.auth.currentUser?.uid === net.currentLobbyOwner) {
+        net.sendChat(`${data.username} has joined the lobby.`, true);
+      }
 
       remote.set(uid, {
         uid: uid,
@@ -1130,7 +1173,7 @@ function startNetListeners(){
     },
     onRemove: (uid, val)=> {
         const player = val || remote.get(uid);
-        if (player) {
+        if (player && net.auth.currentUser?.uid === net.currentLobbyOwner) {
             net.sendChat(`${player.username} has left the lobby.`, true);
         }
         remote.delete(uid);
@@ -1150,10 +1193,12 @@ function startChatSubscription(){
         const latestMsg = msgs[msgs.length - 1];
         if (latestMsg.ts > lastProcessedChatTimestamp) {
             lastProcessedChatTimestamp = latestMsg.ts;
-            const r = remote.get(latestMsg.uid);
-            if (r) {
-                r.say = latestMsg.text;
-                r.sayTimer = 5.0;
+            if (!latestMsg.system) {
+                const r = remote.get(latestMsg.uid);
+                if (r) {
+                    r.say = latestMsg.text;
+                    r.sayTimer = 5.0;
+                }
             }
         }
     }

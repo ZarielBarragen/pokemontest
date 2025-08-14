@@ -567,3 +567,33 @@ body::after{
 .inventory-item.equipped {
     border: 2px solid var(--accent);
 }
+
+/* Leaderboard */
+.leaderboard-container {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    width: 250px;
+    background: rgba(11, 31, 18, 0.75);
+    border: 3px solid #163a21;
+    padding: 10px;
+    z-index: 50;
+    color: var(--text);
+}
+
+.leaderboard-container h3 {
+    margin: 0 0 10px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--accent);
+}
+
+.leaderboard-container ol {
+    margin: 0;
+    padding: 0 0 0 20px;
+    font-size: 12px;
+}
+
+.leaderboard-container li {
+    margin-bottom: 5px;
+}
