@@ -135,7 +135,7 @@ const ENEMY_R = 16;  // Enemy collision radius
 const PROJECTILE_R = 6; // Projectile collision radius (adjusted for 8-bit square)
 const COIN_R = 10;
 const HEALTH_PACK_R = 10;
-const COIN_SCALE = 0.25; // Further reduced coin size
+const COIN_SCALE = 0.025; // Further reduced coin size
 const GAP_W       = Math.round(TILE * 0.60);
 const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
@@ -151,10 +151,10 @@ loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{}
 loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
 loadImage("assets/coin.png").then(im => TEX.coin = im).catch(() => {});
 loadImage("assets/health.png").then(im => TEX.health = im).catch(() => {});
-loadImage("assets/grass.png").then(im => TEX.grass = im).catch(() => {});
-loadImage("assets/water.png").then(im => TEX.water = im).catch(() => {});
-loadImage("assets/grass_water_transition.png").then(im => TEX.grass_water_transition = im).catch(() => {});
-loadImage("assets/palm_tree.png").then(im => TEX.palm_tree = im).catch(() => {});
+loadImage("assets/background/grass.png").then(im => TEX.grass = im).catch(() => {});
+loadImage("assets/background/water.png").then(im => TEX.water = im).catch(() => {});
+loadImage("assets/background/grass_water_transition.png").then(im => TEX.grass_water_transition = im).catch(() => {});
+loadImage("assets/background/palm_tree.png").then(im => TEX.palm_tree = im).catch(() => {});
 
 
 // ---------- SFX & Music ----------
