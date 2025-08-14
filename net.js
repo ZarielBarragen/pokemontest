@@ -55,7 +55,7 @@ export class Net {
   setupPresence() {
       const uid = this.auth.currentUser?.uid;
       if (uid) {
-          const userStatusDatabaseRef = ref(this.db, '/connections/' + uid);
+          const userStatusDatabaseRef = ref(this.db, '/presence/' + uid); // Changed path
           const isOfflineForDatabase = { state: 'offline', last_changed: rtdbServerTimestamp() };
           const isOnlineForDatabase = { state: 'online', last_changed: rtdbServerTimestamp() };
 
@@ -71,7 +71,7 @@ export class Net {
   }
   
   subscribeOnlineCount(cb) {
-      const connectionsRef = ref(this.db, '/connections');
+      const connectionsRef = ref(this.db, '/presence'); // Changed path
       const handler = onValue(connectionsRef, (snap) => {
           let count = 0;
           if (snap.exists()) {
@@ -107,7 +107,7 @@ export class Net {
     return cred.user;
   }
   async logOut(){
-    const userStatusDatabaseRef = ref(this.db, '/connections/' + this.auth.currentUser.uid);
+    const userStatusDatabaseRef = ref(this.db, '/presence/' + this.auth.currentUser.uid); // Changed path
     await set(userStatusDatabaseRef, { state: 'offline', last_changed: rtdbServerTimestamp() });
     try { await this.leaveLobby(); } catch {}
     return signOut(this.auth);

@@ -638,6 +638,13 @@ function goBackToSelect(isSafeLeave = false) {
     try { lobbyMusic.pause(); lobbyMusic.currentTime = 0; } catch(e) {}
     try { dungeonMusic.pause(); dungeonMusic.currentTime = 0; } catch(e) {}
 
+    // Reset illusion state on leaving
+    state.isIllusion = false;
+    state.illusionTarget = null;
+    if (state.isTransformed) {
+        revertTransform(true); // silent revert
+    }
+
 
     keys.clear(); 
     remote.clear();
@@ -930,7 +937,9 @@ function startNetListeners(){
           damage: p_data.damage,
           life: p_data.life,
           ownerId: p_data.ownerId,
-          color: p_data.color
+          color: p_data.color,
+          homing: p_data.homing,
+          targetId: p_data.targetId
       });
   });
   
@@ -2101,6 +2110,7 @@ function draw(){
     }
   
     const f = a.frame, scale = a.scale;
+    if (!f || !a.src) continue; // Safety check for drawImage
     const dw = f.sw * scale, dh = f.sh * scale;
     const dx = Math.round(a.x - f.ox * scale - state.cam.x);
     const dy = Math.round(a.y - f.oy * scale - state.cam.y - a.z);
@@ -2377,6 +2387,25 @@ function updatePlayerProjectiles(dt) {
             continue;
         }
 
+        // Homing logic for Decidueye's arrows
+        if (p.homing && p.targetId) {
+            const target = enemies.get(p.targetId);
+            if (target) {
+                const projectileSpeed = TILE * 8;
+                const dx = target.x - p.x;
+                const dy = target.y - p.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 1) { // Avoid division by zero
+                    p.vx = (dx / dist) * projectileSpeed;
+                    p.vy = (dy / dist) * projectileSpeed;
+                }
+            } else {
+                // Target is gone, projectile no longer homes
+                p.homing = false; 
+                p.targetId = null;
+            }
+        }
+
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
@@ -2417,7 +2446,7 @@ function updatePlayerProjectiles(dt) {
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
-                    const isKill = (player.hp - p.damage) <= 0;
+                    const isKill = (player.hp - damage) <= 0;
                     if(isKill) addXp(100);
                     net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
                     hit = true;
@@ -2545,6 +2574,7 @@ function tryRangedAttack() {
 
     const projectileSpeed = TILE * 8;
     let [vx, vy] = DIR_VECS[state.dir];
+    let targetId = null;
 
     // Decidueye's Aimbot passive
     if (cfg.ability?.name === 'aimbot') {
@@ -2558,6 +2588,7 @@ function tryRangedAttack() {
             }
         }
         if (closestEnemy) {
+            targetId = closestEnemy.id;
             const dx = closestEnemy.x - state.x;
             const dy = closestEnemy.y - state.y;
             const dist = Math.hypot(dx, dy);
@@ -2576,7 +2607,9 @@ function tryRangedAttack() {
         damage: 20,
         life: 2.0,
         ownerId: net.auth.currentUser.uid,
-        color: cfg.projectileColor || '#FFFF00'
+        color: cfg.projectileColor || '#FFFF00',
+        homing: cfg.ability?.name === 'aimbot',
+        targetId: targetId
     };
     
     playerProjectiles.push(p_data);
@@ -2660,7 +2693,11 @@ async function transformInto(targetPlayer) {
     if (assets) {
         state.walkImg = assets.walk;
         state.idleImg = assets.idle;
-        // ... and so on for all other assets
+        state.hopImg = assets.hop;
+        state.hurtImg = assets.hurt;
+        state.attackImg = assets.attack;
+        state.shootImg = assets.shoot;
+        state.sleepImg = assets.sleep;
         state.animMeta = assets.meta;
         state.maxHp = assets.cfg.hp;
         // Optionally adjust current HP
@@ -2674,7 +2711,7 @@ async function transformInto(targetPlayer) {
     state.abilityCooldown = cfg.ability.cooldown;
 }
 
-async function revertTransform() {
+async function revertTransform(silent = false) {
     state.isTransformed = false;
     selectedKey = state.originalCharacterKey;
     state.originalCharacterKey = null;
@@ -2683,23 +2720,42 @@ async function revertTransform() {
     if (assets) {
         state.walkImg = assets.walk;
         state.idleImg = assets.idle;
-        // ... and so on
+        state.hopImg = assets.hop;
+        state.hurtImg = assets.hurt;
+        state.attackImg = assets.attack;
+        state.shootImg = assets.shoot;
+        state.sleepImg = assets.sleep;
         state.animMeta = assets.meta;
         state.maxHp = assets.cfg.hp;
         state.hp = Math.min(state.hp, state.maxHp);
     }
     
-    net.broadcastAbility({ name: 'transform', targetCharacterKey: selectedKey });
-    net.updateState({ character: selectedKey, hp: state.hp, maxHp: state.maxHp });
+    if (!silent) {
+        net.broadcastAbility({ name: 'transform', targetCharacterKey: selectedKey });
+        net.updateState({ character: selectedKey, hp: state.hp, maxHp: state.maxHp });
+    }
 }
 
-function createIllusion(targetPlayer) {
+async function createIllusion(targetPlayer) {
     state.isIllusion = true;
     state.illusionTarget = {
         username: targetPlayer.username,
         level: targetPlayer.level,
         character: targetPlayer.originalCharacterKey || targetPlayer.character
     };
+
+    // Load and apply assets locally for the illusion
+    const assets = await loadCharacterAssets(state.illusionTarget.character);
+    if (assets) {
+        state.walkImg = assets.walk;
+        state.idleImg = assets.idle;
+        state.hopImg = assets.hop;
+        state.hurtImg = assets.hurt;
+        state.attackImg = assets.attack;
+        state.shootImg = assets.shoot;
+        state.sleepImg = assets.sleep;
+        state.animMeta = assets.meta;
+    }
     
     net.broadcastAbility({ name: 'illusion', target: state.illusionTarget });
     
@@ -2707,9 +2763,23 @@ function createIllusion(targetPlayer) {
     state.abilityCooldown = cfg.ability.cooldown;
 }
 
-function revertIllusion() {
+async function revertIllusion() {
     state.isIllusion = false;
     state.illusionTarget = null;
+
+    // Revert to original assets
+    const assets = await loadCharacterAssets(selectedKey);
+    if (assets) {
+        state.walkImg = assets.walk;
+        state.idleImg = assets.idle;
+        state.hopImg = assets.hop;
+        state.hurtImg = assets.hurt;
+        state.attackImg = assets.attack;
+        state.shootImg = assets.shoot;
+        state.sleepImg = assets.sleep;
+        state.animMeta = assets.meta;
+    }
+
     net.broadcastAbility({ name: 'revertIllusion' });
 }
 
