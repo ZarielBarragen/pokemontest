@@ -2283,10 +2283,16 @@ function tileCenter(tx, ty) {
 }
 
 function canWalk(tx, ty, map) {
+    if (map.type === 'plains') {
+        const waterPokemon = ["Quagsire", "Empoleon", "Primarina", "Dewgong"];
+        if (map.walls[ty][tx] === 2) { // Water tile
+            return waterPokemon.includes(selectedKey);
+        }
+    }
   return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[ty][tx];
 }
 
-function generateMap(w, h, seed=1234){
+function generateMap(w, h, seed=1234, type = 'dungeon'){
   const rnd = mulberry32((seed>>>0) ^ 0x9E3779B9);
   const walls = Array.from({length:h}, ()=> Array(w).fill(true));
   const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
@@ -2439,5 +2445,5 @@ function generateMap(w, h, seed=1234){
     if (!walls[ty][tx]){ sx=tx; sy=ty; break outer; }
   }
 
-  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed };
+  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed, type: type };
 }
