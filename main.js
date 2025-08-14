@@ -205,7 +205,7 @@ let CHARACTERS = {};
 // We will fetch this from the JSON file now
 async function fetchCharacterData() {
     try {
-        const response = await fetch('characters.json');
+        const response = await fetch('assets/characters.json');
         const data = await response.json();
         return data;
     } catch (error) {
