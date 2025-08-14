@@ -1177,11 +1177,44 @@ function tryStartHop(){
 
   const tx0 = Math.floor(state.x / TILE);
   const ty0 = Math.floor(state.y / TILE);
-  let tx = tx0 + dx, ty = ty0 + dy;
-  if (!canWalk(tx,ty,state.map)){ tx = tx0; ty = ty0; }
+  let tx = tx0 + dx;
+  let ty = ty0 + dy;
 
-  const start = {x: state.x, y: state.y};
-  const end   = tileCenter(tx,ty);
+  // Determine destination tile for hop. By default hop one tile in the
+  // direction of movement if that tile is walkable. If it isn't
+  // walkable, allow skipping over a single water tile (for plains
+  // maps) when the tile beyond is walkable. This enables players to
+  // hop across narrow rivers while still preventing hopping over
+  // solid walls or wider bodies of water. Water‑type characters
+  // already treat water as walkable via canWalk, so this logic only
+  // applies when canWalk() returns false.
+  if (!canWalk(tx, ty, state.map)) {
+    // Attempt to hop over one water tile if we're on a plains map
+    // and the immediate tile is a water tile. Only do this for
+    // non‑water Pokémon (canWalk() would return true for water Pokémon
+    // on water, so this branch wouldn't run for them).
+    const m = state.map;
+    if (m && m.type === 'plains' && ty >= 0 && ty < m.h && tx >= 0 && tx < m.w && m.walls[ty][tx] === 2) {
+      const tx2 = tx0 + dx * 2;
+      const ty2 = ty0 + dy * 2;
+      // Ensure the tile beyond is within bounds and walkable (i.e. not water or tree).
+      if (tx2 >= 0 && ty2 >= 0 && tx2 < m.w && ty2 < m.h && canWalk(tx2, ty2, m)) {
+        tx = tx2;
+        ty = ty2;
+      } else {
+        // Can't hop over this water; stay on original tile.
+        tx = tx0;
+        ty = ty0;
+      }
+    } else {
+      // Not water or can't hop; stay on original tile.
+      tx = tx0;
+      ty = ty0;
+    }
+  }
+
+  const start = { x: state.x, y: state.y };
+  const end = tileCenter(tx, ty);
 
   state.hopping = true;
   sfx.jump.play(0.6, 1 + (Math.random()*0.08 - 0.04));
@@ -2431,6 +2464,42 @@ function generateMap(w, h, seed=1234, type = 'dungeon'){
         break;
       }
       tries++;
+    }
+
+    // Generate additional long bodies of water (rivers) that wind across the map. Rivers are one
+    // tile wide and take random diagonal turns to appear more natural. They act as
+    // narrow obstacles which players can hop across but cannot walk upon unless they
+    // are water‑type Pokémon. We generate these after choosing spawn so we can avoid
+    // overwriting the spawn location. The number and length of rivers scales with
+    // the map size.
+    const riverCount = Math.max(1, Math.floor(Math.min(w, h) / 20));
+    // Possible directions for river paths: cardinal and diagonal
+    const dirs = [ [1,0], [0,1], [-1,0], [0,-1], [1,1], [-1,-1], [1,-1], [-1,1] ];
+    for (let i = 0; i < riverCount; i++) {
+      // Choose a random starting point away from the border to reduce immediate termination
+      let rx = 2 + Math.floor(rnd() * Math.max(1, w - 4));
+      let ry = 2 + Math.floor(rnd() * Math.max(1, h - 4));
+      // Random initial direction
+      let [dx, dy] = dirs[Math.floor(rnd() * dirs.length)];
+      // River length proportional to map size
+      const minLen = Math.floor(Math.min(w, h) * 0.5);
+      const maxLen = Math.floor(Math.min(w, h) * 0.9);
+      const length = minLen + Math.floor(rnd() * Math.max(1, maxLen - minLen + 1));
+      for (let step = 0; step < length; step++) {
+        if (rx < 0 || ry < 0 || rx >= w || ry >= h) break;
+        // Avoid overwriting the spawn tile
+        if (!(rx === spawn.x && ry === spawn.y)) {
+          walls[ry][rx] = 2;
+        }
+        // Occasionally change direction to create turns; avoid reversing direction directly
+        if (rnd() < 0.25) {
+          const possible = dirs.filter(([nx, ny]) => !(nx === -dx && ny === -dy));
+          [dx, dy] = possible[Math.floor(rnd() * possible.length)];
+        }
+        // Move to next tile
+        rx += dx;
+        ry += dy;
+      }
     }
     return { w, h, walls, edgesV, edgesH, spawn, seed, type };
   }
