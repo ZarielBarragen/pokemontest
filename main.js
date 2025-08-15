@@ -1169,20 +1169,29 @@ function startNetListeners(){
 
   net.subscribeToAbilities(abilityData => {
       const player = remote.get(abilityData.by);
-      if (!player) return;
+      if (abilityData.by === net.auth.currentUser.uid) return;
 
       switch (abilityData.name) {
           case 'transform':
-              handleRemoteTransform(player, abilityData.targetCharacterKey, abilityData.isRevert);
+              if(player) handleRemoteTransform(player, abilityData.targetCharacterKey, abilityData.isRevert);
               break;
           case 'illusion':
-              handleRemoteIllusion(player, abilityData.target);
+              if(player) handleRemoteIllusion(player, abilityData.target);
               break;
           case 'revertIllusion':
-              handleRemoteRevertIllusion(player);
+              if(player) handleRemoteRevertIllusion(player);
               break;
-          case 'hypnotize':
-              // This is handled by status events now
+          // BUG FIX: Cacturne/Scolipede - Handle ground effects from other players
+          case 'toxicSprint':
+              poisonTiles.set(`${abilityData.tileX},${abilityData.tileY}`, { life: 3 });
+              break;
+          case 'sandSnare':
+              for (let y = -1; y <= 1; y++) {
+                  for (let x = -1; x <= 1; x++) {
+                      const key = `${abilityData.tileX + x},${abilityData.tileY + y}`;
+                      sandTiles.set(key, { life: 5 });
+                  }
+              }
               break;
       }
   });
@@ -1531,11 +1540,10 @@ function tryStartHop(){
   if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking || state.isAsleep) return;
   const cfg = CHARACTERS[selectedKey];
   
-  // BUG FIX: Altaria/Corviknight - Handle flight toggle on jump
   if (cfg.ability?.name === 'flight') {
       toggleFlight();
       sfx.jump.play(0.6, 1 + (Math.random() * 0.08 - 0.04));
-      return; // Exit here to prevent normal hop logic
+      return; 
   }
   
   const strip = state.animMeta.hop?.[state.dir];
@@ -2031,7 +2039,6 @@ function update(dt){
       }
   }
 
-  // BUG FIX: Empoleon - Handle Aqua Shield passive ability
   if (myConfig?.ability?.name === 'aquaShield') {
       if (state.aquaShieldCooldown > 0) {
           state.aquaShieldCooldown -= dt;
@@ -2084,6 +2091,8 @@ function update(dt){
       } else {
           const tileX = Math.floor(state.x / TILE);
           const tileY = Math.floor(state.y / TILE);
+          // BUG FIX: Scolipede - Broadcast the poison tile placement
+          net.broadcastAbility({ name: 'toxicSprint', tileX, tileY });
           poisonTiles.set(`${tileX},${tileY}`, { life: 3 });
       }
   }
@@ -2473,7 +2482,6 @@ function draw(){
     const overGap = isOverGapWorld(a.x, a.y);
     drawShadow(a.x, a.y, a.z, a.scale, overGap);
     
-    // BUG FIX: Empoleon - Use a solid color for the aqua shield instead of flickering
     const isAquaShielded = (a.kind === 'local' && state.aquaShieldActive) || (a.kind === 'remote' && remote.get(a.uid)?.aquaShieldActive);
 
     if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
@@ -2491,11 +2499,11 @@ function draw(){
         ctx.restore();
     }
     
-    // BUG FIX: Empoleon - Draw the blue circle for Aqua Shield
     if (isAquaShielded) {
         ctx.globalAlpha = 0.4;
         ctx.beginPath();
-        ctx.arc(dx + dw / 2, dy + dh / 2, PLAYER_R * 1.5, 0, Math.PI * 2);
+        // BUG FIX: Empoleon - Increased shield radius
+        ctx.arc(a.x - state.cam.x, a.y - state.cam.y, PLAYER_R * 2.5, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(50, 150, 255, 0.5)';
         ctx.fill();
         ctx.strokeStyle = 'rgba(150, 200, 255, 1)';
@@ -3025,14 +3033,11 @@ function tryRangedAttack() {
 function handleAbilityKeyPress() {
     if (state.abilityCooldown > 0 && !state.isIllusion) return;
 
-    // BUG FIX: Smeargle - Check if an ability is copied first.
     if (state.copiedAbility) {
-        // If the copied ability is targeting, enter targeting mode for IT.
         if (['transform', 'illusion', 'hypnotize', 'sandSnare'].includes(state.copiedAbility.name)) {
             state.abilityTargetingMode = state.copiedAbility.name;
             state.highlightedPlayers = state.copiedAbility.name === 'sandSnare' ? [] : Array.from(remote.keys());
         } else {
-            // Otherwise, activate it instantly.
             activateInstantAbility(state.copiedAbility);
         }
         return;
@@ -3076,7 +3081,6 @@ function activateInstantAbility(ability) {
         case 'toxicSprint': activateToxicSprint(); break;
     }
 
-    // BUG FIX: Smeargle - After using a copied ability, clear it and set cooldown for Smeargle
     if (state.copiedAbility) {
         state.copiedAbility = null;
         state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
@@ -3108,7 +3112,6 @@ function activateTargetedAbility(target) {
             break;
     }
 
-    // BUG FIX: Smeargle - After using a copied ability, clear it and set cooldown for Smeargle
     if (state.copiedAbility) {
         state.copiedAbility = null;
         state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
@@ -3264,6 +3267,8 @@ function activateToxicSprint() {
 
 function placeSandSnare(tileX, tileY) {
     const cfg = CHARACTERS[selectedKey];
+    // BUG FIX: Cacturne - Broadcast the sand tile placement to other players
+    net.broadcastAbility({ name: 'sandSnare', tileX, tileY });
     for (let y = -1; y <= 1; y++) {
         for (let x = -1; x <= 1; x++) {
             const key = `${tileX + x},${tileY + y}`;
