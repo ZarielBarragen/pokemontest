@@ -887,11 +887,9 @@ window.addEventListener("keydown", e=>{
   // If the game isn't active, don't hijack keyboard inputs.
   if (!state.ready || state.isAsleep) return;
 
-  // Handle ability key press
-  if (e.key.toLowerCase() === 'e') {
-      e.preventDefault();
-      handleAbilityKeyPress();
-  }
+  // FIX: This block was calling the ability handler directly on keydown,
+  // causing it to fire twice (once here, once in the update loop).
+  // It has been removed. The update() function now correctly handles the 'e' key press.
 
   // Prevent default browser action for game keys
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K", "e", "E"].includes(e.key)) e.preventDefault();
