@@ -424,9 +424,9 @@ function setupMobileControls() {
         if (!state.ready) return; // Only activate controls when game is ready
         const touch = e.changedTouches[0];
 
-        // FIX 1: Prevent joystick from activating over UI elements on the left side.
+        // FIX: Prevent joystick from activating over UI elements, allowing scrolling.
         const targetElement = e.target;
-        if (targetElement.closest('#shop-icon, #chatLog, .inventory-display, button, a')) {
+        if (targetElement.closest('#shop-modal, #shop-icon, #chatLog, .inventory-display, button, a')) {
             return;
         }
 
@@ -446,7 +446,6 @@ function setupMobileControls() {
             joystickContainer.style.top = `${touch.clientY}px`;
             joystickContainer.style.opacity = '1';
             
-            // These listeners are correctly added only when a joystick drag starts.
             window.addEventListener('touchmove', handleMove, { passive: false });
             window.addEventListener('touchend', handleEnd, { passive: false });
             window.addEventListener('touchcancel', handleEnd, { passive: false });
@@ -487,9 +486,6 @@ function setupMobileControls() {
             handleActionStart(e);
         }, { passive: false });
 
-        // FIX 2: Removed redundant handleEnd calls. The joystick's own touchend listener
-        // (added in handleStart) is all that's needed for its lifecycle.
-        // These global listeners now only handle the action buttons.
         window.addEventListener('touchend', (e) => {
             handleActionEnd(e);
         }, { passive: false });
