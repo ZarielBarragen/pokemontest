@@ -793,7 +793,7 @@ const state = {
   toxicSprintTimer: 0,
   aquaShieldActive: false,
   aquaShieldTimer: 0,
-  aquaShieldCooldown: 0, // BUG FIX: Empoleon - Added cooldown state
+  aquaShieldCooldown: 0,
   mouseTile: {x: null, y: null},
 };
 
@@ -940,15 +940,13 @@ canvas.addEventListener('click', (event) => {
     const worldX = mouseX + state.cam.x;
     const worldY = mouseY + state.cam.y;
 
-    // BUG FIX: Cacturne - Prioritize tile-based abilities and return early.
     if (state.abilityTargetingMode === 'sandSnare') {
         const tileX = Math.floor(worldX / TILE);
         const tileY = Math.floor(worldY / TILE);
         activateTargetedAbility({ x: tileX, y: tileY });
-        // Always exit targeting mode after a click
         state.abilityTargetingMode = null;
         state.highlightedPlayers = [];
-        return; // Return early to prevent player-clicking logic from running
+        return; 
     }
 
     let clickedPlayer = null;
@@ -1532,6 +1530,14 @@ function tryMove(dt, vx, vy){
 function tryStartHop(){
   if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking || state.isAsleep) return;
   const cfg = CHARACTERS[selectedKey];
+  
+  // BUG FIX: Altaria/Corviknight - Handle flight toggle on jump
+  if (cfg.ability?.name === 'flight') {
+      toggleFlight();
+      sfx.jump.play(0.6, 1 + (Math.random() * 0.08 - 0.04));
+      return; // Exit here to prevent normal hop logic
+  }
+  
   const strip = state.animMeta.hop?.[state.dir];
   if (!cfg?.hop || !state.hopImg || !strip || strip.length === 0) return;
 
@@ -1679,24 +1685,7 @@ function drawMap(){
         }
       }
     }
-    // BUG FIX: Scolipede & Cacturne - Second pass: draw effects like poison and sand
-    for (const [key, tile] of poisonTiles.entries()) {
-        const [x, y] = key.split(',').map(Number);
-        if (x >= xs && x <= xe && y >= ys && y <= ye) {
-            if (TEX.poison) {
-                ctx.drawImage(TEX.poison, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
-            }
-        }
-    }
-    for (const [key, tile] of sandTiles.entries()) {
-        const [x, y] = key.split(',').map(Number);
-        if (x >= xs && x <= xe && y >= ys && y <= ye) {
-            if (TEX.sand) {
-                ctx.drawImage(TEX.sand, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
-            }
-        }
-    }
-    // Third pass: draw trees
+    // Trees are drawn after ground effects
     for (let y = ys; y <= ye; y++) {
       for (let x = xs; x <= xe; x++) {
         if (m.walls[y][x] !== 1) continue;
@@ -1711,73 +1700,89 @@ function drawMap(){
         }
       }
     }
-    return;
+  } else { // Dungeon (default) rendering: floor, walls, and edges
+      // Draw floor background
+      if (TEX.floor) {
+        for (let y = ys; y <= ye; y++) {
+          for (let x = xs; x <= xe; x++) {
+            const fx = x * TILE - state.cam.x - (BG_TILE_SCALE - 1) * TILE / 2;
+            const fy = y * TILE - state.cam.y - (BG_TILE_SCALE - 1) * TILE / 2;
+            ctx.drawImage(TEX.floor, 0, 0, TEX.floor.width, TEX.floor.height, fx, fy, TILE * BG_TILE_SCALE, TILE * BG_TILE_SCALE);
+          }
+        }
+      } else {
+        ctx.fillStyle = BG_FLOOR;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      // Draw walls
+      for (let y = ys; y <= ye; y++) {
+        for (let x = xs; x <= xe; x++) {
+          if (!m.walls[y][x]) continue;
+          const dx = x * TILE - state.cam.x;
+          const dy = y * TILE - state.cam.y;
+          if (TEX.wall) {
+            const wx = dx - (BG_TILE_SCALE - 1) * TILE / 2;
+            const wy = dy - (BG_TILE_SCALE - 1) * TILE / 2;
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(dx, dy, TILE, TILE);
+            ctx.clip();
+            ctx.drawImage(TEX.wall, 0, 0, TEX.wall.width, TEX.wall.height, wx, wy, TILE * BG_TILE_SCALE, TILE * BG_TILE_SCALE);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = BG_WALL;
+            ctx.fillRect(dx, dy, TILE, TILE);
+          }
+        }
+      }
+      // Draw vertical edges
+      for (let y = ys; y <= ye; y++) {
+        for (let xb = Math.max(1, xs); xb <= Math.min(m.w - 1, xe); xb++) {
+          if (!m.edgesV[y][xb]) continue;
+          const cx = xb * TILE - state.cam.x;
+          const y0 = y * TILE - state.cam.y;
+          ctx.fillStyle = EDGE_DARK;
+          ctx.fillRect(Math.floor(cx - GAP_W / 2), y0, GAP_W, TILE);
+          ctx.fillStyle = EDGE_DARKER;
+          ctx.fillRect(Math.floor(cx - GAP_W / 6), y0, Math.ceil(GAP_W / 3), TILE);
+          ctx.fillStyle = EDGE_LIP;
+          ctx.fillRect(Math.floor(cx - GAP_W / 2) - 1, y0, 1, TILE);
+          ctx.fillRect(Math.floor(cx + GAP_W / 2), y0, 1, TILE);
+        }
+      }
+      // Draw horizontal edges
+      for (let yb = Math.max(1, ys); yb <= Math.min(m.h - 1, ye); yb++) {
+        for (let x = xs; x <= xe; x++) {
+          if (!m.edgesH[yb][x]) continue;
+          const cy = yb * TILE - state.cam.y;
+          const x0 = x * TILE - state.cam.x;
+          ctx.fillStyle = EDGE_DARK;
+          ctx.fillRect(x0, Math.floor(cy - GAP_W / 2), TILE, GAP_W);
+          ctx.fillStyle = EDGE_DARKER;
+          ctx.fillRect(x0, Math.floor(cy - GAP_W / 6), TILE, Math.ceil(GAP_W / 3));
+          ctx.fillStyle = EDGE_LIP;
+          ctx.fillRect(x0, Math.floor(cy - GAP_W / 2) - 1, TILE, 1);
+          ctx.fillRect(x0, Math.floor(cy + GAP_W / 2), TILE, 1);
+        }
+      }
   }
 
-  // Dungeon (default) rendering: floor, walls, and edges
-  // Draw floor background
-  if (TEX.floor) {
-    for (let y = ys; y <= ye; y++) {
-      for (let x = xs; x <= xe; x++) {
-        const fx = x * TILE - state.cam.x - (BG_TILE_SCALE - 1) * TILE / 2;
-        const fy = y * TILE - state.cam.y - (BG_TILE_SCALE - 1) * TILE / 2;
-        ctx.drawImage(TEX.floor, 0, 0, TEX.floor.width, TEX.floor.height, fx, fy, TILE * BG_TILE_SCALE, TILE * BG_TILE_SCALE);
+  // BUG FIX: Scolipede/Cacturne - Draw ground effects for ALL map types after base terrain
+  for (const [key, tile] of poisonTiles.entries()) {
+      const [x, y] = key.split(',').map(Number);
+      if (x >= xs && x <= xe && y >= ys && y <= ye) {
+          if (TEX.poison) {
+              ctx.drawImage(TEX.poison, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
+          }
       }
-    }
-  } else {
-    ctx.fillStyle = BG_FLOOR;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
-  // Draw walls
-  for (let y = ys; y <= ye; y++) {
-    for (let x = xs; x <= xe; x++) {
-      if (!m.walls[y][x]) continue;
-      const dx = x * TILE - state.cam.x;
-      const dy = y * TILE - state.cam.y;
-      if (TEX.wall) {
-        const wx = dx - (BG_TILE_SCALE - 1) * TILE / 2;
-        const wy = dy - (BG_TILE_SCALE - 1) * TILE / 2;
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(dx, dy, TILE, TILE);
-        ctx.clip();
-        ctx.drawImage(TEX.wall, 0, 0, TEX.wall.width, TEX.wall.height, wx, wy, TILE * BG_TILE_SCALE, TILE * BG_TILE_SCALE);
-        ctx.restore();
-      } else {
-        ctx.fillStyle = BG_WALL;
-        ctx.fillRect(dx, dy, TILE, TILE);
+  for (const [key, tile] of sandTiles.entries()) {
+      const [x, y] = key.split(',').map(Number);
+      if (x >= xs && x <= xe && y >= ys && y <= ye) {
+          if (TEX.sand) {
+              ctx.drawImage(TEX.sand, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
+          }
       }
-    }
-  }
-  // Draw vertical edges
-  for (let y = ys; y <= ye; y++) {
-    for (let xb = Math.max(1, xs); xb <= Math.min(m.w - 1, xe); xb++) {
-      if (!m.edgesV[y][xb]) continue;
-      const cx = xb * TILE - state.cam.x;
-      const y0 = y * TILE - state.cam.y;
-      ctx.fillStyle = EDGE_DARK;
-      ctx.fillRect(Math.floor(cx - GAP_W / 2), y0, GAP_W, TILE);
-      ctx.fillStyle = EDGE_DARKER;
-      ctx.fillRect(Math.floor(cx - GAP_W / 6), y0, Math.ceil(GAP_W / 3), TILE);
-      ctx.fillStyle = EDGE_LIP;
-      ctx.fillRect(Math.floor(cx - GAP_W / 2) - 1, y0, 1, TILE);
-      ctx.fillRect(Math.floor(cx + GAP_W / 2), y0, 1, TILE);
-    }
-  }
-  // Draw horizontal edges
-  for (let yb = Math.max(1, ys); yb <= Math.min(m.h - 1, ye); yb++) {
-    for (let x = xs; x <= xe; x++) {
-      if (!m.edgesH[yb][x]) continue;
-      const cy = yb * TILE - state.cam.y;
-      const x0 = x * TILE - state.cam.x;
-      ctx.fillStyle = EDGE_DARK;
-      ctx.fillRect(x0, Math.floor(cy - GAP_W / 2), TILE, GAP_W);
-      ctx.fillStyle = EDGE_DARKER;
-      ctx.fillRect(x0, Math.floor(cy - GAP_W / 6), TILE, Math.ceil(GAP_W / 3));
-      ctx.fillStyle = EDGE_LIP;
-      ctx.fillRect(x0, Math.floor(cy - GAP_W / 2) - 1, TILE, 1);
-      ctx.fillRect(x0, Math.floor(cy + GAP_W / 2), TILE, 1);
-    }
   }
 }
 function drawNameTagAbove(name, level, frame, wx, wy, z, scale){
@@ -1976,6 +1981,7 @@ function getRemotePlayerSmoothedPos(r) {
 function update(dt){
   if (keys.has(" ")) {
     tryStartHop();
+    keys.delete(" "); // Consume the key press
   }
 
   if (keys.has("e")) {
@@ -2082,7 +2088,6 @@ function update(dt){
       }
   }
 
-  // BUG FIX: Scolipede & Cacturne - Update poison/sand tile lifetimes
   for (const [key, tile] of poisonTiles.entries()) {
       tile.life -= dt;
       if (tile.life <= 0) {
@@ -2383,7 +2388,6 @@ function draw(){
 
   const lf = currentFrame();
   if (state.ready && lf){
-    // BUG FIX: Altaria/Corviknight - Add a Z-offset when flying.
     const z = state.hopping ? state.hop.z : (state.isFlying ? TILE * 1.5 : 0);
     const src = state.anim === "hop" ? state.hopImg : 
                 (state.anim === "walk" ? state.walkImg : 
@@ -2469,7 +2473,10 @@ function draw(){
     const overGap = isOverGapWorld(a.x, a.y);
     drawShadow(a.x, a.y, a.z, a.scale, overGap);
     
-    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing || state.aquaShieldActive) {
+    // BUG FIX: Empoleon - Use a solid color for the aqua shield instead of flickering
+    const isAquaShielded = (a.kind === 'local' && state.aquaShieldActive) || (a.kind === 'remote' && remote.get(a.uid)?.aquaShieldActive);
+
+    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
         ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
     }
 
@@ -2482,6 +2489,18 @@ function draw(){
     
     if (a.isHighlighted) {
         ctx.restore();
+    }
+    
+    // BUG FIX: Empoleon - Draw the blue circle for Aqua Shield
+    if (isAquaShielded) {
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.arc(dx + dw / 2, dy + dh / 2, PLAYER_R * 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(50, 150, 255, 0.5)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(150, 200, 255, 1)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
     }
 
     ctx.globalAlpha = 1.0;
@@ -3003,45 +3022,48 @@ function tryRangedAttack() {
 
 // ---------- ABILITY LOGIC ----------
 
-// BUG FIX: Smeargle & Cacturne - Refactored ability handling logic
 function handleAbilityKeyPress() {
     if (state.abilityCooldown > 0 && !state.isIllusion) return;
 
-    const abilityToUse = state.copiedAbility || CHARACTERS[selectedKey]?.ability;
+    // BUG FIX: Smeargle - Check if an ability is copied first.
+    if (state.copiedAbility) {
+        // If the copied ability is targeting, enter targeting mode for IT.
+        if (['transform', 'illusion', 'hypnotize', 'sandSnare'].includes(state.copiedAbility.name)) {
+            state.abilityTargetingMode = state.copiedAbility.name;
+            state.highlightedPlayers = state.copiedAbility.name === 'sandSnare' ? [] : Array.from(remote.keys());
+        } else {
+            // Otherwise, activate it instantly.
+            activateInstantAbility(state.copiedAbility);
+        }
+        return;
+    }
+
+    const abilityToUse = CHARACTERS[selectedKey]?.ability;
 
     if (!abilityToUse || abilityToUse.type !== 'active') return;
 
-    // Handle toggle-off abilities first
     if (abilityToUse.name === 'phase' && state.isPhasing) { togglePhase(); return; }
     if (abilityToUse.name === 'transform' && state.isTransformed) { revertTransform(); return; }
     if (abilityToUse.name === 'illusion' && state.isIllusion) { revertIllusion(); return; }
-    if (abilityToUse.name === 'flight' && state.isFlying) { toggleFlight(); return; }
 
-
-    // Handle abilities that require targeting
     if (['transform', 'illusion', 'hypnotize', 'copy'].includes(abilityToUse.name)) {
-        // This case is for Smeargle using its native 'copy' ability
-        if (abilityToUse.name === 'copy' && !state.copiedAbility) {
-            state.abilityTargetingMode = 'copy';
+        state.abilityTargetingMode = abilityToUse.name;
+        if (abilityToUse.name === 'copy') {
             state.highlightedPlayers = Array.from(remote.values())
                 .filter(p => CHARACTERS[p.character]?.ability?.type === 'active')
                 .map(p => p.uid);
-            return;
+        } else {
+            state.highlightedPlayers = Array.from(remote.keys());
         }
-        // This case is for copied abilities that need targeting (like transform)
-        state.abilityTargetingMode = abilityToUse.name;
-        state.highlightedPlayers = Array.from(remote.keys());
         return;
     }
     
-    // BUG FIX: Cacturne - Handle sandSnare targeting separately to avoid highlighting players
     if (abilityToUse.name === 'sandSnare') {
         state.abilityTargetingMode = 'sandSnare';
-        state.highlightedPlayers = []; // Don't highlight anyone
+        state.highlightedPlayers = [];
         return;
     }
 
-    // Handle instant-activation abilities
     activateInstantAbility(abilityToUse);
 }
 
@@ -3050,12 +3072,11 @@ function activateInstantAbility(ability) {
     
     switch(ability.name) {
         case 'phase':       togglePhase(); break;
-        case 'flight':      toggleFlight(); break;
         case 'rideBySlash': activateRideBySlash(); break;
         case 'toxicSprint': activateToxicSprint(); break;
     }
 
-    // After using a copied ability, clear it and set cooldown for Smeargle
+    // BUG FIX: Smeargle - After using a copied ability, clear it and set cooldown for Smeargle
     if (state.copiedAbility) {
         state.copiedAbility = null;
         state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
@@ -3087,7 +3108,7 @@ function activateTargetedAbility(target) {
             break;
     }
 
-    // After using a copied ability, clear it and set cooldown for Smeargle
+    // BUG FIX: Smeargle - After using a copied ability, clear it and set cooldown for Smeargle
     if (state.copiedAbility) {
         state.copiedAbility = null;
         state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
@@ -3216,7 +3237,6 @@ function hypnotize(targetPlayer) {
 
 function toggleFlight() {
     state.isFlying = !state.isFlying;
-    // No cooldown for a permanent toggle, but you could add one if you want
 }
 
 function copyAbility(targetPlayer) {

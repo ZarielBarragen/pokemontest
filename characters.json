@@ -114,7 +114,7 @@
       "speed": 1.05,
       "hp": 155,
       "strength": 15,
-      "ability": { "type": "active", "name": "copy" },
+      "ability": { "type": "active", "name": "copy", "cooldown": 15 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }
@@ -127,7 +127,7 @@
       "speed": 1.1,
       "hp": 198,
       "strength": 30,
-      "ability": { "type": "active", "name": "flight" },
+      "ability": { "type": "passive", "name": "flight" },
       "attack": { "cols": 15, "rows": 8, "framesPerDir": 15 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" },
@@ -374,7 +374,7 @@
       "rangedStrength": 20,
       "rangedSpeed": 1.0,
       "projectileColor": "#87CEEB",
-      "ability": { "type": "active", "name": "flight" },
+      "ability": { "type": "passive", "name": "flight" },
       "idle": { "sheet": "Idle-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }
     },
     "Blastoise": {
