@@ -223,17 +223,16 @@ export class Net {
       const s = await get(child(ref(this.db), `lobbies/${lobbyId}/meta`));
       this.currentLobbyOwner = s.exists() ? (s.val().owner || null) : null;
     } catch { this.currentLobbyOwner = null; }
-    if (this.auth.currentUser?.uid === this.currentLobbyOwner) {
+    if (this.auth.currentUser.displayName) {
         this.sendChat(`${this.auth.currentUser.displayName} has joined the lobby.`, true);
     }
   }
 
   async leaveLobby(){
-    const uid = this.auth.currentUser?.uid;
     const lob = this.currentLobbyId;
     if (!lob) return;
 
-    if (this.auth.currentUser?.uid === this.currentLobbyOwner) {
+    if (this.auth.currentUser.displayName) {
         this.sendChat(`${this.auth.currentUser.displayName} has left the lobby.`, true);
     }
 
@@ -376,7 +375,6 @@ export class Net {
   // ---------- Leaderboard ----------
   subscribeToLeaderboard(type, cb) {
       const usersRef = ref(this.db, 'users');
-      // This query gets the top 5, but they will be in ascending order.
       const q = query(usersRef, orderByChild(type), limitToLast(5));
 
       const handler = onValue(q, (snap) => {
@@ -385,7 +383,6 @@ export class Net {
               snap.forEach(childSnap => {
                   leaderboard.push(childSnap.val());
               });
-              // We must sort the results on the client-side to get descending order.
               leaderboard.sort((a, b) => (b[type] || 0) - (a[type] || 0));
           }
           cb(leaderboard);

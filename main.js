@@ -493,7 +493,6 @@ function renderLeaderboard(type, data) {
     let listHtml = '<ol>';
     data.forEach(player => {
         const value = type === 'level' ? `Lvl ${player.level}` : `${player.coins} Coins`;
-        // Add a fallback for players who might not have a username set in the database
         const playerName = player.username || 'Anonymous';
         listHtml += `<li>${playerName} - ${value}</li>`;
     });
@@ -1095,10 +1094,6 @@ function startNetListeners(){
       const assets = await loadCharacterAssets(data.character);
       if (!assets) return;
       
-      if (net.auth.currentUser?.uid === net.currentLobbyOwner) {
-        net.sendChat(`${data.username} has joined the lobby.`, true);
-      }
-
       remote.set(uid, {
         uid: uid,
         username: data.username, character: data.character,
@@ -1110,7 +1105,7 @@ function startNetListeners(){
         hopT: 0, hopDur: (assets.cfg.hop?.framesPerDir || 1)/HOP_FPS, z: 0,
         say:null, sayTimer:0,
         hp: data.hp ?? assets.cfg.hp,
-        maxHp: assets.cfg.hp,
+        maxHp: data.maxHp ?? assets.cfg.hp,
         level: data.level || 1,
         assets,
         history: [{ t: performance.now()/1000, x: data.x, y: data.y }],
@@ -1136,6 +1131,8 @@ function startNetListeners(){
       r.level = data.level ?? r.level;
       r.isPhasing = data.isPhasing ?? r.isPhasing;
       r.equippedItem = data.equippedItem ?? r.equippedItem;
+      r.maxHp = data.maxHp ?? r.maxHp;
+      if (r.hp > r.maxHp) r.hp = r.maxHp;
       
       if (data.isAsleep === false && r.isAsleep === true) {
           r.isAsleep = false;
@@ -1174,10 +1171,6 @@ function startNetListeners(){
       r.username = data.username ?? r.username;
     },
     onRemove: (uid, val)=> {
-        const player = val || remote.get(uid);
-        if (player && net.auth.currentUser?.uid === net.currentLobbyOwner) {
-            net.sendChat(`${player.username} has left the lobby.`, true);
-        }
         remote.delete(uid);
     }
   });
@@ -1752,25 +1745,49 @@ function updatePlayerHUD() {
 }
 
 function getRemotePlayerSmoothedPos(r) {
-    if (r.history && r.history.length >= 2){
-      const now = performance.now() / 1000;
-      const LAG = 0.12;
-      const target = now - LAG;
-      let a = r.history[0], b = r.history[r.history.length - 1];
-      for (let i = 1; i < r.history.length; i++){
-        if (r.history[i].t >= target){
-          a = r.history[i - 1] || r.history[i];
-          b = r.history[i];
-          break;
-        }
-      }
-      const denom = Math.max(0.0001, b.t - a.t);
-      const t = Math.max(0, Math.min(1, (target - a.t) / denom));
-      const smx = lerp(a.x, b.x, t);
-      const smy = lerp(a.y, b.y, t);
-      return { x: smx, y: smy };
+    if (!r.history || r.history.length < 2) {
+        return { x: r.x, y: r.y };
     }
-    return { x: r.x, y: r.y };
+
+    const now = performance.now() / 1000;
+    const RENDER_DELAY = 0.1; // Delay rendering to allow for interpolation
+    const renderTime = now - RENDER_DELAY;
+
+    // Find two history points to interpolate between
+    let before = null;
+    let after = null;
+
+    for (let i = r.history.length - 1; i >= 0; i--) {
+        if (r.history[i].t <= renderTime) {
+            before = r.history[i];
+            after = r.history[i + 1];
+            break;
+        }
+    }
+
+    // If no suitable points, extrapolate from the last two points
+    if (!before) {
+        before = r.history[r.history.length - 2] || r.history[r.history.length - 1];
+        after = r.history[r.history.length - 1];
+    }
+    
+    if (!after) { // Should not happen if history has at least 2 points
+        return { x: before.x, y: before.y };
+    }
+
+
+    const timeDiff = after.t - before.t;
+    // Avoid division by zero
+    if (timeDiff <= 0) {
+        return { x: before.x, y: before.y };
+    }
+
+    const interpolationFactor = (renderTime - before.t) / timeDiff;
+
+    const smoothedX = lerp(before.x, after.x, interpolationFactor);
+    const smoothedY = lerp(before.y, after.y, interpolationFactor);
+
+    return { x: smoothedX, y: smoothedY };
 }
 
 
@@ -2010,7 +2027,8 @@ function draw(){
   }
 
   for (const r of remote.values()){
-    const assets = r.assets; if (!assets) continue;
+    const assets = (r.isIllusion && r.illusionAssets) ? r.illusionAssets : r.assets;
+    if (!assets) continue;
     
     let meta, strip, frames, fps, order;
     
@@ -2290,7 +2308,7 @@ function spawnEnemies(map) {
     const maxEnemies = Math.floor((map.w * map.h) / 200);
     const validSpawns = [];
     for (let y = 1; y < map.h - 1; y++) {
-        for (let x = 1; x < map.w - 1; x++) {
+        for (let x = 1; x < w - 1; x++) {
             if (!map.walls[y][x]) {
                 validSpawns.push({ x, y });
             }
@@ -2800,7 +2818,6 @@ async function transformInto(targetPlayer) {
     state.originalCharacterKey = selectedKey;
     const targetKey = targetPlayer.originalCharacterKey || targetPlayer.character;
     
-    // Update local state to the new character
     await applyCharacterChange(targetKey);
 
     net.broadcastAbility({ name: 'transform', targetCharacterKey: targetKey });
@@ -2809,7 +2826,7 @@ async function transformInto(targetPlayer) {
         isTransformed: true, 
         originalCharacterKey: state.originalCharacterKey,
         hp: state.hp, 
-        maxHp: state.maxHp 
+        maxHp: state.maxHp
     });
 
     const cfg = CHARACTERS[state.originalCharacterKey];
@@ -2845,7 +2862,6 @@ async function createIllusion(targetPlayer) {
         character: targetPlayer.originalCharacterKey || targetPlayer.character
     };
 
-    // Load and apply assets locally for the illusion
     const assets = await loadCharacterAssets(state.illusionTarget.character);
     if (assets) {
         state.walkImg = assets.walk;
@@ -2870,7 +2886,6 @@ async function revertIllusion(silent = false) {
     state.illusionTarget = null;
     state.abilityCooldown = 0;
 
-    // Revert to original assets
     await applyCharacterChange(state.originalCharacterKey || selectedKey);
 
     if (!silent) {
@@ -2913,8 +2928,6 @@ async function handleRemoteTransform(player, targetKey, isRevert = false) {
     player.character = targetKey;
     player.isTransformed = !isRevert;
     
-    // If reverting, we need to know the player's *true* original character
-    // This assumes the `originalCharacterKey` is correctly set on the player object from their initial spawn data
     const keyToLoad = isRevert ? player.originalCharacterKey : targetKey;
 
     player.assets = await loadCharacterAssets(keyToLoad);
@@ -2927,8 +2940,6 @@ async function handleRemoteTransform(player, targetKey, isRevert = false) {
 async function handleRemoteIllusion(player, target) {
     player.isIllusion = true;
     player.illusionTarget = target;
-    // We need to load the assets for the illusion character if we don't have them
-    // This is a visual change only, so we temporarily swap assets for drawing.
     const illusionAssets = await loadCharacterAssets(target.character);
     if (illusionAssets) {
         player.illusionAssets = illusionAssets;
@@ -2938,7 +2949,7 @@ async function handleRemoteIllusion(player, target) {
 async function handleRemoteRevertIllusion(player) {
     player.isIllusion = false;
     player.illusionTarget = null;
-    player.illusionAssets = null; // Clear illusion assets
+    player.illusionAssets = null;
 }
 
 // ---------- Shop and Inventory Logic ----------
