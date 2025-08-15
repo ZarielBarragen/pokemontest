@@ -22,6 +22,8 @@ const projectiles = [];
 const playerProjectiles = [];
 const coins = new Map();
 const healthPacks = new Map();
+const poisonTiles = new Map();
+const sandTiles = new Map();
 
 import { Net, firebaseConfig } from "./net.js";
 const net = new Net(firebaseConfig);
@@ -134,6 +136,8 @@ const SPEED = TILE * 2.6;
 function currentSpeedMult(){ 
     const cfg = CHARACTERS[selectedKey]; 
     let mult = (cfg && cfg.speed) ? cfg.speed : 1.0;
+    if (state.rideBySlashActive) mult *= 1.5;
+    if (state.toxicSprintActive) mult *= 1.5;
     if (state.equippedItem === 'cyclizarMotor') {
         mult *= (selectedKey === 'Cyclizar' ? 3 : 2);
     }
@@ -157,7 +161,8 @@ const EDGE_LIP    = "rgba(255,255,255,0.08)";
 
 const TEX = { 
     floor: null, wall: null, coin: null, health: null,
-    grass: null, water: null, grass_water_transition: null, palm_tree: null
+    grass: null, water: null, grass_water_transition: null, palm_tree: null,
+    poison: null, sand: null
 };
 const BG_TILE_SCALE = 3.0; // visual scale for floor & wall tiles (option 2)
 
@@ -169,6 +174,8 @@ loadImage("assets/background/grass.png").then(im => TEX.grass = im).catch(() => 
 loadImage("assets/background/water.png").then(im => TEX.water = im).catch(() => {});
 loadImage("assets/background/grass_water_transition.png").then(im => TEX.grass_water_transition = im).catch(() => {});
 loadImage("assets/background/palm_tree.png").then(im => TEX.palm_tree = im).catch(() => {});
+loadImage("assets/background/poison.png").then(im => TEX.poison = im).catch(() => {});
+loadImage("assets/background/sand.png").then(im => TEX.sand = im).catch(() => {});
 
 
 // ---------- SFX & Music ----------
@@ -760,26 +767,32 @@ const state = {
   invulnerableTimer: 0,
   attackCooldown: 0,
   attacking: false,
-  // NEW: Player Stats
   level: 1,
   xp: 0,
   xpToNextLevel: 100,
   coins: 0,
-  // NEW: Abilities State
   abilityCooldown: 0,
   isPhasing: false,
   phaseDamageTimer: 0,
   isTransformed: false,
   originalCharacterKey: null,
   isIllusion: false,
-  illusionTarget: null, // { username, level, character }
+  illusionTarget: null,
   isAsleep: false,
   sleepTimer: 0,
-  abilityTargetingMode: null, // e.g., 'transform', 'illusion', 'hypnotize'
+  abilityTargetingMode: null,
   highlightedPlayers: [],
   regenTimer: 0,
   inventory: {},
   equippedItem: null,
+  isFlying: false,
+  copiedAbility: null,
+  rideBySlashActive: false,
+  rideBySlashTimer: 0,
+  toxicSprintActive: false,
+  toxicSprintTimer: 0,
+  aquaShieldActive: false,
+  aquaShieldTimer: 0,
 };
 
 // ---------- Input ----------
@@ -892,6 +905,13 @@ canvas.addEventListener('click', (event) => {
 
     const worldX = mouseX + state.cam.x;
     const worldY = mouseY + state.cam.y;
+
+    if (state.abilityTargetingMode === 'sandSnare') {
+        const tileX = Math.floor(worldX / TILE);
+        const tileY = Math.floor(worldY / TILE);
+        activateTargetedAbility({ x: tileX, y: tileY });
+        return;
+    }
 
     let clickedPlayer = null;
     for (const [uid, player] of remote.entries()) {
@@ -1054,7 +1074,7 @@ async function loadCharacterAssets(key) {
 // ---------- Net listeners ----------
 function startNetListeners(){
   net.subscribeToHits(hit => {
-      if (state.invulnerableTimer > 0) return;
+      if (state.invulnerableTimer > 0 || state.aquaShieldActive) return;
 
       // If in illusion, break it
       if (state.isIllusion) {
@@ -1619,6 +1639,23 @@ function drawMap(){
           }
         }
       }
+    }
+    // Second pass: draw effects like poison and sand
+    for (const [key, tile] of poisonTiles.entries()) {
+        const [x, y] = key.split(',').map(Number);
+        if (x >= xs && x <= xe && y >= ys && y <= ye) {
+            if (TEX.poison) {
+                ctx.drawImage(TEX.poison, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
+            }
+        }
+    }
+    for (const [key, tile] of sandTiles.entries()) {
+        const [x, y] = key.split(',').map(Number);
+        if (x >= xs && x <= xe && y >= ys && y <= ye) {
+            if (TEX.sand) {
+                ctx.drawImage(TEX.sand, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
+            }
+        }
     }
     // Third pass: draw trees
     for (let y = ys; y <= ye; y++) {
@@ -2344,7 +2381,7 @@ function draw(){
     const overGap = isOverGapWorld(a.x, a.y);
     drawShadow(a.x, a.y, a.z, a.scale, overGap);
     
-    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
+    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing || state.aquaShieldActive) {
         ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
     }
 
@@ -2585,7 +2622,7 @@ function updateProjectiles(dt) {
             continue;
         }
         
-        if (state.invulnerableTimer <= 0 && !state.isPhasing) {
+        if (state.invulnerableTimer <= 0 && !state.isPhasing && !state.isFlying) {
             const dist = Math.hypot(p.x - state.x, p.y - state.y);
             if (dist < PLAYER_R + PROJECTILE_R) {
                 state.hp = Math.max(0, state.hp - p.damage);
@@ -2674,7 +2711,7 @@ function updatePlayerProjectiles(dt) {
                 if (dist < PLAYER_R + PROJECTILE_R) {
                     const isKill = (player.hp - p.damage) <= 0;
                     if(isKill) addXp(100);
-                    net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
+                    net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
                     hit = true;
                     break;
                 }
@@ -2762,7 +2799,11 @@ function tryMeleeAttack() {
 
     const attackRange = TILE * 1.5;
     const characterConfig = CHARACTERS[selectedKey];
-    const damage = characterConfig.strength || 15; // Use character's strength, or a default of 15
+    let damage = characterConfig.strength || 15;
+    if (state.rideBySlashActive) {
+        damage *= 2;
+        state.rideBySlashActive = false; // Consume the buff
+    }
 
     for (const enemy of enemies.values()) {
         if (enemy.hp <= 0) continue;
@@ -2866,7 +2907,7 @@ function tryRangedAttack() {
 function handleAbilityKeyPress() {
     if (state.abilityCooldown > 0 && !state.isIllusion) return;
 
-    const cfg = CHARACTERS[state.originalCharacterKey || selectedKey];
+    const cfg = state.copiedAbility || CHARACTERS[state.originalCharacterKey || selectedKey];
     if (!cfg.ability || cfg.ability.type !== 'active') return;
 
     // Handle abilities that can be toggled off
@@ -2884,36 +2925,47 @@ function handleAbilityKeyPress() {
     }
 
     // Handle abilities that require targeting
-    if (['transform', 'illusion', 'hypnotize'].includes(cfg.ability.name)) {
+    if (['transform', 'illusion', 'hypnotize', 'copy', 'sandSnare'].includes(cfg.ability.name)) {
         state.abilityTargetingMode = cfg.ability.name;
-        state.highlightedPlayers = Array.from(remote.keys());
+        if (cfg.ability.name === 'copy') {
+            state.highlightedPlayers = Array.from(remote.values())
+                .filter(p => CHARACTERS[p.character]?.ability?.type === 'active')
+                .map(p => p.uid);
+        } else {
+            state.highlightedPlayers = Array.from(remote.keys());
+        }
         return;
     }
 
     // Handle abilities that activate instantly
-    if (cfg.ability.name === 'phase') {
-        togglePhase();
-    }
+    if (cfg.ability.name === 'phase') togglePhase();
+    if (cfg.ability.name === 'flight') toggleFlight();
+    if (cfg.ability.name === 'rideBySlash') activateRideBySlash();
+    if (cfg.ability.name === 'toxicSprint') activateToxicSprint();
 }
 
-function activateTargetedAbility(targetPlayer) {
-    const cfg = CHARACTERS[state.originalCharacterKey || selectedKey];
+function activateTargetedAbility(target) {
+    const cfg = state.copiedAbility || CHARACTERS[state.originalCharacterKey || selectedKey];
     if (!cfg || !cfg.ability) return;
 
     switch (state.abilityTargetingMode) {
         case 'transform':
-            transformInto(targetPlayer);
+            transformInto(target);
             break;
         case 'illusion':
-            createIllusion(targetPlayer);
+            createIllusion(target);
             break;
         case 'hypnotize':
-            const dist = Math.hypot(state.x - targetPlayer.x, state.y - targetPlayer.y);
+            const dist = Math.hypot(state.x - target.x, state.y - target.y);
             if (dist <= cfg.ability.range) {
-                hypnotize(targetPlayer);
-            } else {
-                // Maybe show a "too far" message
+                hypnotize(target);
             }
+            break;
+        case 'copy':
+            copyAbility(target);
+            break;
+        case 'sandSnare':
+            placeSandSnare(target.x, target.y);
             break;
     }
 }
@@ -2922,9 +2974,6 @@ function togglePhase() {
     state.isPhasing = !state.isPhasing;
     state.phaseDamageTimer = 0; // Reset timer
     net.updateState({ isPhasing: state.isPhasing });
-    
-    // You don't set cooldown here, as it's a toggle. 
-    // Cooldown could be applied when phasing *ends* if desired.
 }
 
 async function transformInto(targetPlayer) {
@@ -3035,6 +3084,45 @@ function hypnotize(targetPlayer) {
         duration = 8000;
     }
     net.applyStatus(targetPlayer.uid, { type: 'sleep', duration: duration, from: net.auth.currentUser.uid });
+    state.abilityCooldown = cfg.ability.cooldown;
+}
+
+function toggleFlight() {
+    state.isFlying = !state.isFlying;
+    // No cooldown for a permanent toggle
+}
+
+function copyAbility(targetPlayer) {
+    const targetCharacterKey = targetPlayer.originalCharacterKey || targetPlayer.character;
+    const targetCharacter = CHARACTERS[targetCharacterKey];
+    if (targetCharacter && targetCharacter.ability) {
+        state.copiedAbility = targetCharacter;
+        // Maybe add a visual indicator that an ability is copied
+    }
+}
+
+function activateRideBySlash() {
+    const cfg = CHARACTERS[selectedKey];
+    state.rideBySlashActive = true;
+    state.rideBySlashTimer = cfg.ability.duration;
+    state.abilityCooldown = cfg.ability.cooldown;
+}
+
+function activateToxicSprint() {
+    const cfg = CHARACTERS[selectedKey];
+    state.toxicSprintActive = true;
+    state.toxicSprintTimer = cfg.ability.duration;
+    state.abilityCooldown = cfg.ability.cooldown;
+}
+
+function placeSandSnare(tileX, tileY) {
+    const cfg = CHARACTERS[selectedKey];
+    for (let y = -1; y <= 1; y++) {
+        for (let x = -1; x <= 1; x++) {
+            const key = `${tileX + x},${tileY + y}`;
+            sandTiles.set(key, { life: 5 });
+        }
+    }
     state.abilityCooldown = cfg.ability.cooldown;
 }
 
@@ -3187,7 +3275,7 @@ function tileCenter(tx, ty) {
 }
 
 function canWalk(tx, ty, map) {
-    if (state.isPhasing) return true; // Can walk through anything while phasing
+    if (state.isPhasing || state.isFlying) return true; // Can walk through anything while phasing
     if (map.type === 'plains') {
         const waterPokemon = ["Quagsire", "Empoleon", "Primarina", "Dewgong"];
         if (map.walls[ty][tx] === 2) { // Water tile

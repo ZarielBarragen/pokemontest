@@ -114,6 +114,7 @@
       "speed": 1.05,
       "hp": 155,
       "strength": 15,
+      "ability": { "type": "active", "name": "copy" },
       "idle": { "sheet": "Idle-Anim.png", "cols": 2, "rows": 8, "framesPerDir": 2, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }
@@ -126,6 +127,7 @@
       "speed": 1.1,
       "hp": 198,
       "strength": 30,
+      "ability": { "type": "active", "name": "flight" },
       "attack": { "cols": 15, "rows": 8, "framesPerDir": 15 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" },
@@ -143,6 +145,7 @@
       "rangedStrength": 28,
       "rangedSpeed": 0.8,
       "projectileColor": "#006400",
+      "ability": { "type": "active", "name": "sandSnare", "cooldown": 10 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }
@@ -218,6 +221,7 @@
       "speed": 0.95,
       "hp": 184,
       "strength": 28,
+      "ability": { "type": "passive", "name": "aquaShield", "cooldown": 10, "duration": 3 },
       "attack": { "cols": 14, "rows": 8, "framesPerDir": 14 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
@@ -274,6 +278,7 @@
       "speed": 1.3,
       "hp": 170,
       "strength": 25,
+      "ability": { "type": "active", "name": "rideBySlash", "cooldown": 8, "duration": 2 },
       "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" },
@@ -341,6 +346,7 @@
       "speed": 1.25,
       "hp": 160,
       "strength": 28,
+      "ability": { "type": "active", "name": "toxicSprint", "cooldown": 12, "duration": 3, "damage": 5 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 4, "rows": 8, "framesPerDir": 4, "dirGrid": "row" },
       "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }
@@ -368,7 +374,7 @@
       "rangedStrength": 20,
       "rangedSpeed": 1.0,
       "projectileColor": "#87CEEB",
-      "ability": { "type": "passive", "name": "regenerate", "rate": 1, "interval": 3 },
+      "ability": { "type": "active", "name": "flight" },
       "idle": { "sheet": "Idle-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" }
     },
     "Blastoise": {
