@@ -228,18 +228,34 @@ export class Net {
     }
   }
 
+// net.js
+
   async leaveLobby(){
-    const lob = this.currentLobbyId;
-    if (!lob) return;
+      const lob = this.currentLobbyId;
+      if (!lob) return;
 
-    if (this.auth.currentUser.displayName) {
-        this.sendChat(`${this.auth.currentUser.displayName} has left the lobby.`, true);
-    }
+      if (this.auth.currentUser.displayName) {
+          this.sendChat(`${this.auth.currentUser.displayName} has left the lobby.`, true);
+      }
 
-    try {
-      if (this._playerOnDisconnect) { try { await this._playerOnDisconnect.cancel(); } catch {} this._playerOnDisconnect = null; }
-      if (this._playerRef) { await remove(this._playerRef); this._playerRef = null; }
-    } catch {}
+      try {
+        if (this._playerOnDisconnect) { try { await this._playerOnDisconnect.cancel(); } catch {} this._playerOnDisconnect = null; }
+        if (this._playerRef) { await remove(this._playerRef); this._playerRef = null; }
+      } catch {}
+
+      // Check if the lobby is empty and schedule deletion
+      const lobbyPlayersRef = ref(this.db, `lobbies/${lob}/players`);
+      const snapshot = await get(lobbyPlayersRef);
+      if (!snapshot.exists() || !snapshot.hasChildren()) {
+          setTimeout(async () => {
+              const currentSnapshot = await get(lobbyPlayersRef);
+              if (!currentSnapshot.exists() || !currentSnapshot.hasChildren()) {
+                  const lobbyRef = ref(this.db, `lobbies/${lob}`);
+                  await remove(lobbyRef);
+                  console.log(`Lobby ${lob} was empty for 10 seconds and has been deleted.`);
+              }
+          }, 10000); // 10 seconds
+      }
 
     this.playersUnsubs.forEach(u=>{ try{u();}catch{} });
     this.playersUnsubs = [];
