@@ -63,7 +63,7 @@
     <div style="display:grid;gap:14px;place-items:center">
       <h1>Pick your character</h1>
       <div id="charGrid"></div>
-      <p>WASD / Arrows to move • Space to hop • J to attack • K to shoot • Esc to reselect</p>
+      <p>WASD / Arrows to move • Space to hop • J to attack • K to shoot • E for ability • Esc to reselect</p>
     </div>
   </div>
 
@@ -101,13 +101,13 @@
 
   <!-- Mobile Controls -->
   <div id="mobile-controls" class="hidden">
-    <div id="d-pad">
-        <div class="d-pad-btn up" data-key="ArrowUp"></div>
-        <div class="d-pad-btn down" data-key="ArrowDown"></div>
-        <div class="d-pad-btn left" data-key="ArrowLeft"></div>
-        <div class="d-pad-btn right" data-key="ArrowRight"></div>
+    <!-- Joystick Container -->
+    <div id="joystick-container">
+        <div id="joystick-thumb"></div>
     </div>
     <div id="action-buttons">
+      <!-- Added Ability Button -->
+      <button id="ability-btn" class="mobile-action-btn" data-key="e">ABILITY</button>
       <button id="attack-btn" class="mobile-action-btn" data-key="j">ATTACK</button>
       <button id="shoot-btn" class="mobile-action-btn" data-key="k">SHOOT</button>
       <button id="hop-btn" class="mobile-action-btn" data-key=" ">JUMP</button>

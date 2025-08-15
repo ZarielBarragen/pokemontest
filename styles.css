@@ -233,19 +233,20 @@ body::after{
 .card:hover{ transform: translateY(-2px); filter: saturate(1.2); }
 .card:active{ transform: translateY(1px); }
 
+/* Smaller card styles */
 .small-card {
-  width: 120px;
-  height: 120px;
-  padding: 8px;
+  width: 100px;
+  height: 100px;
+  padding: 6px;
+  gap: 4px;
 }
 .small-card img {
-  width: 64px;
-  height: auto;
+  width: 50px;
+  height: 50px;
 }
 .small-card span {
-  font-size: 10px;
-  margin-top: 6px;
-  line-height: 1.1;
+  font-size: 9px;
+  padding: 3px 4px;
 }
 
 /* ==== Buttons ==== */
@@ -335,43 +336,41 @@ body::after{
   user-select: none;
 }
 
-#d-pad {
+/* NEW Joystick Styles */
+#joystick-container {
   position: relative;
-  width: 180px;
-  height: 180px;
-  background: rgba(11, 31, 18, 0.5);
+  width: 150px;
+  height: 150px;
+  background: rgba(11, 31, 18, 0.4);
   border-radius: 50%;
-  border: 4px solid #163a21;
+  border: 4px solid rgba(22, 58, 33, 0.6);
   pointer-events: all;
 }
 
-.d-pad-btn {
+#joystick-thumb {
   position: absolute;
   width: 60px;
   height: 60px;
-  background: rgba(44, 106, 58, 0.7);
+  background: rgba(44, 106, 58, 0.8);
+  border-radius: 50%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transition: transform 0.1s ease-out;
 }
-.d-pad-btn:active {
-  background: rgba(155, 188, 15, 0.8);
-}
-
-.d-pad-btn.up { top: 0; left: 50%; transform: translateX(-50%); border-top-left-radius: 10px; border-top-right-radius: 10px; }
-.d-pad-btn.down { bottom: 0; left: 50%; transform: translateX(-50%); border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
-.d-pad-btn.left { left: 0; top: 50%; transform: translateY(-50%); border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
-.d-pad-btn.right { right: 0; top: 50%; transform: translateY(-50%); border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
 
 #action-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
   pointer-events: all;
 }
 
 .mobile-action-btn {
-  width: 80px;
-  height: 80px;
+  width: 70px;
+  height: 70px;
   border-radius: 50%;
-  font-size: 16px;
+  font-size: 11px;
   font-weight: bold;
   color: var(--text);
   background: var(--panel-2);
@@ -379,6 +378,10 @@ body::after{
   box-shadow: 0 4px 0 rgba(0,0,0,.3);
   font-family: inherit;
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  line-height: 1.1;
 }
 .mobile-action-btn:active {
   transform: translateY(2px);
@@ -423,23 +426,24 @@ body::after{
 /* ==== Responsive niceties ==== */
 @media (max-width: 720px){
   #charGrid {
-    grid-template-columns: repeat(auto-fill, minmax(85px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 6px;
   }
+  /* Further reduced card size for mobile */
   .small-card {
-    width: 85px;
-    height: 85px;
-    padding: 5px;
-    gap: 3px;
+    width: 80px;
+    height: 80px;
+    padding: 4px;
+    gap: 2px;
   }
   .small-card img {
-    width: 42px;
-    height: 42px;
+    width: 40px;
+    height: 40px;
   }
   .small-card span {
-    font-size: 8px;
+    font-size: 7px;
     line-height: 1;
-    padding: 2px 3px;
+    padding: 2px;
   }
   #player-hud {
     flex-direction: column;
@@ -460,18 +464,21 @@ body::after{
     left: 10px;
     right: 10px;
   }
-  #d-pad {
-    width: 140px;
-    height: 140px;
+  #joystick-container {
+    width: 120px;
+    height: 120px;
   }
-  .d-pad-btn {
-    width: 46px;
-    height: 46px;
+  #joystick-thumb {
+    width: 50px;
+    height: 50px;
   }
   .mobile-action-btn {
-    width: 70px;
-    height: 70px;
-    font-size: 14px;
+    width: 60px;
+    height: 60px;
+    font-size: 10px;
+  }
+  #action-buttons {
+    gap: 10px;
   }
 }
 

@@ -339,60 +339,122 @@ screenBtn.onclick = () => {
     setupMobileControls();
 };
 
-const touchState = new Map();
+// Joystick state variables
+let joystick = {
+  active: false,
+  touchId: null,
+  baseX: 0,
+  baseY: 0,
+  stickX: 0,
+  stickY: 0,
+  dx: 0,
+  dy: 0,
+};
 
 function setupMobileControls() {
     const controls = document.getElementById('mobile-controls');
+    const joystickContainer = document.getElementById('joystick-container');
+    const joystickThumb = document.getElementById('joystick-thumb');
+    const actionButtons = document.getElementById('action-buttons');
 
-    const handleTouchStart = (e) => {
+    const joystickRadius = joystickContainer.offsetWidth / 2;
+
+    const handleJoystickStart = (e) => {
+        e.preventDefault();
+        const touch = e.changedTouches[0];
+        joystick.touchId = touch.identifier;
+        joystick.active = true;
+        const rect = joystickContainer.getBoundingClientRect();
+        joystick.baseX = rect.left + joystickRadius;
+        joystick.baseY = rect.top + joystickRadius;
+        joystick.stickX = touch.clientX;
+        joystick.stickY = touch.clientY;
+    };
+
+    const handleJoystickMove = (e) => {
+        if (!joystick.active) return;
+        e.preventDefault();
+
+        let touch = null;
+        for(const t of e.changedTouches) {
+            if (t.identifier === joystick.touchId) {
+                touch = t;
+                break;
+            }
+        }
+        if (!touch) return;
+
+        joystick.stickX = touch.clientX;
+        joystick.stickY = touch.clientY;
+
+        let dx = joystick.stickX - joystick.baseX;
+        let dy = joystick.stickY - joystick.baseY;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance > joystickRadius) {
+            dx = (dx / distance) * joystickRadius;
+            dy = (dy / distance) * joystickRadius;
+        }
+        
+        joystick.dx = dx / joystickRadius;
+        joystick.dy = dy / joystickRadius;
+
+        joystickThumb.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px)`;
+    };
+
+    const handleJoystickEnd = (e) => {
+        let touchEnded = false;
+        for(const t of e.changedTouches) {
+            if (t.identifier === joystick.touchId) {
+                touchEnded = true;
+                break;
+            }
+        }
+        if (!touchEnded) return;
+        
+        joystick.active = false;
+        joystick.touchId = null;
+        joystick.dx = 0;
+        joystick.dy = 0;
+        joystickThumb.style.transform = `translate(-50%, -50%)`;
+    };
+
+    // --- Action Button Handlers ---
+    const touchState = new Map();
+    const handleActionStart = (e) => {
         e.preventDefault();
         for (const touch of e.changedTouches) {
-            const target = document.elementFromPoint(touch.clientX, touch.clientY);
+            const target = touch.target;
             if (target && target.dataset.key) {
                 const key = target.dataset.key;
                 keys.add(key);
-                touchState.set(touch.identifier, key); 
+                touchState.set(touch.identifier, key);
             }
         }
     };
-
-    const handleTouchEnd = (e) => {
+    const handleActionEnd = (e) => {
         e.preventDefault();
         for (const touch of e.changedTouches) {
             if (touchState.has(touch.identifier)) {
                 const key = touchState.get(touch.identifier);
                 keys.delete(key);
-                touchState.delete(touch.identifier); 
+                touchState.delete(touch.identifier);
             }
         }
     };
 
-    const handleTouchMove = (e) => {
-        e.preventDefault();
-        for (const touch of e.changedTouches) {
-            const currentKey = touchState.get(touch.identifier);
-            const target = document.elementFromPoint(touch.clientX, touch.clientY);
-            const targetKey = target ? target.dataset.key : null;
-
-            if (currentKey !== targetKey) {
-                if (currentKey) {
-                    keys.delete(currentKey);
-                }
-                if (targetKey) {
-                    keys.add(targetKey);
-                    touchState.set(touch.identifier, targetKey);
-                } else {
-                    touchState.delete(touch.identifier);
-                }
-            }
-        }
-    };
-    
     if (!controls.dataset.listenersAdded) {
-        controls.addEventListener('touchstart', handleTouchStart, { passive: false });
-        controls.addEventListener('touchend', handleTouchEnd, { passive: false });
-        controls.addEventListener('touchcancel', handleTouchEnd, { passive: false });
-        controls.addEventListener('touchmove', handleTouchMove, { passive: false });
+        // Joystick listeners
+        joystickContainer.addEventListener('touchstart', handleJoystickStart, { passive: false });
+        joystickContainer.addEventListener('touchmove', handleJoystickMove, { passive: false });
+        joystickContainer.addEventListener('touchend', handleJoystickEnd, { passive: false });
+        joystickContainer.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
+
+        // Action button listeners
+        actionButtons.addEventListener('touchstart', handleActionStart, { passive: false });
+        actionButtons.addEventListener('touchend', handleActionEnd, { passive: false });
+        actionButtons.addEventListener('touchcancel', handleActionEnd, { passive: false });
+        
         controls.dataset.listenersAdded = 'true';
     }
 }
@@ -772,7 +834,7 @@ window.addEventListener("keydown", e=>{
   }
 
   // Prevent default browser action for game keys
-  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K"].includes(e.key)) e.preventDefault();
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K", "e", "E"].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
   if (e.key === "Escape"){
@@ -1279,6 +1341,17 @@ const DIR_VECS = {
   up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1], 
 };
 function getInputVec(){
+  // Joystick input for touch devices
+  if (inputMode === 'touch' && joystick.active) {
+      const { dx, dy } = joystick;
+      const length = Math.hypot(dx, dy);
+      if (length > 0) {
+          return { vx: dx / length, vy: dy / length };
+      }
+      return { vx: 0, vy: 0 };
+  }
+  
+  // Keyboard input
   if (chatMode || state.isAsleep) return {vx:0, vy:0};
   const up = keys.has("w") || keys.has("ArrowUp");
   const down = keys.has("s") || keys.has("ArrowDown");
