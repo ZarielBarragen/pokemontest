@@ -383,7 +383,6 @@ export class Net {
               snap.forEach(childSnap => {
                   leaderboard.push(childSnap.val());
               });
-              leaderboard.sort((a, b) => (b[type] || 0) - (a[type] || 0));
           }
           cb(leaderboard);
       }, (error) => {

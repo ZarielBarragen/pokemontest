@@ -491,7 +491,9 @@ function stopLeaderboardCycle() {
 function renderLeaderboard(type, data) {
     const title = type === 'level' ? 'Top Players by Level' : 'Richest Players';
     let listHtml = '<ol>';
-    data.forEach(player => {
+    // Sort data before rendering
+    const sortedData = [...data].sort((a, b) => (b[type] || 0) - (a[type] || 0));
+    sortedData.forEach(player => {
         const value = type === 'level' ? `Lvl ${player.level}` : `${player.coins} Coins`;
         const playerName = player.username || 'Anonymous';
         listHtml += `<li>${playerName} - ${value}</li>`;
@@ -2949,7 +2951,9 @@ async function handleRemoteIllusion(player, target) {
 async function handleRemoteRevertIllusion(player) {
     player.isIllusion = false;
     player.illusionTarget = null;
-    player.illusionAssets = null;
+    player.illusionAssets = null; // Clear the illusion assets
+    // Revert to original assets
+    player.assets = await loadCharacterAssets(player.originalCharacterKey);
 }
 
 // ---------- Shop and Inventory Logic ----------
