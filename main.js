@@ -356,33 +356,21 @@ function setupMobileControls() {
     const joystickContainer = document.getElementById('joystick-container');
     const joystickThumb = document.getElementById('joystick-thumb');
     const actionButtons = document.getElementById('action-buttons');
-
     const joystickRadius = joystickContainer.offsetWidth / 2;
-
-    const handleJoystickStart = (e) => {
-        e.preventDefault();
-        const touch = e.changedTouches[0];
-        joystick.touchId = touch.identifier;
-        joystick.active = true;
-        const rect = joystickContainer.getBoundingClientRect();
-        joystick.baseX = rect.left + joystickRadius;
-        joystick.baseY = rect.top + joystickRadius;
-        joystick.stickX = touch.clientX;
-        joystick.stickY = touch.clientY;
-    };
 
     const handleJoystickMove = (e) => {
         if (!joystick.active) return;
-        e.preventDefault();
-
+        
         let touch = null;
-        for(const t of e.changedTouches) {
+        for (const t of e.touches) {
             if (t.identifier === joystick.touchId) {
                 touch = t;
                 break;
             }
         }
         if (!touch) return;
+
+        e.preventDefault();
 
         joystick.stickX = touch.clientX;
         joystick.stickY = touch.clientY;
@@ -403,8 +391,9 @@ function setupMobileControls() {
     };
 
     const handleJoystickEnd = (e) => {
+        if (!joystick.active) return;
         let touchEnded = false;
-        for(const t of e.changedTouches) {
+        for (const t of e.changedTouches) {
             if (t.identifier === joystick.touchId) {
                 touchEnded = true;
                 break;
@@ -417,6 +406,27 @@ function setupMobileControls() {
         joystick.dx = 0;
         joystick.dy = 0;
         joystickThumb.style.transform = `translate(-50%, -50%)`;
+
+        window.removeEventListener('touchmove', handleJoystickMove);
+        window.removeEventListener('touchend', handleJoystickEnd);
+        window.removeEventListener('touchcancel', handleJoystickEnd);
+    };
+
+    const handleJoystickStart = (e) => {
+        e.preventDefault();
+        if (joystick.active) return;
+        const touch = e.changedTouches[0];
+        joystick.touchId = touch.identifier;
+        joystick.active = true;
+        const rect = joystickContainer.getBoundingClientRect();
+        joystick.baseX = rect.left + joystickRadius;
+        joystick.baseY = rect.top + joystickRadius;
+        joystick.stickX = touch.clientX;
+        joystick.stickY = touch.clientY;
+
+        window.addEventListener('touchmove', handleJoystickMove, { passive: false });
+        window.addEventListener('touchend', handleJoystickEnd, { passive: false });
+        window.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
     };
 
     // --- Action Button Handlers ---
@@ -424,7 +434,7 @@ function setupMobileControls() {
     const handleActionStart = (e) => {
         e.preventDefault();
         for (const touch of e.changedTouches) {
-            const target = touch.target;
+            const target = touch.target.closest('.mobile-action-btn');
             if (target && target.dataset.key) {
                 const key = target.dataset.key;
                 keys.add(key);
@@ -444,13 +454,7 @@ function setupMobileControls() {
     };
 
     if (!controls.dataset.listenersAdded) {
-        // Joystick listeners
         joystickContainer.addEventListener('touchstart', handleJoystickStart, { passive: false });
-        joystickContainer.addEventListener('touchmove', handleJoystickMove, { passive: false });
-        joystickContainer.addEventListener('touchend', handleJoystickEnd, { passive: false });
-        joystickContainer.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
-
-        // Action button listeners
         actionButtons.addEventListener('touchstart', handleActionStart, { passive: false });
         actionButtons.addEventListener('touchend', handleActionEnd, { passive: false });
         actionButtons.addEventListener('touchcancel', handleActionEnd, { passive: false });
@@ -1344,11 +1348,8 @@ function getInputVec(){
   // Joystick input for touch devices
   if (inputMode === 'touch' && joystick.active) {
       const { dx, dy } = joystick;
-      const length = Math.hypot(dx, dy);
-      if (length > 0) {
-          return { vx: dx / length, vy: dy / length };
-      }
-      return { vx: 0, vy: 0 };
+      // No need to normalize here if dx/dy are already capped at 1.0
+      return { vx: dx, vy: dy };
   }
   
   // Keyboard input
@@ -1364,15 +1365,19 @@ function getInputVec(){
   return {vx, vy};
 }
 function vecToDir(vx, vy){
-  if (!vx && !vy) return state.dir;
-  if (vx>0 && vy===0) return "right";
-  if (vx<0 && vy===0) return "left";
-  if (vy>0 && vx===0) return "down";
-  if (vy<0 && vx===0) return "up";
-  if (vx>0 && vy>0)   return "downRight";
-  if (vx<0 && vy>0)   return "downLeft";
-  if (vx<0 && vy<0)   return "upLeft";
-  if (vx>0 && vy<0)   return "upRight";
+  if (Math.abs(vx) < 0.1 && Math.abs(vy) < 0.1) return state.dir;
+
+  const angle = Math.atan2(vy, vx) * 180 / Math.PI;
+
+  if (angle > -22.5 && angle <= 22.5) return "right";
+  if (angle > 22.5 && angle <= 67.5) return "downRight";
+  if (angle > 67.5 && angle <= 112.5) return "down";
+  if (angle > 112.5 && angle <= 157.5) return "downLeft";
+  if (angle > 157.5 || angle <= -157.5) return "left";
+  if (angle > -157.5 && angle <= -112.5) return "upLeft";
+  if (angle > -112.5 && angle <= -67.5) return "up";
+  if (angle > -67.5 && angle <= -22.5) return "upRight";
+  
   return state.dir;
 }
 function updateCamera(){
@@ -1872,6 +1877,11 @@ function getRemotePlayerSmoothedPos(r) {
 function update(dt){
   if (keys.has(" ")) {
     tryStartHop();
+  }
+
+  if (keys.has("e")) {
+      handleAbilityKeyPress();
+      keys.delete("e"); 
   }
   
   if (state.invulnerableTimer > 0) {
