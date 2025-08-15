@@ -2310,7 +2310,7 @@ function spawnEnemies(map) {
     const maxEnemies = Math.floor((map.w * map.h) / 200);
     const validSpawns = [];
     for (let y = 1; y < map.h - 1; y++) {
-        for (let x = 1; x < w - 1; x++) {
+        for (let x = 1; x < map.w - 1; x++) {
             if (!map.walls[y][x]) {
                 validSpawns.push({ x, y });
             }
