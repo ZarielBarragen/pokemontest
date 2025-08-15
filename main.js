@@ -363,6 +363,7 @@ function setupMobileControls() {
     const joystickContainer = document.getElementById('joystick-container');
     const joystickThumb = document.getElementById('joystick-thumb');
     
+    // BUG FIX: Mobile Joystick - Ensure listeners are properly managed
     const handleMove = (e) => {
         if (!joystick.active) return;
         e.preventDefault();
@@ -1168,8 +1169,8 @@ function startNetListeners(){
   });
 
   net.subscribeToAbilities(abilityData => {
-      const player = remote.get(abilityData.by);
       if (abilityData.by === net.auth.currentUser.uid) return;
+      const player = remote.get(abilityData.by);
 
       switch (abilityData.name) {
           case 'transform':
@@ -1181,7 +1182,6 @@ function startNetListeners(){
           case 'revertIllusion':
               if(player) handleRemoteRevertIllusion(player);
               break;
-          // BUG FIX: Cacturne/Scolipede - Handle ground effects from other players
           case 'toxicSprint':
               poisonTiles.set(`${abilityData.tileX},${abilityData.tileY}`, { life: 3 });
               break;
@@ -1775,7 +1775,6 @@ function drawMap(){
       }
   }
 
-  // BUG FIX: Scolipede/Cacturne - Draw ground effects for ALL map types after base terrain
   for (const [key, tile] of poisonTiles.entries()) {
       const [x, y] = key.split(',').map(Number);
       if (x >= xs && x <= xe && y >= ys && y <= ye) {
@@ -2091,7 +2090,6 @@ function update(dt){
       } else {
           const tileX = Math.floor(state.x / TILE);
           const tileY = Math.floor(state.y / TILE);
-          // BUG FIX: Scolipede - Broadcast the poison tile placement
           net.broadcastAbility({ name: 'toxicSprint', tileX, tileY });
           poisonTiles.set(`${tileX},${tileY}`, { life: 3 });
       }
@@ -2502,7 +2500,6 @@ function draw(){
     if (isAquaShielded) {
         ctx.globalAlpha = 0.4;
         ctx.beginPath();
-        // BUG FIX: Empoleon - Increased shield radius
         ctx.arc(a.x - state.cam.x, a.y - state.cam.y, PLAYER_R * 2.5, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(50, 150, 255, 0.5)';
         ctx.fill();
@@ -3076,6 +3073,7 @@ function activateInstantAbility(ability) {
     if (!ability) return;
     
     switch(ability.name) {
+        // BUG FIX: Sableye - Ensure phase is handled here
         case 'phase':       togglePhase(); break;
         case 'rideBySlash': activateRideBySlash(); break;
         case 'toxicSprint': activateToxicSprint(); break;
@@ -3267,7 +3265,6 @@ function activateToxicSprint() {
 
 function placeSandSnare(tileX, tileY) {
     const cfg = CHARACTERS[selectedKey];
-    // BUG FIX: Cacturne - Broadcast the sand tile placement to other players
     net.broadcastAbility({ name: 'sandSnare', tileX, tileY });
     for (let y = -1; y <= 1; y++) {
         for (let x = -1; x <= 1; x++) {
