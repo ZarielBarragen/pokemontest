@@ -793,7 +793,29 @@ const state = {
   toxicSprintTimer: 0,
   aquaShieldActive: false,
   aquaShieldTimer: 0,
+  mouseTile: {x: null, y: null},
 };
+
+function resetPlayerState() {
+    state.isPhasing = false;
+    state.phaseDamageTimer = 0;
+    state.isTransformed = false;
+    state.originalCharacterKey = null;
+    state.isIllusion = false;
+    state.illusionTarget = null;
+    state.isAsleep = false;
+    state.sleepTimer = 0;
+    state.abilityTargetingMode = null;
+    state.highlightedPlayers = [];
+    state.isFlying = false;
+    state.copiedAbility = null;
+    state.rideBySlashActive = false;
+    state.rideBySlashTimer = 0;
+    state.toxicSprintActive = false;
+    state.toxicSprintTimer = 0;
+    state.aquaShieldActive = false;
+    state.aquaShieldTimer = 0;
+}
 
 // ---------- Input ----------
 function goBackToSelect(isSafeLeave = false) {
@@ -806,14 +828,7 @@ function goBackToSelect(isSafeLeave = false) {
     try { lobbyMusic.pause(); lobbyMusic.currentTime = 0; } catch(e) {}
     try { dungeonMusic.pause(); dungeonMusic.currentTime = 0; } catch(e) {}
 
-    // Reset illusion state on leaving
-    if (state.isIllusion) {
-        revertIllusion(true); // silent revert
-    }
-    if (state.isTransformed) {
-        revertTransform(true); // silent revert
-    }
-
+    resetPlayerState();
 
     keys.clear(); 
     remote.clear();
@@ -892,6 +907,21 @@ window.addEventListener("keydown", e=>{
   keys.add(e.key);
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
+
+canvas.addEventListener('mousemove', (event) => {
+    if (!state.ready || state.abilityTargetingMode !== 'sandSnare') return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mouseX = (event.clientX - rect.left) * scaleX;
+    const mouseY = (event.clientY - rect.top) * scaleY;
+
+    const worldX = mouseX + state.cam.x;
+    const worldY = mouseY + state.cam.y;
+    
+    state.mouseTile.x = Math.floor(worldX / TILE);
+    state.mouseTile.y = Math.floor(worldY / TILE);
+});
 
 // Handle mouse clicks for targeting
 canvas.addEventListener('click', (event) => {
@@ -1316,6 +1346,7 @@ function startChatSubscription(){
 
 // ---------- Boot character in map ----------
 async function startWithCharacter(cfg, map){
+  resetPlayerState();
   state.ready = false;
   
   const stats = await net.getUserStats();
@@ -2009,6 +2040,23 @@ function update(dt){
       }
   }
 
+  if (state.rideBySlashActive) {
+      state.rideBySlashTimer -= dt;
+      if (state.rideBySlashTimer <= 0) {
+          state.rideBySlashActive = false;
+      }
+  }
+  if (state.toxicSprintActive) {
+      state.toxicSprintTimer -= dt;
+      if (state.toxicSprintTimer <= 0) {
+          state.toxicSprintActive = false;
+      } else {
+          const tileX = Math.floor(state.x / TILE);
+          const tileY = Math.floor(state.y / TILE);
+          poisonTiles.set(`${tileX},${tileY}`, { life: 3 });
+      }
+  }
+
 
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
@@ -2434,6 +2482,17 @@ function draw(){
   for (const p of playerProjectiles) {
       ctx.fillStyle = p.color || '#FFFF00';
       ctx.fillRect(Math.round(p.x - state.cam.x - 4), Math.round(p.y - state.cam.y - 4), 8, 8);
+  }
+
+  if (state.abilityTargetingMode === 'sandSnare' && state.mouseTile.x !== null) {
+      ctx.fillStyle = 'rgba(255, 223, 150, 0.4)';
+      for (let y = -1; y <= 1; y++) {
+          for (let x = -1; x <= 1; x++) {
+              const tileX = (state.mouseTile.x + x) * TILE - state.cam.x;
+              const tileY = (state.mouseTile.y + y) * TILE - state.cam.y;
+              ctx.fillRect(tileX, tileY, TILE, TILE);
+          }
+      }
   }
 }
 function loop(ts){
@@ -3275,7 +3334,7 @@ function tileCenter(tx, ty) {
 }
 
 function canWalk(tx, ty, map) {
-    if (state.isPhasing || state.isFlying) return true; // Can walk through anything while phasing
+    if (state.isPhasing || state.isFlying) return true;
     if (map.type === 'plains') {
         const waterPokemon = ["Quagsire", "Empoleon", "Primarina", "Dewgong"];
         if (map.walls[ty][tx] === 2) { // Water tile
