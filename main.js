@@ -363,7 +363,6 @@ function setupMobileControls() {
     const joystickContainer = document.getElementById('joystick-container');
     const joystickThumb = document.getElementById('joystick-thumb');
     
-    // BUG FIX: Mobile Joystick - Ensure listeners are properly managed
     const handleMove = (e) => {
         if (!joystick.active) return;
         e.preventDefault();
@@ -424,6 +423,13 @@ function setupMobileControls() {
     const handleStart = (e) => {
         if (!state.ready) return; // Only activate controls when game is ready
         const touch = e.changedTouches[0];
+
+        // FIX 1: Prevent joystick from activating over UI elements on the left side.
+        const targetElement = e.target;
+        if (targetElement.closest('#shop-icon, #chatLog, .inventory-display, button, a')) {
+            return;
+        }
+
         if (touch.clientX < window.innerWidth / 2) {
             e.preventDefault();
             if (joystick.active) return;
@@ -440,6 +446,7 @@ function setupMobileControls() {
             joystickContainer.style.top = `${touch.clientY}px`;
             joystickContainer.style.opacity = '1';
             
+            // These listeners are correctly added only when a joystick drag starts.
             window.addEventListener('touchmove', handleMove, { passive: false });
             window.addEventListener('touchend', handleEnd, { passive: false });
             window.addEventListener('touchcancel', handleEnd, { passive: false });
@@ -449,10 +456,10 @@ function setupMobileControls() {
     const touchState = new Map();
     const handleActionStart = (e) => {
         if (!state.ready) return; // Only activate controls when game is ready
-        const touch = e.changedTouches[0];
-        if (touch.clientX >= window.innerWidth / 2) {
-            e.preventDefault();
-            for (const t of e.changedTouches) {
+        // Check changedTouches for touches on the right side of the screen
+        for (const t of e.changedTouches) {
+             if (t.clientX >= window.innerWidth / 2) {
+                e.preventDefault();
                 const target = t.target.closest('.mobile-action-btn');
                 if (target && target.dataset.key) {
                     const key = target.dataset.key;
@@ -480,13 +487,14 @@ function setupMobileControls() {
             handleActionStart(e);
         }, { passive: false });
 
+        // FIX 2: Removed redundant handleEnd calls. The joystick's own touchend listener
+        // (added in handleStart) is all that's needed for its lifecycle.
+        // These global listeners now only handle the action buttons.
         window.addEventListener('touchend', (e) => {
-            handleEnd(e);
             handleActionEnd(e);
         }, { passive: false });
 
         window.addEventListener('touchcancel', (e) => {
-            handleEnd(e);
             handleActionEnd(e);
         }, { passive: false });
         
@@ -886,10 +894,6 @@ window.addEventListener("keydown", e=>{
 
   // If the game isn't active, don't hijack keyboard inputs.
   if (!state.ready || state.isAsleep) return;
-
-  // FIX: This block was calling the ability handler directly on keydown,
-  // causing it to fire twice (once here, once in the update loop).
-  // It has been removed. The update() function now correctly handles the 'e' key press.
 
   // Prevent default browser action for game keys
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K", "e", "E"].includes(e.key)) e.preventDefault();
