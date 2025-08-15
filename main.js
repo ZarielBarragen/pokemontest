@@ -793,6 +793,7 @@ const state = {
   toxicSprintTimer: 0,
   aquaShieldActive: false,
   aquaShieldTimer: 0,
+  aquaShieldCooldown: 0, // BUG FIX: Empoleon - Added cooldown state
   mouseTile: {x: null, y: null},
 };
 
@@ -815,6 +816,7 @@ function resetPlayerState() {
     state.toxicSprintTimer = 0;
     state.aquaShieldActive = false;
     state.aquaShieldTimer = 0;
+    state.aquaShieldCooldown = 0;
 }
 
 // ---------- Input ----------
@@ -835,6 +837,8 @@ function goBackToSelect(isSafeLeave = false) {
     enemies.clear();
     coins.clear();
     healthPacks.clear();
+    poisonTiles.clear();
+    sandTiles.clear();
     projectiles.length = 0;
     playerProjectiles.length = 0;
     net.leaveLobby().catch(()=>{});
@@ -936,11 +940,15 @@ canvas.addEventListener('click', (event) => {
     const worldX = mouseX + state.cam.x;
     const worldY = mouseY + state.cam.y;
 
+    // BUG FIX: Cacturne - Prioritize tile-based abilities and return early.
     if (state.abilityTargetingMode === 'sandSnare') {
         const tileX = Math.floor(worldX / TILE);
         const tileY = Math.floor(worldY / TILE);
         activateTargetedAbility({ x: tileX, y: tileY });
-        return;
+        // Always exit targeting mode after a click
+        state.abilityTargetingMode = null;
+        state.highlightedPlayers = [];
+        return; // Return early to prevent player-clicking logic from running
     }
 
     let clickedPlayer = null;
@@ -1671,7 +1679,7 @@ function drawMap(){
         }
       }
     }
-    // Second pass: draw effects like poison and sand
+    // BUG FIX: Scolipede & Cacturne - Second pass: draw effects like poison and sand
     for (const [key, tile] of poisonTiles.entries()) {
         const [x, y] = key.split(',').map(Number);
         if (x >= xs && x <= xe && y >= ys && y <= ye) {
@@ -2016,6 +2024,23 @@ function update(dt){
           }
       }
   }
+
+  // BUG FIX: Empoleon - Handle Aqua Shield passive ability
+  if (myConfig?.ability?.name === 'aquaShield') {
+      if (state.aquaShieldCooldown > 0) {
+          state.aquaShieldCooldown -= dt;
+      } else if (!state.aquaShieldActive) {
+          state.aquaShieldActive = true;
+          state.aquaShieldTimer = myConfig.ability.duration;
+          state.aquaShieldCooldown = myConfig.ability.cooldown;
+      }
+  }
+  if (state.aquaShieldActive) {
+      state.aquaShieldTimer -= dt;
+      if (state.aquaShieldTimer <= 0) {
+          state.aquaShieldActive = false;
+      }
+  }
   
   // Handle active ability states
   if (state.isPhasing) {
@@ -2054,6 +2079,20 @@ function update(dt){
           const tileX = Math.floor(state.x / TILE);
           const tileY = Math.floor(state.y / TILE);
           poisonTiles.set(`${tileX},${tileY}`, { life: 3 });
+      }
+  }
+
+  // BUG FIX: Scolipede & Cacturne - Update poison/sand tile lifetimes
+  for (const [key, tile] of poisonTiles.entries()) {
+      tile.life -= dt;
+      if (tile.life <= 0) {
+          poisonTiles.delete(key);
+      }
+  }
+  for (const [key, tile] of sandTiles.entries()) {
+      tile.life -= dt;
+      if (tile.life <= 0) {
+          sandTiles.delete(key);
       }
   }
 
@@ -2344,7 +2383,8 @@ function draw(){
 
   const lf = currentFrame();
   if (state.ready && lf){
-    const z = state.hopping ? state.hop.z : 0;
+    // BUG FIX: Altaria/Corviknight - Add a Z-offset when flying.
+    const z = state.hopping ? state.hop.z : (state.isFlying ? TILE * 1.5 : 0);
     const src = state.anim === "hop" ? state.hopImg : 
                 (state.anim === "walk" ? state.walkImg : 
                 (state.anim === "hurt" ? state.hurtImg : 
@@ -2963,49 +3003,68 @@ function tryRangedAttack() {
 
 // ---------- ABILITY LOGIC ----------
 
+// BUG FIX: Smeargle & Cacturne - Refactored ability handling logic
 function handleAbilityKeyPress() {
     if (state.abilityCooldown > 0 && !state.isIllusion) return;
 
-    const cfg = state.copiedAbility || CHARACTERS[state.originalCharacterKey || selectedKey];
-    if (!cfg.ability || cfg.ability.type !== 'active') return;
+    const abilityToUse = state.copiedAbility || CHARACTERS[selectedKey]?.ability;
 
-    // Handle abilities that can be toggled off
-    if (cfg.ability.name === 'phase' && state.isPhasing) {
-        togglePhase();
-        return;
-    }
-    if (cfg.ability.name === 'transform' && state.isTransformed) {
-        revertTransform();
-        return;
-    }
-    if (cfg.ability.name === 'illusion' && state.isIllusion) {
-        revertIllusion();
-        return;
-    }
+    if (!abilityToUse || abilityToUse.type !== 'active') return;
+
+    // Handle toggle-off abilities first
+    if (abilityToUse.name === 'phase' && state.isPhasing) { togglePhase(); return; }
+    if (abilityToUse.name === 'transform' && state.isTransformed) { revertTransform(); return; }
+    if (abilityToUse.name === 'illusion' && state.isIllusion) { revertIllusion(); return; }
+    if (abilityToUse.name === 'flight' && state.isFlying) { toggleFlight(); return; }
+
 
     // Handle abilities that require targeting
-    if (['transform', 'illusion', 'hypnotize', 'copy', 'sandSnare'].includes(cfg.ability.name)) {
-        state.abilityTargetingMode = cfg.ability.name;
-        if (cfg.ability.name === 'copy') {
+    if (['transform', 'illusion', 'hypnotize', 'copy'].includes(abilityToUse.name)) {
+        // This case is for Smeargle using its native 'copy' ability
+        if (abilityToUse.name === 'copy' && !state.copiedAbility) {
+            state.abilityTargetingMode = 'copy';
             state.highlightedPlayers = Array.from(remote.values())
                 .filter(p => CHARACTERS[p.character]?.ability?.type === 'active')
                 .map(p => p.uid);
-        } else {
-            state.highlightedPlayers = Array.from(remote.keys());
+            return;
         }
+        // This case is for copied abilities that need targeting (like transform)
+        state.abilityTargetingMode = abilityToUse.name;
+        state.highlightedPlayers = Array.from(remote.keys());
+        return;
+    }
+    
+    // BUG FIX: Cacturne - Handle sandSnare targeting separately to avoid highlighting players
+    if (abilityToUse.name === 'sandSnare') {
+        state.abilityTargetingMode = 'sandSnare';
+        state.highlightedPlayers = []; // Don't highlight anyone
         return;
     }
 
-    // Handle abilities that activate instantly
-    if (cfg.ability.name === 'phase') togglePhase();
-    if (cfg.ability.name === 'flight') toggleFlight();
-    if (cfg.ability.name === 'rideBySlash') activateRideBySlash();
-    if (cfg.ability.name === 'toxicSprint') activateToxicSprint();
+    // Handle instant-activation abilities
+    activateInstantAbility(abilityToUse);
+}
+
+function activateInstantAbility(ability) {
+    if (!ability) return;
+    
+    switch(ability.name) {
+        case 'phase':       togglePhase(); break;
+        case 'flight':      toggleFlight(); break;
+        case 'rideBySlash': activateRideBySlash(); break;
+        case 'toxicSprint': activateToxicSprint(); break;
+    }
+
+    // After using a copied ability, clear it and set cooldown for Smeargle
+    if (state.copiedAbility) {
+        state.copiedAbility = null;
+        state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
+    }
 }
 
 function activateTargetedAbility(target) {
-    const cfg = state.copiedAbility || CHARACTERS[state.originalCharacterKey || selectedKey];
-    if (!cfg || !cfg.ability) return;
+    const abilityToUse = state.copiedAbility || CHARACTERS[selectedKey]?.ability;
+    if (!abilityToUse) return;
 
     switch (state.abilityTargetingMode) {
         case 'transform':
@@ -3016,7 +3075,7 @@ function activateTargetedAbility(target) {
             break;
         case 'hypnotize':
             const dist = Math.hypot(state.x - target.x, state.y - target.y);
-            if (dist <= cfg.ability.range) {
+            if (dist <= abilityToUse.range) {
                 hypnotize(target);
             }
             break;
@@ -3027,12 +3086,21 @@ function activateTargetedAbility(target) {
             placeSandSnare(target.x, target.y);
             break;
     }
+
+    // After using a copied ability, clear it and set cooldown for Smeargle
+    if (state.copiedAbility) {
+        state.copiedAbility = null;
+        state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
+    }
 }
 
 function togglePhase() {
     state.isPhasing = !state.isPhasing;
     state.phaseDamageTimer = 0; // Reset timer
     net.updateState({ isPhasing: state.isPhasing });
+    if (!state.isPhasing) { // Set cooldown when phasing ends
+        state.abilityCooldown = CHARACTERS['Sableye'].ability.cooldown;
+    }
 }
 
 async function transformInto(targetPlayer) {
@@ -3148,15 +3216,15 @@ function hypnotize(targetPlayer) {
 
 function toggleFlight() {
     state.isFlying = !state.isFlying;
-    // No cooldown for a permanent toggle
+    // No cooldown for a permanent toggle, but you could add one if you want
 }
 
 function copyAbility(targetPlayer) {
     const targetCharacterKey = targetPlayer.originalCharacterKey || targetPlayer.character;
     const targetCharacter = CHARACTERS[targetCharacterKey];
-    if (targetCharacter && targetCharacter.ability) {
-        state.copiedAbility = targetCharacter;
-        // Maybe add a visual indicator that an ability is copied
+    if (targetCharacter && targetCharacter.ability && targetCharacter.ability.type === 'active') {
+        state.copiedAbility = { ...targetCharacter.ability, name: targetCharacter.ability.name };
+        state.abilityCooldown = 0; // Ready to use the new ability immediately
     }
 }
 
