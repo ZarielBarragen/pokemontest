@@ -355,14 +355,13 @@ function setupMobileControls() {
     const controls = document.getElementById('mobile-controls');
     const joystickContainer = document.getElementById('joystick-container');
     const joystickThumb = document.getElementById('joystick-thumb');
-    const actionButtons = document.getElementById('action-buttons');
-    const joystickRadius = joystickContainer.offsetWidth / 2;
-
-    const handleJoystickMove = (e) => {
+    
+    const handleMove = (e) => {
         if (!joystick.active) return;
-        
+        e.preventDefault();
+
         let touch = null;
-        for (const t of e.touches) {
+        for (const t of e.changedTouches) {
             if (t.identifier === joystick.touchId) {
                 touch = t;
                 break;
@@ -370,27 +369,26 @@ function setupMobileControls() {
         }
         if (!touch) return;
 
-        e.preventDefault();
-
         joystick.stickX = touch.clientX;
         joystick.stickY = touch.clientY;
 
         let dx = joystick.stickX - joystick.baseX;
         let dy = joystick.stickY - joystick.baseY;
         const distance = Math.hypot(dx, dy);
+        const maxDistance = 50; // Max distance the thumb can move from center
 
-        if (distance > joystickRadius) {
-            dx = (dx / distance) * joystickRadius;
-            dy = (dy / distance) * joystickRadius;
+        if (distance > maxDistance) {
+            dx = (dx / distance) * maxDistance;
+            dy = (dy / distance) * maxDistance;
         }
         
-        joystick.dx = dx / joystickRadius;
-        joystick.dy = dy / joystickRadius;
+        joystick.dx = dx / maxDistance;
+        joystick.dy = dy / maxDistance;
 
         joystickThumb.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px)`;
     };
 
-    const handleJoystickEnd = (e) => {
+    const handleEnd = (e) => {
         if (!joystick.active) return;
         let touchEnded = false;
         for (const t of e.changedTouches) {
@@ -405,47 +403,60 @@ function setupMobileControls() {
         joystick.touchId = null;
         joystick.dx = 0;
         joystick.dy = 0;
+        
+        joystickContainer.style.transition = 'opacity 0.2s ease-out';
+        joystickContainer.style.opacity = '0';
         joystickThumb.style.transform = `translate(-50%, -50%)`;
-
-        window.removeEventListener('touchmove', handleJoystickMove);
-        window.removeEventListener('touchend', handleJoystickEnd);
-        window.removeEventListener('touchcancel', handleJoystickEnd);
+        
+        window.removeEventListener('touchmove', handleMove);
+        window.removeEventListener('touchend', handleEnd);
+        window.removeEventListener('touchcancel', handleEnd);
     };
 
-    const handleJoystickStart = (e) => {
-        e.preventDefault();
-        if (joystick.active) return;
+    const handleStart = (e) => {
         const touch = e.changedTouches[0];
-        joystick.touchId = touch.identifier;
-        joystick.active = true;
-        const rect = joystickContainer.getBoundingClientRect();
-        joystick.baseX = rect.left + joystickRadius;
-        joystick.baseY = rect.top + joystickRadius;
-        joystick.stickX = touch.clientX;
-        joystick.stickY = touch.clientY;
+        if (touch.clientX < window.innerWidth / 2) {
+            e.preventDefault();
+            if (joystick.active) return;
 
-        window.addEventListener('touchmove', handleJoystickMove, { passive: false });
-        window.addEventListener('touchend', handleJoystickEnd, { passive: false });
-        window.addEventListener('touchcancel', handleJoystickEnd, { passive: false });
+            joystick.touchId = touch.identifier;
+            joystick.active = true;
+            joystick.baseX = touch.clientX;
+            joystick.baseY = touch.clientY;
+            joystick.stickX = touch.clientX;
+            joystick.stickY = touch.clientY;
+
+            joystickContainer.style.transition = 'none';
+            joystickContainer.style.left = `${touch.clientX}px`;
+            joystickContainer.style.top = `${touch.clientY}px`;
+            joystickContainer.style.opacity = '1';
+            
+            window.addEventListener('touchmove', handleMove, { passive: false });
+            window.addEventListener('touchend', handleEnd, { passive: false });
+            window.addEventListener('touchcancel', handleEnd, { passive: false });
+        }
     };
 
-    // --- Action Button Handlers ---
     const touchState = new Map();
     const handleActionStart = (e) => {
-        e.preventDefault();
-        for (const touch of e.changedTouches) {
-            const target = touch.target.closest('.mobile-action-btn');
-            if (target && target.dataset.key) {
-                const key = target.dataset.key;
-                keys.add(key);
-                touchState.set(touch.identifier, key);
+        const touch = e.changedTouches[0];
+        if (touch.clientX >= window.innerWidth / 2) {
+            e.preventDefault();
+            for (const t of e.changedTouches) {
+                const target = t.target.closest('.mobile-action-btn');
+                if (target && target.dataset.key) {
+                    const key = target.dataset.key;
+                    keys.add(key);
+                    touchState.set(t.identifier, key);
+                }
             }
         }
     };
+
     const handleActionEnd = (e) => {
-        e.preventDefault();
         for (const touch of e.changedTouches) {
             if (touchState.has(touch.identifier)) {
+                e.preventDefault();
                 const key = touchState.get(touch.identifier);
                 keys.delete(key);
                 touchState.delete(touch.identifier);
@@ -454,10 +465,20 @@ function setupMobileControls() {
     };
 
     if (!controls.dataset.listenersAdded) {
-        joystickContainer.addEventListener('touchstart', handleJoystickStart, { passive: false });
-        actionButtons.addEventListener('touchstart', handleActionStart, { passive: false });
-        actionButtons.addEventListener('touchend', handleActionEnd, { passive: false });
-        actionButtons.addEventListener('touchcancel', handleActionEnd, { passive: false });
+        window.addEventListener('touchstart', (e) => {
+            handleStart(e);
+            handleActionStart(e);
+        }, { passive: false });
+
+        window.addEventListener('touchend', (e) => {
+            handleEnd(e);
+            handleActionEnd(e);
+        }, { passive: false });
+
+        window.addEventListener('touchcancel', (e) => {
+            handleEnd(e);
+            handleActionEnd(e);
+        }, { passive: false });
         
         controls.dataset.listenersAdded = 'true';
     }

@@ -325,26 +325,25 @@ body::after{
 #mobile-controls {
   position: fixed;
   bottom: 20px;
-  left: 20px;
   right: 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
   pointer-events: none;
   z-index: 100;
   -webkit-user-select: none;
   user-select: none;
 }
 
-/* NEW Joystick Styles */
+/* NEW Floating Joystick Styles */
 #joystick-container {
-  position: relative;
+  position: fixed;
   width: 150px;
   height: 150px;
   background: rgba(11, 31, 18, 0.4);
   border-radius: 50%;
   border: 4px solid rgba(22, 58, 33, 0.6);
-  pointer-events: all;
+  pointer-events: none; /* The container itself shouldn't be interactive */
+  transform: translate(-50%, -50%); /* Center it on the touch point */
+  opacity: 0; /* Initially hidden */
+  z-index: 100;
 }
 
 #joystick-thumb {
@@ -356,7 +355,6 @@ body::after{
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  transition: transform 0.1s ease-out;
 }
 
 #action-buttons {
@@ -461,7 +459,6 @@ body::after{
   }
   #mobile-controls {
     bottom: 10px;
-    left: 10px;
     right: 10px;
   }
   #joystick-container {
