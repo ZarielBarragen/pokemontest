@@ -254,7 +254,10 @@ async function processCharacterData() {
         scale: ch.scale ?? def.scale ?? 3,
         speed: ch.speed ?? def.speed ?? 1.0,
         hp: ch.hp ?? def.hp ?? 100,
+        strength: ch.strength ?? def.strength ?? 15,
         ranged: ch.ranged ?? false,
+        rangedStrength: ch.rangedStrength ?? def.rangedStrength ?? 20,
+        rangedSpeed: ch.rangedSpeed ?? def.rangedSpeed ?? 1.0,
         projectileColor: ch.projectileColor || "#FFFFFF",
         ability: ch.ability || null, // Add ability
         idle: mergeAnim(def.idle, ch.idle),
@@ -2652,7 +2655,8 @@ function tryMeleeAttack() {
     net.performMeleeAttack().catch(e => console.error("Failed to broadcast melee attack", e));
 
     const attackRange = TILE * 1.5;
-    const damage = CHARACTERS[selectedKey].ranged ? 15 : 25;
+    const characterConfig = CHARACTERS[selectedKey];
+    const damage = characterConfig.strength || 15; // Use character's strength, or a default of 15
 
     for (const enemy of enemies.values()) {
         if (enemy.hp <= 0) continue;
@@ -2693,7 +2697,10 @@ function tryRangedAttack() {
     state.frameTime = 0;
     state.attackCooldown = 0.8;
 
-    const projectileSpeed = TILE * 8;
+    const baseProjectileSpeed = TILE * 8;
+    const speedMultiplier = cfg.rangedSpeed || 1.0;
+    const projectileSpeed = baseProjectileSpeed * speedMultiplier;
+
     let [vx, vy] = DIR_VECS[state.dir];
     let targetId = null;
 
@@ -2720,7 +2727,7 @@ function tryRangedAttack() {
 
     const startY = state.y - (TILE * 0.5);
     
-    let damage = 20;
+    let damage = cfg.rangedStrength || 20; // Use character's rangedStrength, or a default of 20
     if (state.equippedItem === 'blastoiseBlaster' && selectedKey === 'Blastoise') {
         damage *= 2;
     }
