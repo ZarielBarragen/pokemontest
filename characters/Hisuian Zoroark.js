@@ -17,6 +17,10 @@ export class HisuianZoroark extends Player {
     useAbility(target) {
         if (!target) return null;
 
+        // --- THE FIX ---
+        // We must store our original identity before changing our appearance.
+        this.state.originalCharacterKey = this.characterKey;
+
         this.state.isIllusion = true;
         
         // Store a lightweight version of the target for replication
