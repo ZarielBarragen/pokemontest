@@ -26,7 +26,6 @@ const healthPacks = new Map();
 const poisonTiles = new Map();
 const sandTiles = new Map();
 
-// --- CHANGE 1: Create a context object for shared game maps ---
 const gameContext = {
     enemies,
     projectiles,
@@ -161,8 +160,7 @@ function unmountChatLog(){
 const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
-// --- BUG FIX START ---
-// This function is modified to include the speed reduction from Cacturne's sand traps.
+
 function currentSpeedMult(){ 
     const cfg = CHARACTERS[selectedKey]; 
     let mult = (cfg && cfg.speed) ? cfg.speed : 1.0;
@@ -171,14 +169,13 @@ function currentSpeedMult(){
     if (state.equippedItem === 'cyclizarMotor') {
         mult *= (selectedKey === 'Cyclizar' ? 3 : 2);
     }
-    // Check if the player is on a sand tile and apply slow
     const playerTileKey = `${Math.floor(state.x / TILE)},${Math.floor(state.y / TILE)}`;
     if (sandTiles.has(playerTileKey)) {
         mult *= 0.7; // 30% slow
     }
     return mult;
 }
-// --- BUG FIX END ---
+
 const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12, ATTACK_FPS = 12, SLEEP_FPS = 4;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
@@ -853,12 +850,9 @@ const state = {
   aquaShieldTimer: 0,
   aquaShieldCooldown: 0,
   mouseTile: {x: null, y: null},
-  // --- BUG FIX START ---
-  // Added properties to track poison status
   isPoisoned: false,
   poisonTimer: 0,
   lastPoisonTick: 0,
-  // --- BUG FIX END ---
 };
 
 function resetPlayerState() {
@@ -1170,7 +1164,7 @@ function startNetListeners(){
   net.subscribeToHits(async hit => {
       if (state.invulnerableTimer > 0 || state.aquaShieldActive) return;
 
-      // --- CHANGE 4: Update how illusion is broken by damage ---
+      // --- ZOROARK FIX 4 of 4: Update how illusion is broken by damage ---
       if (state.isIllusion) {
           const result = localPlayer.revertAbility();
           if (result && result.isIllusion) {
@@ -1445,7 +1439,6 @@ async function startWithCharacter(cfg, map){
 
     // Instantiate the correct player class
     const PlayerClass = characterClassMap[selectedKey] || Player;
-    // --- CHANGE 2: Pass the new gameContext to the constructor ---
     localPlayer = new PlayerClass(state, assets, net, sfx, selectedKey, gameContext);
 
     state.walkImg = assets.walk;
@@ -2174,8 +2167,6 @@ function update(dt){
       }
   }
 
-    // --- BUG FIX START ---
-    // This block handles the poison damage for the local player.
     const playerTileKey = `${Math.floor(state.x / TILE)},${Math.floor(state.y / TILE)}`;
     if (poisonTiles.has(playerTileKey) && !state.isPoisoned) {
         state.isPoisoned = true;
@@ -2199,7 +2190,6 @@ function update(dt){
             state.isPoisoned = false;
         }
     }
-    // --- BUG FIX END ---
 
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
@@ -3130,7 +3120,7 @@ async function handleAbilityKeyPress() {
         return;
     }
 
-    // --- CHANGE 3: Update how illusion is reverted by keypress ---
+    // --- ZOROARK FIX 3 of 4: Update how illusion is reverted by keypress ---
     if ((abilityName === 'transform' && state.isTransformed) ||
         (abilityName === 'illusion' && state.isIllusion)) {
         const result = localPlayer.revertAbility();
@@ -3167,7 +3157,7 @@ async function handleAbilityKeyPress() {
 async function activateTargetedAbility(target) {
     if (!localPlayer) return;
     
-    // --- CHANGE 2: Update how abilities are activated to check for illusions ---
+    // --- ZOROARK FIX 2 of 4: Update how abilities are activated to check for illusions ---
     const result = localPlayer.useAbility(target);
     if (result && result.isIllusion) {
         await applyVisualChange(result.visualKey);
@@ -3198,7 +3188,7 @@ async function applyCharacterChange(newKey) {
     }
 }
 
-// --- CHANGE 1: Added new function for visual-only character swaps ---
+// --- ZOROARK FIX 1 of 4: Added new function for visual-only character swaps ---
 async function applyVisualChange(newKey) {
     const assets = await loadCharacterAssets(newKey);
     if (assets) {
@@ -3214,6 +3204,7 @@ async function applyVisualChange(newKey) {
         // NOTE: We do NOT re-instantiate localPlayer or change selectedKey here.
     }
 }
+
 
 function toggleFlight() {
     state.isFlying = !state.isFlying;
