@@ -26,6 +26,18 @@ const healthPacks = new Map();
 const poisonTiles = new Map();
 const sandTiles = new Map();
 
+// --- CHANGE 1: Create a context object for shared game maps ---
+const gameContext = {
+    enemies,
+    projectiles,
+    playerProjectiles,
+    coins,
+    healthPacks,
+    poisonTiles,
+    sandTiles
+};
+
+
 import { Net, firebaseConfig } from "./net.js";
 import { Player } from './Player.js';
 import { Sableye } from './characters/Sableye.js';
@@ -1430,7 +1442,8 @@ async function startWithCharacter(cfg, map){
 
     // Instantiate the correct player class
     const PlayerClass = characterClassMap[selectedKey] || Player;
-    localPlayer = new PlayerClass(state, assets, net, sfx, selectedKey);
+    // --- CHANGE 2: Pass the new gameContext to the constructor ---
+    localPlayer = new PlayerClass(state, assets, net, sfx, selectedKey, gameContext);
 
     state.walkImg = assets.walk;
     state.idleImg = assets.idle;
@@ -3170,7 +3183,7 @@ async function applyCharacterChange(newKey) {
 
         // Re-instantiate player class on transform
         const PlayerClass = characterClassMap[newKey] || Player;
-        localPlayer = new PlayerClass(state, assets, net, sfx, newKey);
+        localPlayer = new PlayerClass(state, assets, net, sfx, newKey, gameContext);
     }
 }
 

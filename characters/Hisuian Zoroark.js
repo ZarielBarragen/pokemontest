@@ -1,56 +1,56 @@
-character_classes["Hisuian Zoroark"] = class extends Character {
-    constructor(player, game) {
-        super(player, game);
-        this.sprite = new Sprite(this.game.contexts.players, "assets/Hisuian Zoroark/walk.png", 4, 1, 0, 0, 32, 32, 150);
+import { Player } from '../Player.js';
+
+/**
+ * Represents Hisuian Zoroark, a character with the ability to create an illusion of another player.
+ */
+export class HisuianZoroark extends Player {
+    constructor(state, assets, net, sfx, characterKey) {
+        super(state, assets, net, sfx, characterKey);
+    }
+
+    /**
+     * Activates the illusion ability, targeting another player.
+     * This changes the player's appearance to match the target for all other players.
+     * @param {object} target - The remote player object to create an illusion of.
+     * @returns {string} The character key of the target to apply the visual change locally.
+     */
+    useAbility(target) {
+        if (!target) return null;
+
+        this.state.isIllusion = true;
         
-        // Illusion state
-        this.is_illusion_active = false;
-        this.original_sprite = this.player.sprite;
-        this.original_name = this.player.name;
-        this.original_level = this.player.level;
+        // Store a lightweight version of the target for replication
+        this.state.illusionTarget = {
+            uid: target.uid,
+            username: target.username,
+            character: target.character,
+            level: target.level
+        };
+
+        // Broadcast to other players that the illusion has started
+        this.net.broadcastAbility({ name: 'illusion', target: this.state.illusionTarget });
+
+        // Return the target's character key to change the local player's assets
+        return target.character;
     }
 
-    on_key_down(e) {
-        if (e.key === 'e') {
-            if (this.is_illusion_active) {
-                // Revert the illusion if already active
-                this.revert_illusion();
-            } else {
-                // Create an illusion of a nearby player
-                for (let other_player of this.game.players) {
-                    if (other_player !== this.player && this.player.is_colliding_with(other_player)) {
-                        this.create_illusion(other_player);
-                        break;
-                    }
-                }
-            }
-        }
-    }
+    /**
+     * Reverts the illusion, returning the player to their original appearance.
+     * @returns {string} The original character key to revert the visual change locally.
+     */
+    revertAbility() {
+        if (!this.state.isIllusion) return null;
 
-    create_illusion(target_player) {
-        if (this.is_illusion_active) return;
-
-        this.is_illusion_active = true;
+        this.state.isIllusion = false;
+        this.state.illusionTarget = null;
         
-        // Store original visual data
-        this.original_sprite = this.player.sprite;
-        this.original_name = this.player.name_tag.text;
-        this.original_level = this.player.level_tag.text;
+        // The cooldown is defined in characters.json as 20
+        this.state.abilityCooldown = this.config.ability.cooldown;
 
-        // Apply the illusion's visual data
-        this.player.sprite = target_player.sprite;
-        this.player.name_tag.text = target_player.name_tag.text;
-        this.player.level_tag.text = target_player.level_tag.text;
-    }
+        // Broadcast to other players that the illusion has ended
+        this.net.broadcastAbility({ name: 'revertIllusion' });
 
-    revert_illusion() {
-        if (!this.is_illusion_active) return;
-
-        this.is_illusion_active = false;
-
-        // Restore original visual data
-        this.player.sprite = this.original_sprite;
-        this.player.name_tag.text = this.original_name;
-        this.player.level_tag.text = this.original_level;
+        // Return the original key to change assets back
+        return this.state.originalCharacterKey;
     }
 }

@@ -1,28 +1,56 @@
-character_classes["Ditto"] = class extends Character {
-    constructor(player, game) {
-        super(player, game);
-        this.sprite = new Sprite(this.game.contexts.players, "assets/Ditto/walk.png", 4, 1, 0, 0, 32, 32, 150);
+import { Player } from '../Player.js';
+
+/**
+ * Represents Ditto, who can transform into other non-Ditto players.
+ */
+export class Ditto extends Player {
+    constructor(state, assets, net, sfx, characterKey, gameContext) {
+        super(state, assets, net, sfx, characterKey, gameContext);
     }
 
-    on_key_down(e) {
-        // When 'e' is pressed and Ditto is NOT already transformed
-        if (e.key === 'e' && !this.player.is_transformed) {
-            // Find a nearby player to transform into
-            for (let other_player of this.game.players) {
-                // Check for collision and ensure it's not another Ditto
-                if (other_player !== this.player && this.player.is_colliding_with(other_player) && other_player.characterName !== "Ditto") {
-                    this.transform(other_player);
-                    break; // Transform and stop searching
-                }
-            }
+    /**
+     * Activates the transform ability, targeting another player.
+     * @param {object} target - The remote player object to transform into.
+     * @returns {string|null} The character key of the target to apply the visual change locally, or null if invalid.
+     */
+    useAbility(target) {
+        // Can't transform into another Ditto or if no target is provided
+        if (!target || target.character === 'Ditto') {
+            return null;
         }
+
+        this.state.isTransformed = true;
+        this.state.originalCharacterKey = 'Ditto'; // Hardcode the original key
+
+        // Tell other players what we transformed into
+        this.net.broadcastAbility({
+            name: 'transform',
+            targetCharacterKey: target.character
+        });
+
+        // Return the new character key so main.js can change the assets locally
+        return target.character;
     }
 
-    transform(target_player) {
-        // Set the player's transformation state
-        this.player.original_character = "Ditto";
-        this.player.is_transformed = true;
-        // Change the character
-        this.player.change_character(target_player.characterName);
+    /**
+     * Reverts the transformation back to Ditto.
+     * @returns {string} The original character key ("Ditto") to revert the visual change locally.
+     */
+    revertAbility() {
+        if (!this.state.isTransformed) return null;
+
+        this.state.isTransformed = false;
+        
+        // The cooldown is defined in characters.json
+        this.state.abilityCooldown = this.config.ability.cooldown;
+
+        // Tell other players we have reverted
+        this.net.broadcastAbility({
+            name: 'transform',
+            isRevert: true
+        });
+
+        // Return the original key to change assets back
+        return this.state.originalCharacterKey;
     }
 }
