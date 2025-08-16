@@ -2949,7 +2949,11 @@ function updatePlayerProjectiles(dt) {
                 if (dist < PLAYER_R + PROJECTILE_R) {
                     const isKill = (player.hp - p.damage) <= 0;
                     if(isKill) addXp(100);
-                    net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
+
+                    // --- THIS IS THE FIX ---
+                    // Changed 'damage' to 'p.damage' to correctly reference the projectile's damage value.
+                    net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
+                    
                     hit = true;
                     break;
                 }
