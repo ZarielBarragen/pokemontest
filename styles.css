@@ -601,3 +601,51 @@ body::after{
 .leaderboard-container li {
     margin-bottom: 5px;
 }
+
+/* styles.css */
+
+/* Player Viewer Modal */
+#player-viewer-content {
+    width: 90%;
+    max-width: 700px;
+    text-align: center;
+}
+
+.viewer-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+#viewer-canvas {
+    background: #0c2114;
+    border: 3px solid #1a4a2b;
+    image-rendering: pixelated;
+    width: 128px;
+    height: 128px;
+    flex-shrink: 0;
+}
+
+#viewer-stats {
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+#viewer-stats h3 {
+    color: var(--accent);
+    margin: 0 0 10px;
+    font-size: 18px;
+}
+
+#viewer-stats strong {
+    color: var(--mid);
+    display: inline-block;
+    min-width: 150px;
+}
+
+/* Highlighting effect for players */
+.highlighted-player {
+    filter: drop-shadow(0 0 8px #aaddff) brightness(1.6);
+}

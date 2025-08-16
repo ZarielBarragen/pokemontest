@@ -108,6 +108,12 @@ const leaderboardEl = document.getElementById("leaderboard");
 const abilityBtn = document.getElementById("ability-btn");
 const abilityBtnText = abilityBtn.querySelector(".mobile-action-btn-text");
 const abilityCooldownOverlay = abilityBtn.querySelector(".cooldown-overlay");
+const playerViewerModal = document.getElementById("player-viewer-modal");
+const viewerCanvas = document.getElementById("viewer-canvas");
+const viewerCtx = viewerCanvas.getContext("2d");
+const viewerStatsEl = document.getElementById("viewer-stats");
+const closeViewerBtn = document.getElementById("close-viewer-btn");
+viewerCtx.imageSmoothingEnabled = false;
 
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
@@ -166,8 +172,8 @@ function unmountChatLog(){
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
 
-function currentSpeedMult(){ 
-    const cfg = CHARACTERS[selectedKey]; 
+function currentSpeedMult(){
+    const cfg = CHARACTERS[selectedKey];
     let mult = (cfg && cfg.speed) ? cfg.speed : 1.0;
     if (state.rideBySlashActive) mult *= 1.5;
     if (state.toxicSprintActive) mult *= 1.5;
@@ -197,7 +203,7 @@ const EDGE_DARK   = "#06161b";
 const EDGE_DARKER = "#031013";
 const EDGE_LIP    = "rgba(255,255,255,0.08)";
 
-const TEX = { 
+const TEX = {
     floor: null, wall: null, coin: null, health: null,
     grass: null, water: null, grass_water_transition: null, palm_tree: null,
     poison: null, sand: null
@@ -664,7 +670,7 @@ function renderLeaderboard(type, data) {
 
 backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
-  overlaySelect.classList.remove("hidden"); 
+  overlaySelect.classList.remove("hidden");
   mobileControls.classList.add("hidden");
   stopLeaderboardCycle();
 };
@@ -858,6 +864,16 @@ const state = {
   isPoisoned: false,
   poisonTimer: 0,
   lastPoisonTick: 0,
+  playerViewMode: false,
+};
+
+let viewerState = {
+    active: false,
+    reqId: null,
+    assets: null,
+    frameStep: 0,
+    frameTime: 0,
+    frameOrder: []
 };
 
 function resetPlayerState() {
@@ -896,7 +912,7 @@ function goBackToSelect(isSafeLeave = false) {
 
     resetPlayerState();
 
-    keys.clear(); 
+    keys.clear();
     remote.clear();
     enemies.clear();
     coins.clear();
@@ -928,8 +944,8 @@ window.addEventListener("keydown", e=>{
       const clean = censorMessage(chatBuffer.trim());
       chatMode = false; state.typing = false; net.updateState({ typing:false }).catch(()=>{});
       if (clean && clean.length){
-        state.say = clean; 
-        state.sayTimer = chatShowTime; 
+        state.say = clean;
+        state.sayTimer = chatShowTime;
         net.sendChat(clean).catch(()=>{});
       }
       chatBuffer = "";
@@ -947,6 +963,20 @@ window.addEventListener("keydown", e=>{
     if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Tab"].includes(e.key)){ e.preventDefault(); return; }
   }
 
+  if (e.key === "Escape"){
+    if (viewerState.active) {
+        closePlayerViewer();
+        return;
+    }
+    if (state.abilityTargetingMode) {
+        state.abilityTargetingMode = null;
+        state.highlightedPlayers = [];
+    } else {
+        goBackToSelect(true);
+    }
+    return;
+  }
+  
   // If the game isn't active, don't hijack keyboard inputs.
   if (!state.ready || state.isAsleep) return;
 
@@ -954,15 +984,14 @@ window.addEventListener("keydown", e=>{
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K", "e", "E"].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
-  if (e.key === "Escape"){
-    if (state.abilityTargetingMode) {
-        state.abilityTargetingMode = null;
-        state.highlightedPlayers = [];
-    } else {
-        goBackToSelect(true); // Treat Escape as a safe leave
+
+  if (e.key.toLowerCase() === "q") { // New 'q' key logic
+    state.playerViewMode = !state.playerViewMode;
+    if (!state.playerViewMode) { // If turning off, close the viewer
+        closePlayerViewer();
     }
-    return;
   }
+
   if (e.key.toLowerCase() === "g") state.showGrid = !state.showGrid;
   if (e.key.toLowerCase() === "b") state.showBoxes = !state.showBoxes;
   
@@ -987,16 +1016,58 @@ canvas.addEventListener('mousemove', (event) => {
 
 // Handle mouse clicks for targeting
 canvas.addEventListener('click', (event) => {
-    if (!state.abilityTargetingMode) return;
-
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const mouseX = (event.clientX - rect.left) * scaleX;
     const mouseY = (event.clientY - rect.top) * scaleY;
-
     const worldX = mouseX + state.cam.x;
     const worldY = mouseY + state.cam.y;
+
+    // --- NEW: Player Viewer Click Logic ---
+    if (state.playerViewMode) {
+        let clickedActor = null;
+
+        // Check local player first
+        const distToSelf = Math.hypot(worldX - state.x, worldY - state.y);
+        if (distToSelf < PLAYER_R * 2) {
+            clickedActor = {
+                uid: net.auth.currentUser.uid,
+                isLocal: true,
+                username: localUsername,
+                level: state.level,
+                xp: state.xp,
+                playerKills: state.playerKills,
+                enemyKills: state.enemyKills,
+                character: state.isIllusion ? state.illusionTarget.character : selectedKey,
+                equippedItem: state.equippedItem,
+            };
+        }
+
+        // Check remote players
+        if (!clickedActor) {
+            for (const [uid, player] of remote.entries()) {
+                const dist = Math.hypot(worldX - player.x, worldY - player.y);
+                if (dist < PLAYER_R * 2) {
+                    clickedActor = {
+                        uid: uid,
+                        isLocal: false,
+                        character: player.isIllusion ? player.illusionTarget.character : player.character,
+                        equippedItem: player.equippedItem,
+                    };
+                    break;
+                }
+            }
+        }
+        
+        if (clickedActor) {
+            openPlayerViewer(clickedActor);
+        }
+        return; // End click handling here for viewer mode
+    }
+    
+    // --- Existing Ability Targeting Logic ---
+    if (!state.abilityTargetingMode) return;
 
     if (state.abilityTargetingMode === 'sandSnare') {
         const tileX = Math.floor(worldX / TILE);
@@ -1004,7 +1075,7 @@ canvas.addEventListener('click', (event) => {
         activateTargetedAbility({ x: tileX, y: tileY });
         state.abilityTargetingMode = null;
         state.highlightedPlayers = [];
-        return; 
+        return;
     }
 
     let clickedPlayer = null;
@@ -1189,7 +1260,7 @@ function startNetListeners(){
       state.anim = 'hurt';
       state.frameStep = 0;
       state.frameTime = 0;
-      net.updateState({ hp: state.hp }); 
+      net.updateState({ hp: state.hp });
       
       if(hit.from) {
           const attacker = remote.get(hit.from) || {uid: net.auth.currentUser.uid};
@@ -1214,7 +1285,7 @@ net.subscribeToProjectiles(p_data => {
             damage: p_data.damage,
             life: p_data.life
         });
-    } 
+    }
     // Otherwise, if it's from another player, put it in the player projectile list.
     else if (p_data.ownerId !== net.auth.currentUser.uid) {
         playerProjectiles.push({
@@ -1232,8 +1303,6 @@ net.subscribeToProjectiles(p_data => {
     }
 });
   
-// Find this function inside startNetListeners() in main.js and replace it
-
 net.subscribeToMeleeAttacks(attackData => {
     // Check for our new isEnemy flag
     if (attackData.isEnemy) {
@@ -1323,7 +1392,7 @@ net.subscribeEnemies({
         switch (type) {
             case 'Brawler':      enemyInstance = new Brawler(id, x, y, config); break;
             case 'WeepingAngel': enemyInstance = new WeepingAngel(id, x, y, config); break;
-            case 'Turret':       
+            case 'Turret':
             default:             enemyInstance = new Turret(id, x, y, config); break;
         }
         enemies.set(id, enemyInstance);
@@ -1481,6 +1550,8 @@ async function startWithCharacter(cfg, map){
   state.level = stats.level;
   state.xp = stats.xp;
   state.coins = stats.coins;
+  state.playerKills = stats.playerKills;
+  state.enemyKills = stats.enemyKills;
   state.inventory = stats.inventory || {};
   state.equippedItem = stats.equippedItem || null;
   state.xpToNextLevel = 100 * Math.pow(1.2, state.level - 1);
@@ -1548,7 +1619,7 @@ async function startWithCharacter(cfg, map){
 // ---------- Movement / hop / camera ----------
 const DIR_VECS = {
   down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
-  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1], 
+  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1],
 };
 function getInputVec(){
   // Joystick input for touch devices
@@ -1596,7 +1667,7 @@ function updateCamera(){
 function resolvePlayerCollisions(nx, ny){
   if (state.isPhasing) return { x: nx, y: ny }; // No collision while phasing
   let x = nx, y = ny;
-  const myR = PLAYER_R; 
+  const myR = PLAYER_R;
   for (const r of remote.values()){
     if (r.isPhasing) continue; // Ignore phasing players
     const rr = PLAYER_R;
@@ -1660,7 +1731,7 @@ function tryStartHop(){
   if (cfg.ability?.name === 'flight') {
       toggleFlight();
       sfx.jump.play(0.6, 1 + (Math.random() * 0.08 - 0.04));
-      return; 
+      return;
   }
   
   const strip = state.animMeta.hop?.[state.dir];
@@ -2139,7 +2210,7 @@ function update(dt){
 
   if (keys.has("e")) {
       handleAbilityKeyPress();
-      keys.delete("e"); 
+      keys.delete("e");
   }
   
   if (state.invulnerableTimer > 0) {
@@ -2282,46 +2353,17 @@ function update(dt){
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
 
-  if (!state.hopping && state.anim !== 'hurt' && !state.attacking && !state.isAsleep){
+  // --- MOVEMENT LOGIC ---
+  // This now runs even if the player is in the 'hurt' state.
+  if (!state.hopping && !state.attacking && !state.isAsleep){
     state.dir = vecToDir(vx, vy);
-
     if (state.moving){
       tryMove(dt, vx, vy);
-      const wFrames = CHARACTERS[selectedKey].walk.framesPerDir;
-      if (state.anim !== "walk"){
-        state.anim = "walk"; state.frameOrder = makePingPong(wFrames);
-        state.frameStep = 0; state.frameTime = 0;
-      }
-      state.idleAccum = 0;
-      state.frameTime += dt;
-      const tpf = 1 / WALK_FPS;
-      while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep = (state.frameStep + 1) % state.frameOrder.length; }
-    } else {
-      const iFrames = CHARACTERS[selectedKey].idle.framesPerDir;
-      // When the player stops moving, switch to a single-frame stand animation and reset counters
-      if (state.prevMoving && !state.moving){
-        state.anim = "stand"; state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
-      }
-      // Accumulate idle time only when anim is not idle
-      if (state.anim !== "idle") state.idleAccum += dt;
-      // After enough idle time, switch into the idle animation loop
-      if (state.anim !== "idle" && state.idleAccum >= IDLE_INTERVAL){
-        state.anim = "idle"; state.frameOrder = makePingPong(iFrames); state.frameStep = 0; state.frameTime = 0;
-      }
-      // When in idle animation, advance frames and loop back to stand when finished
-      if (state.anim === "idle"){
-        state.frameTime += dt;
-        const tpf = 1 / IDLE_FPS;
-        while (state.frameTime >= tpf){
-          state.frameTime -= tpf;
-          state.frameStep += 1;
-          if (state.frameStep >= state.frameOrder.length){
-            state.anim = "stand"; state.frameStep = 0; state.idleAccum -= IDLE_INTERVAL; if (state.idleAccum < 0) state.idleAccum = 0; break;
-          }
-        }
-      }
     }
-  } else if (state.anim === 'hurt') {
+  }
+
+  // --- ANIMATION LOGIC ---
+  if (state.anim === 'hurt') {
     state.frameTime += dt;
     const tpf = 1 / HURT_FPS;
     const hurtFrames = CHARACTERS[selectedKey].hurt.framesPerDir;
@@ -2330,19 +2372,25 @@ function update(dt){
       state.frameTime -= tpf;
       state.frameStep += 1;
     }
+    // When the hurt animation finishes, transition smoothly to walk or stand.
     if (state.frameStep >= frameOrder.length) {
-      state.anim = 'stand';
+      state.anim = state.moving ? 'walk' : 'stand';
       state.frameStep = 0;
     }
-  } else if (state.anim === 'sleep') {
-      state.frameTime += dt;
-      const tpf = 1 / SLEEP_FPS;
-      const sleepFrames = CHARACTERS[selectedKey].sleep.framesPerDir;
-      state.frameOrder = makePingPong(sleepFrames);
-      while (state.frameTime >= tpf) {
-          state.frameTime -= tpf;
-          state.frameStep = (state.frameStep + 1) % state.frameOrder.length;
-      }
+  } else if (state.hopping) {
+    state.hop.t = Math.min(1, state.hop.t + dt / state.hop.dur);
+    const p = state.hop.t, e = 0.5 - 0.5 * Math.cos(Math.PI * p);
+    state.x = lerp(state.hop.sx, state.hop.tx, e);
+    state.y = lerp(state.hop.sy, state.hop.ty, e);
+    state.hop.z = Math.sin(Math.PI * p) * (HOP_HEIGHT * state.scale);
+    state.frameTime += dt;
+    const tpf = 1 / HOP_FPS;
+    while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep += 1; }
+
+    if (state.hop.t >= 1){
+      state.hopping = false; state.anim = state.moving ? "walk" : "stand";
+      state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
+    }
   } else if (state.attacking) {
     state.frameTime += dt;
     const tpf = 1 / ATTACK_FPS;
@@ -2359,19 +2407,46 @@ function update(dt){
       state.anim = 'stand';
       state.frameStep = 0;
     }
-  } else if (state.hopping) {
-    state.hop.t = Math.min(1, state.hop.t + dt / state.hop.dur);
-    const p = state.hop.t, e = 0.5 - 0.5 * Math.cos(Math.PI * p);
-    state.x = lerp(state.hop.sx, state.hop.tx, e);
-    state.y = lerp(state.hop.sy, state.hop.ty, e);
-    state.hop.z = Math.sin(Math.PI * p) * (HOP_HEIGHT * state.scale);
+  } else if (state.isAsleep) {
     state.frameTime += dt;
-    const tpf = 1 / HOP_FPS;
-    while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep += 1; }
-    
-    if (state.hop.t >= 1){
-      state.hopping = false; state.anim = state.moving ? "walk" : "stand";
-      state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
+    const tpf = 1 / SLEEP_FPS;
+    const sleepFrames = CHARACTERS[selectedKey].sleep.framesPerDir;
+    state.frameOrder = makePingPong(sleepFrames);
+    while (state.frameTime >= tpf) {
+        state.frameTime -= tpf;
+        state.frameStep = (state.frameStep + 1) % state.frameOrder.length;
+    }
+  } else { // Default animation handling (walk, idle, stand)
+    if (state.moving){
+      const wFrames = CHARACTERS[selectedKey].walk.framesPerDir;
+      if (state.anim !== "walk"){
+        state.anim = "walk"; state.frameOrder = makePingPong(wFrames);
+        state.frameStep = 0; state.frameTime = 0;
+      }
+      state.idleAccum = 0;
+      state.frameTime += dt;
+      const tpf = 1 / WALK_FPS;
+      while (state.frameTime >= tpf){ state.frameTime -= tpf; state.frameStep = (state.frameStep + 1) % state.frameOrder.length; }
+    } else {
+      const iFrames = CHARACTERS[selectedKey].idle.framesPerDir;
+      if (state.prevMoving && !state.moving){
+        state.anim = "stand"; state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
+      }
+      if (state.anim !== "idle") state.idleAccum += dt;
+      if (state.anim !== "idle" && state.idleAccum >= IDLE_INTERVAL){
+        state.anim = "idle"; state.frameOrder = makePingPong(iFrames); state.frameStep = 0; state.frameTime = 0;
+      }
+      if (state.anim === "idle"){
+        state.frameTime += dt;
+        const tpf = 1 / IDLE_FPS;
+        while (state.frameTime >= tpf){
+          state.frameTime -= tpf;
+          state.frameStep += 1;
+          if (state.frameStep >= state.frameOrder.length){
+            state.anim = "stand"; state.frameStep = 0; state.idleAccum -= IDLE_INTERVAL; if (state.idleAccum < 0) state.idleAccum = 0; break;
+          }
+        }
+      }
     }
   }
 
@@ -2394,8 +2469,8 @@ function update(dt){
     if (_netAccum >= NET_INTERVAL){
       _netAccum = 0;
       if (_hasMeaningfulChange() || _heartbeat >= 3){
-        const payload = { 
-            x:state.x, y:state.y, dir:state.dir, anim:state.anim, 
+        const payload = {
+            x:state.x, y:state.y, dir:state.dir, anim:state.anim,
             character:selectedKey, typing: state.typing, hp: state.hp, level: state.level,
             isPhasing: state.isPhasing, isAsleep: state.isAsleep
         };
@@ -2565,11 +2640,11 @@ function draw(){
   const lf = currentFrame();
   if (state.ready && lf){
     const z = state.hopping ? state.hop.z : (state.isFlying ? TILE * 1.5 : 0);
-    const src = state.anim === "hop" ? state.hopImg : 
-                (state.anim === "walk" ? state.walkImg : 
-                (state.anim === "hurt" ? state.hurtImg : 
+    const src = state.anim === "hop" ? state.hopImg :
+                (state.anim === "walk" ? state.walkImg :
+                (state.anim === "hurt" ? state.hurtImg :
                 (state.anim === "attack" ? state.attackImg :
-                (state.anim === "shoot" ? state.shootImg : 
+                (state.anim === "shoot" ? state.shootImg :
                 (state.anim === "sleep" ? state.sleepImg : state.idleImg)))));
                 
     const displayName = state.isIllusion ? state.illusionTarget.username : localUsername;
@@ -2629,8 +2704,8 @@ function draw(){
             const dh = TEX.health.height * COIN_SCALE;
             ctx.drawImage(
                 TEX.health,
-                a.x - state.cam.x - dw / 2, 
-                a.y - state.cam.y - dh / 2, 
+                a.x - state.cam.x - dw / 2,
+                a.y - state.cam.y - dh / 2,
                 dw, dh
             );
         }
@@ -2639,6 +2714,22 @@ function draw(){
   
     const f = a.frame, scale = a.scale;
     if (!f || !a.src) continue; // Safety check for drawImage
+
+    ctx.save(); // Save context state
+    if (state.playerViewMode && (a.kind === 'local' || a.kind === 'remote')) {
+        ctx.filter = 'drop-shadow(0 0 8px #aaddff) brightness(1.6)';
+    }
+
+    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
+        ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
+    }
+    
+    if (a.isHighlighted) {
+        // Combine filters if playerViewMode is also active
+        const existingFilter = ctx.filter === 'none' ? '' : ctx.filter + ' ';
+        ctx.filter = existingFilter + 'drop-shadow(0 0 8px #ffffaa) brightness(1.5)';
+    }
+    
     const dw = f.sw * scale, dh = f.sh * scale;
     const dx = Math.round(a.x - f.ox * scale - state.cam.x);
     const dy = Math.round(a.y - f.oy * scale - state.cam.y - a.z);
@@ -2648,21 +2739,10 @@ function draw(){
     
     const isAquaShielded = (a.kind === 'local' && state.aquaShieldActive) || (a.kind === 'remote' && remote.get(a.uid)?.aquaShieldActive);
 
-    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
-        ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
-    }
-
-    if (a.isHighlighted) {
-        ctx.save();
-        ctx.filter = 'drop-shadow(0 0 8px #ffffaa) brightness(1.5)';
-    }
-
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
     
-    if (a.isHighlighted) {
-        ctx.restore();
-    }
-    
+    ctx.restore(); // Restore context state, removing filters for the next actor
+
     if (isAquaShielded) {
         ctx.globalAlpha = 0.4;
         ctx.beginPath();
@@ -2727,7 +2807,7 @@ function draw(){
 }
 function loop(ts){
   const now = ts || 0;
-  const dt = Math.min(0.033, (now - last)/1000); 
+  const dt = Math.min(0.033, (now - last)/1000);
   last = now;
   if (state.ready) update(dt);
   frameDt = dt;
@@ -2801,7 +2881,7 @@ function spawnEnemies(map) {
         switch (type) {
             case 'Brawler':      enemyInstance = new Brawler(id, x, y, config); break;
             case 'WeepingAngel': enemyInstance = new WeepingAngel(id, x, y, config); break;
-            case 'Turret':       
+            case 'Turret':
             default:             enemyInstance = new Turret(id, x, y, config); break;
         }
         enemies.set(id, enemyInstance);
@@ -2953,7 +3033,7 @@ function updatePlayerProjectiles(dt) {
                 }
             } else {
                 // Target is gone, projectile no longer homes
-                p.homing = false; 
+                p.homing = false;
                 p.targetId = null;
             }
         }
@@ -2971,7 +3051,7 @@ function updatePlayerProjectiles(dt) {
             let hit = false;
             
             for (const enemy of enemies.values()) {
-                if (enemy.hp <= 0) continue; 
+                if (enemy.hp <= 0) continue;
 
                 const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
                 if (dist < ENEMY_R + PROJECTILE_R) {
@@ -2980,11 +3060,12 @@ function updatePlayerProjectiles(dt) {
                     if (newHp <= 0) {
                         addXp(50);
                         net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
+                        net.incrementKillCount('enemy'); // ADD THIS LINE
                     } else {
                         net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
                     }
                     hit = true;
-                    break; 
+                    break;
                 }
             }
 
@@ -2999,10 +3080,10 @@ function updatePlayerProjectiles(dt) {
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
                     const isKill = (player.hp - p.damage) <= 0;
-                    if(isKill) addXp(100);
-
-                    // --- THIS IS THE FIX ---
-                    // Changed 'damage' to 'p.damage' to correctly reference the projectile's damage value.
+                    if(isKill) {
+                        addXp(100);
+                        net.incrementKillCount('player'); // ADD THIS LINE
+                    }
                     net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
                     
                     hit = true;
@@ -3090,6 +3171,7 @@ function tryMeleeAttack() {
             if (enemy.hp <= 0) {
                 addXp(50);
                 net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
+                net.incrementKillCount('enemy'); // ADD THIS LINE
             } else {
                 net.updateEnemyState(enemy.id, { hp: enemy.hp }).catch(e => console.error("Failed to update enemy HP", e));
             }
@@ -3102,7 +3184,10 @@ function tryMeleeAttack() {
         const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
         if (dist < attackRange && isFacing(state, { x: smoothedPos.x, y: smoothedPos.y })) {
             const isKill = (player.hp - damage) <= 0;
-            if(isKill) addXp(100);
+            if(isKill) {
+                addXp(100);
+                net.incrementKillCount('player'); // ADD THIS LINE
+            }
             net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
         }
     }
@@ -3684,3 +3769,102 @@ function generateMap(w, h, seed=1234, type = 'dungeon'){
 
   return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed, type: type };
 }
+
+// --- ADD THESE NEW FUNCTIONS AT THE END OF THE FILE ---
+function viewerAnimationLoop() {
+    if (!viewerState.active) return;
+
+    const dt = (performance.now() - (viewerState.lastTime || performance.now())) / 1000;
+    viewerState.lastTime = performance.now();
+
+    viewerCtx.clearRect(0, 0, viewerCanvas.width, viewerCanvas.height);
+    
+    const assets = viewerState.assets;
+    if (assets) {
+        const strip = assets.meta.walk?.downRight;
+        if (strip && strip.length > 0) {
+            // Animation timing
+            viewerState.frameTime += dt;
+            const tpf = 1 / WALK_FPS;
+            while (viewerState.frameTime >= tpf) {
+                viewerState.frameTime -= tpf;
+                viewerState.frameStep = (viewerState.frameStep + 1) % viewerState.frameOrder.length;
+            }
+
+            const frameIdx = viewerState.frameOrder[viewerState.frameStep];
+            const frame = strip[frameIdx];
+
+            // Center the sprite on the canvas
+            const scale = 3; // Use a fixed scale for the viewer
+            const dw = frame.sw * scale;
+            const dh = frame.sh * scale;
+            const dx = (viewerCanvas.width / 2) - (frame.ox * scale);
+            const dy = (viewerCanvas.height / 2) - (frame.oy * scale) + 10; // Nudge down a bit
+
+            viewerCtx.drawImage(assets.walk, frame.sx, frame.sy, frame.sw, frame.sh, dx, dy, dw, dh);
+        }
+    }
+
+    viewerState.reqId = requestAnimationFrame(viewerAnimationLoop);
+}
+
+async function openPlayerViewer(actorData) {
+    if (viewerState.active) {
+        closePlayerViewer();
+    }
+
+    playerViewerModal.classList.remove("hidden");
+    viewerStatsEl.innerHTML = `<h3>Loading Stats...</h3>`;
+    
+    // Fetch full stats from the database
+    const fullStats = actorData.isLocal ? {
+        username: actorData.username,
+        level: actorData.level,
+        xp: actorData.xp,
+        playerKills: actorData.playerKills,
+        enemyKills: actorData.enemyKills,
+    } : await net.getPublicUserData(actorData.uid);
+    
+    const charCfg = CHARACTERS[actorData.character];
+    
+    viewerStatsEl.innerHTML = `
+        <h3>${fullStats.username}</h3>
+        <p><strong>Level:</strong> ${fullStats.level}</p>
+        <p><strong>XP:</strong> ${fullStats.xp}</p>
+        <p><strong>Player Kills:</strong> ${fullStats.playerKills}</p>
+        <p><strong>Enemy Kills:</strong> ${fullStats.enemyKills}</p>
+        <p><strong>Equipped Item:</strong> ${actorData.equippedItem || 'None'}</p>
+        <hr>
+        <h3>${charCfg.name} Stats</h3>
+        <p><strong>Ability:</strong> ${charCfg.ability?.name || 'None'}</p>
+        <p><strong>HP:</strong> ${charCfg.hp}</p>
+        <p><strong>Strength:</strong> ${charCfg.strength}</p>
+        <p><strong>Ranged Strength:</strong> ${charCfg.ranged ? charCfg.rangedStrength : 'N/A'}</p>
+        <p><strong>Speed Multiplier:</strong> ${charCfg.speed}</p>
+    `;
+
+    // Start animation
+    viewerState.assets = await loadCharacterAssets(actorData.character);
+    if (viewerState.assets) {
+        viewerState.frameOrder = makePingPong(viewerState.assets.cfg.walk.framesPerDir);
+        viewerState.frameStep = 0;
+        viewerState.frameTime = 0;
+        viewerState.active = true;
+        viewerState.lastTime = performance.now();
+        viewerAnimationLoop();
+    }
+}
+
+function closePlayerViewer() {
+    if (!viewerState.active) return;
+    
+    playerViewerModal.classList.add("hidden");
+    viewerState.active = false;
+    if (viewerState.reqId) {
+        cancelAnimationFrame(viewerState.reqId);
+    }
+    viewerState.assets = null;
+    viewerState.reqId = null;
+}
+
+closeViewerBtn.onclick = closePlayerViewer;

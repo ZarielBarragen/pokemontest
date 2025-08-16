@@ -37,10 +37,21 @@ export class Net {
             const snap = await get(userRef);
             if (snap.exists()) {
                 const userData = snap.val();
+                let updates = {};
                 if (!userData.username && u.email) {
-                    const usernameFromEmail = u.email.split('@')[0];
-                    await update(userRef, { username: usernameFromEmail });
+                    updates.username = u.email.split('@')[0];
                 }
+                // --- ADD THIS BLOCK TO INITIALIZE KILLS FOR EXISTING USERS ---
+                if (userData.playerKills === undefined) {
+                    updates.playerKills = 0;
+                }
+                if (userData.enemyKills === undefined) {
+                    updates.enemyKills = 0;
+                }
+                if (Object.keys(updates).length > 0) {
+                    await update(userRef, updates);
+                }
+                // --- END OF BLOCK ---
             } else if (u.email) {
                 const usernameFromEmail = u.email.split('@')[0];
                 await set(userRef, {
@@ -48,7 +59,9 @@ export class Net {
                     level: 1,
                     xp: 0,
                     coins: 0,
-                    inventory: {}
+                    inventory: {},
+                    playerKills: 0, // Add this line
+                    enemyKills: 0   // Add this line
                 });
             }
         }
@@ -120,7 +133,9 @@ export class Net {
         level: 1,
         xp: 0,
         coins: 0,
-        inventory: {}
+        inventory: {},
+        playerKills: 0, // Add this
+        enemyKills: 0   // Add this
     });
 
     return cred.user;
@@ -327,13 +342,17 @@ export class Net {
     // ---------- USER STATS (persistent) ----------
   async getUserStats() {
       const uid = this.auth.currentUser?.uid;
-      if (!uid) return { level: 1, xp: 0, coins: 0, inventory: {}, equippedItem: null };
+      if (!uid) return { level: 1, xp: 0, coins: 0, inventory: {}, equippedItem: null, playerKills: 0, enemyKills: 0 };
       const userRef = ref(this.db, `users/${uid}`);
       const snap = await get(userRef);
       if (snap.exists()) {
-          return snap.val();
+          const stats = snap.val();
+          // Ensure defaults for players who haven't been updated yet
+          stats.playerKills = stats.playerKills || 0;
+          stats.enemyKills = stats.enemyKills || 0;
+          return stats;
       } else {
-          const defaultStats = { level: 1, xp: 0, coins: 0, inventory: {}, equippedItem: null };
+          const defaultStats = { level: 1, xp: 0, coins: 0, inventory: {}, equippedItem: null, playerKills: 0, enemyKills: 0 };
           await set(userRef, defaultStats);
           return defaultStats;
       }
@@ -697,5 +716,39 @@ export class Net {
       const unsub = () => { try{a();}catch{} try{r();}catch{} };
       this.playersUnsubs.push(unsub);
       return unsub;
+  }
+
+  // --- NEW FUNCTIONS FOR PLAYER VIEWER ---
+  async getPublicUserData(uid) {
+    if (!uid) return null;
+    const userRef = ref(this.db, `users/${uid}`);
+    const snap = await get(userRef);
+    if (snap.exists()) {
+        const data = snap.val();
+        // Return only the data safe for public viewing
+        return {
+            username: data.username || 'player',
+            level: data.level || 1,
+            xp: data.xp || 0,
+            playerKills: data.playerKills || 0,
+            enemyKills: data.enemyKills || 0,
+        };
+    }
+    return null;
+  }
+
+  async incrementKillCount(type) {
+      const uid = this.auth.currentUser?.uid;
+      if (!uid || (type !== 'player' && type !== 'enemy')) return;
+
+      const keyToIncrement = type === 'player' ? 'playerKills' : 'enemyKills';
+      const userRef = ref(this.db, `users/${uid}`);
+
+      return runTransaction(userRef, (currentData) => {
+          if (currentData) {
+              currentData[keyToIncrement] = (currentData[keyToIncrement] || 0) + 1;
+          }
+          return currentData;
+      });
   }
 }
