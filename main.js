@@ -12,6 +12,7 @@ function unsubscribeLobby(){
 }
 // global selected character key for select screen
 let selectedKey = null;
+let localPlayer = null; // This will hold the instance of our player's class
 
 
 // Remote players registry
@@ -26,6 +27,21 @@ const poisonTiles = new Map();
 const sandTiles = new Map();
 
 import { Net, firebaseConfig } from "./net.js";
+import { Player } from './Player.js';
+import { Sableye } from './characters/Sableye.js';
+import { Ditto } from './characters/Ditto.js';
+import { HisuianZoroark } from './characters/Hisuian Zoroark.js';
+import { Hypno } from './characters/Hypno.js';
+import { Quagsire } from './characters/Quagsire.js';
+import { Smeargle } from './characters/Smeargle.js';
+import { Corviknight } from './characters/Corviknight.js';
+import { Cacturne } from './characters/Cacturne.js';
+import { Decidueye } from './characters/Decidueye.js';
+import { Empoleon } from './characters/Empoleon.js';
+import { Cyclizar } from './characters/Cyclizar.js';
+import { Scolipede } from './characters/Scolipede.js';
+import { Altaria } from './characters/Altaria.js';
+
 const net = new Net(firebaseConfig);
 
 // ---------- Canvas ----------
@@ -222,6 +238,23 @@ function makeRowDirGrid() {
   };
 }
 let CHARACTERS = {};
+window.CHARACTERS = CHARACTERS; // Make it globally accessible for character classes
+
+const characterClassMap = {
+    "Sableye": Sableye,
+    "Ditto": Ditto,
+    "Hisuian Zoroark": HisuianZoroark,
+    "Hypno": Hypno,
+    "Quagsire": Quagsire,
+    "Smeargle": Smeargle,
+    "Corviknight": Corviknight,
+    "Cacturne": Cacturne,
+    "Decidueye": Decidueye,
+    "Empoleon": Empoleon,
+    "Cyclizar": Cyclizar,
+    "Scolipede": Scolipede,
+    "Altaria": Altaria,
+};
 
 // We will fetch this from the JSON file now
 async function fetchCharacterData() {
@@ -1379,6 +1412,10 @@ async function startWithCharacter(cfg, map){
   try{
     const assets = await loadCharacterAssets(selectedKey);
     if (!assets) throw new Error("Failed to load character assets");
+
+    // Instantiate the correct player class
+    const PlayerClass = characterClassMap[selectedKey] || Player;
+    localPlayer = new PlayerClass(state, assets, net, sfx, selectedKey);
 
     state.walkImg = assets.walk;
     state.idleImg = assets.idle;
@@ -3026,29 +3063,27 @@ function tryRangedAttack() {
 // ---------- ABILITY LOGIC ----------
 
 function handleAbilityKeyPress() {
-    if (state.abilityCooldown > 0 && !state.isIllusion) return;
+    if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion)) return;
 
-    if (state.copiedAbility) {
-        if (['transform', 'illusion', 'hypnotize', 'sandSnare'].includes(state.copiedAbility.name)) {
-            state.abilityTargetingMode = state.copiedAbility.name;
-            state.highlightedPlayers = state.copiedAbility.name === 'sandSnare' ? [] : Array.from(remote.keys());
-        } else {
-            activateInstantAbility(state.copiedAbility);
-        }
+    const abilityName = localPlayer.config.ability?.name;
+
+    // Special handling for toggle abilities like Sableye's phase
+    if (abilityName === 'phase') {
+        localPlayer.useAbility(); // The useAbility method itself is a toggle
         return;
     }
 
-    const abilityToUse = CHARACTERS[selectedKey]?.ability;
+    // Handling for abilities that need an explicit revert action
+    if ((abilityName === 'transform' && state.isTransformed) ||
+        (abilityName === 'illusion' && state.isIllusion)) {
+        localPlayer.revertAbility();
+        return;
+    }
 
-    if (!abilityToUse || abilityToUse.type !== 'active') return;
-
-    if (abilityToUse.name === 'phase' && state.isPhasing) { togglePhase(); return; }
-    if (abilityToUse.name === 'transform' && state.isTransformed) { revertTransform(); return; }
-    if (abilityToUse.name === 'illusion' && state.isIllusion) { revertIllusion(); return; }
-
-    if (['transform', 'illusion', 'hypnotize', 'copy'].includes(abilityToUse.name)) {
-        state.abilityTargetingMode = abilityToUse.name;
-        if (abilityToUse.name === 'copy') {
+    // The rest of the logic for activating abilities
+    if (['transform', 'illusion', 'hypnotize', 'copy'].includes(abilityName)) {
+        state.abilityTargetingMode = abilityName;
+        if (abilityName === 'copy') {
             state.highlightedPlayers = Array.from(remote.values())
                 .filter(p => CHARACTERS[p.character]?.ability?.type === 'active')
                 .map(p => p.uid);
@@ -3058,151 +3093,18 @@ function handleAbilityKeyPress() {
         return;
     }
     
-    if (abilityToUse.name === 'sandSnare') {
+    if (abilityName === 'sandSnare') {
         state.abilityTargetingMode = 'sandSnare';
         state.highlightedPlayers = [];
         return;
     }
 
-    activateInstantAbility(abilityToUse);
-}
-
-function activateInstantAbility(ability) {
-    if (!ability) return;
-    
-    switch(ability.name) {
-        // BUG FIX: Sableye - Ensure phase is handled here
-        case 'phase':       togglePhase(); break;
-        case 'rideBySlash': activateRideBySlash(); break;
-        case 'toxicSprint': activateToxicSprint(); break;
-    }
-
-    if (state.copiedAbility) {
-        state.copiedAbility = null;
-        state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
-    }
+    localPlayer.useAbility();
 }
 
 function activateTargetedAbility(target) {
-    const abilityToUse = state.copiedAbility || CHARACTERS[selectedKey]?.ability;
-    if (!abilityToUse) return;
-
-    switch (state.abilityTargetingMode) {
-        case 'transform':
-            transformInto(target);
-            break;
-        case 'illusion':
-            createIllusion(target);
-            break;
-        case 'hypnotize':
-            const dist = Math.hypot(state.x - target.x, state.y - target.y);
-            if (dist <= abilityToUse.range) {
-                hypnotize(target);
-            }
-            break;
-        case 'copy':
-            copyAbility(target);
-            break;
-        case 'sandSnare':
-            placeSandSnare(target.x, target.y);
-            break;
-    }
-
-    if (state.copiedAbility) {
-        state.copiedAbility = null;
-        state.abilityCooldown = CHARACTERS['Smeargle'].ability.cooldown || 15;
-    }
-}
-
-function togglePhase() {
-    state.isPhasing = !state.isPhasing;
-    state.phaseDamageTimer = 0; // Reset timer
-    net.updateState({ isPhasing: state.isPhasing });
-    if (!state.isPhasing) { // Set cooldown when phasing ends
-        state.abilityCooldown = CHARACTERS['Sableye'].ability.cooldown;
-    }
-}
-
-async function transformInto(targetPlayer) {
-    if (state.isTransformed) return;
-    state.isTransformed = true;
-    state.originalCharacterKey = selectedKey;
-    const targetKey = targetPlayer.originalCharacterKey || targetPlayer.character;
-    
-    await applyCharacterChange(targetKey);
-
-    net.broadcastAbility({ name: 'transform', targetCharacterKey: targetKey });
-    net.updateState({ 
-        character: targetKey, 
-        isTransformed: true, 
-        originalCharacterKey: state.originalCharacterKey,
-        hp: state.hp, 
-        maxHp: state.maxHp
-    });
-
-    const cfg = CHARACTERS[state.originalCharacterKey];
-    state.abilityCooldown = cfg.ability.cooldown;
-}
-
-async function revertTransform(silent = false) {
-    if (!state.isTransformed) return;
-    const originalKey = state.originalCharacterKey;
-    state.isTransformed = false;
-    state.originalCharacterKey = null;
-
-    await applyCharacterChange(originalKey);
-    
-    if (!silent) {
-        net.broadcastAbility({ name: 'transform', targetCharacterKey: originalKey, isRevert: true });
-        net.updateState({ 
-            character: originalKey, 
-            isTransformed: false, 
-            originalCharacterKey: null,
-            hp: state.hp, 
-            maxHp: state.maxHp 
-        });
-    }
-}
-
-
-async function createIllusion(targetPlayer) {
-    state.isIllusion = true;
-    state.illusionTarget = {
-        username: targetPlayer.username,
-        level: targetPlayer.level,
-        character: targetPlayer.originalCharacterKey || targetPlayer.character
-    };
-
-    const assets = await loadCharacterAssets(state.illusionTarget.character);
-    if (assets) {
-        state.walkImg = assets.walk;
-        state.idleImg = assets.idle;
-        state.hopImg = assets.hop;
-        state.hurtImg = assets.hurt;
-        state.attackImg = assets.attack;
-        state.shootImg = assets.shoot;
-        state.sleepImg = assets.sleep;
-        state.animMeta = assets.meta;
-    }
-    
-    net.broadcastAbility({ name: 'illusion', target: state.illusionTarget });
-    net.updateState({ isIllusion: true, illusionTarget: state.illusionTarget });
-
-    const cfg = CHARACTERS[selectedKey];
-    state.abilityCooldown = cfg.ability.cooldown;
-}
-
-async function revertIllusion(silent = false) {
-    state.isIllusion = false;
-    state.illusionTarget = null;
-    state.abilityCooldown = 0;
-
-    await applyCharacterChange(state.originalCharacterKey || selectedKey);
-
-    if (!silent) {
-        net.broadcastAbility({ name: 'revertIllusion' });
-        net.updateState({ isIllusion: false, illusionTarget: null });
-    }
+    if (!localPlayer) return;
+    localPlayer.useAbility(target);
 }
 
 async function applyCharacterChange(newKey) {
@@ -3220,57 +3122,15 @@ async function applyCharacterChange(newKey) {
         state.maxHp = assets.cfg.hp;
         state.hp = Math.min(state.hp, state.maxHp);
         state.scale = assets.cfg.scale;
-    }
-}
 
-
-function hypnotize(targetPlayer) {
-    const cfg = CHARACTERS[selectedKey];
-    let duration = 5000;
-    if (state.equippedItem === 'hypnosPendulum' && selectedKey === 'Hypno') {
-        duration = 8000;
+        // Re-instantiate player class on transform
+        const PlayerClass = characterClassMap[newKey] || Player;
+        localPlayer = new PlayerClass(state, assets, net, sfx, newKey);
     }
-    net.applyStatus(targetPlayer.uid, { type: 'sleep', duration: duration, from: net.auth.currentUser.uid });
-    state.abilityCooldown = cfg.ability.cooldown;
 }
 
 function toggleFlight() {
     state.isFlying = !state.isFlying;
-}
-
-function copyAbility(targetPlayer) {
-    const targetCharacterKey = targetPlayer.originalCharacterKey || targetPlayer.character;
-    const targetCharacter = CHARACTERS[targetCharacterKey];
-    if (targetCharacter && targetCharacter.ability && targetCharacter.ability.type === 'active') {
-        state.copiedAbility = { ...targetCharacter.ability, name: targetCharacter.ability.name };
-        state.abilityCooldown = 0; // Ready to use the new ability immediately
-    }
-}
-
-function activateRideBySlash() {
-    const cfg = CHARACTERS[selectedKey];
-    state.rideBySlashActive = true;
-    state.rideBySlashTimer = cfg.ability.duration;
-    state.abilityCooldown = cfg.ability.cooldown;
-}
-
-function activateToxicSprint() {
-    const cfg = CHARACTERS[selectedKey];
-    state.toxicSprintActive = true;
-    state.toxicSprintTimer = cfg.ability.duration;
-    state.abilityCooldown = cfg.ability.cooldown;
-}
-
-function placeSandSnare(tileX, tileY) {
-    const cfg = CHARACTERS[selectedKey];
-    net.broadcastAbility({ name: 'sandSnare', tileX, tileY });
-    for (let y = -1; y <= 1; y++) {
-        for (let x = -1; x <= 1; x++) {
-            const key = `${tileX + x},${tileY + y}`;
-            sandTiles.set(key, { life: 5 });
-        }
-    }
-    state.abilityCooldown = cfg.ability.cooldown;
 }
 
 // Handle remote ability effects
