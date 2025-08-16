@@ -1,3 +1,25 @@
+import { TILE, isFacing } from './utils.js';
+
+// --- ANIMATION FIX: Helper function to determine direction from a vector ---
+const DIR_VECS = {
+  down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
+  up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1], 
+};
+function vecToDir(vx, vy){
+  if (Math.abs(vx) < 0.1 && Math.abs(vy) < 0.1) return "down";
+  const angle = Math.atan2(vy, vx) * 180 / Math.PI;
+  if (angle > -22.5 && angle <= 22.5) return "right";
+  if (angle > 22.5 && angle <= 67.5) return "downRight";
+  if (angle > 67.5 && angle <= 112.5) return "down";
+  if (angle > 112.5 && angle <= 157.5) return "downLeft";
+  if (angle > 157.5 || angle <= -157.5) return "left";
+  if (angle > -157.5 && angle <= -112.5) return "upLeft";
+  if (angle > -112.5 && angle <= -67.5) return "up";
+  if (angle > -67.5 && angle <= -22.5) return "upRight";
+  return "down";
+}
+
+
 /**
  * Base class for all enemy types.
  */
@@ -37,6 +59,7 @@ class Enemy {
         if (this.hp <= 0) {
             this.isDefeated = true;
         }
+        return this.hp;
     }
 
     update(dt, players, map, net) {
@@ -108,6 +131,7 @@ export class Brawler extends Enemy {
         this.attackAnimTimer = 0;
         this.handOffset1 = 0;
         this.handOffset2 = 0;
+        this.dir = 'down'; // --- ANIMATION FIX: Give Brawler a direction ---
     }
 
     update(dt, players, map, net) {
@@ -117,10 +141,12 @@ export class Brawler extends Enemy {
         this.target = player;
 
         if (this.target && distance < this.detectionRange) {
+            const dx = this.target.x - this.x;
+            const dy = this.target.y - this.y;
+            this.dir = vecToDir(dx, dy); // --- ANIMATION FIX: Update direction
+
             if (distance > this.attackRange) {
                 // Chase player
-                const dx = this.target.x - this.x;
-                const dy = this.target.y - this.y;
                 const moveX = (dx / distance) * this.speed * dt;
                 const moveY = (dy / distance) * this.speed * dt;
                 this.x += moveX;
@@ -129,8 +155,7 @@ export class Brawler extends Enemy {
                 // Attack player
                 this.attackCooldown = 1.5;
                 this.attackAnimTimer = 1.0;
-                // Host notifies clients that an attack happened so they can deal damage
-                net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange });
+                net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 }); // Add buffer to range
             }
         }
         
@@ -142,14 +167,15 @@ export class Brawler extends Enemy {
         const sy = Math.round(this.y - cam.y);
         const radius = 18;
 
-        // Animate punches if attacking
+        // --- ANIMATION FIX: Rewritten draw logic ---
         if (this.attackAnimTimer > 0) {
-            const animProgress = 1.0 - (this.attackAnimTimer / 1.0);
+            const animProgress = 1.0 - this.attackAnimTimer;
             if (animProgress < 0.5) {
-                this.handOffset1 = animProgress * 2 * 20; // Punch out
+                this.handOffset1 = animProgress * 2 * 20;
+                this.handOffset2 = 0;
             } else {
-                this.handOffset1 = (1 - (animProgress-0.5)*2) * 20; // Retract
-                this.handOffset2 = (animProgress-0.5) * 2 * 20; // Second punch
+                this.handOffset1 = (1 - (animProgress-0.5)*2) * 20;
+                this.handOffset2 = (animProgress-0.5) * 2 * 20;
             }
         } else {
             this.handOffset1 = 0;
@@ -162,15 +188,30 @@ export class Brawler extends Enemy {
         ctx.arc(sx, sy, radius, 0, Math.PI * 2);
         ctx.fill();
 
-        // Hands
+        // Hands based on direction
+        const dirVec = DIR_VECS[this.dir] || [0, 1];
+        const perpendicularVec = { x: -dirVec[1], y: dirVec[0] };
+
+        const handDist = radius * 0.9;
+        const fistSize = 8;
+        
+        const hand1_base_x = sx + perpendicularVec.x * handDist;
+        const hand1_base_y = sy + perpendicularVec.y * handDist;
+        const hand2_base_x = sx - perpendicularVec.x * handDist;
+        const hand2_base_y = sy - perpendicularVec.y * handDist;
+        
+        const hand1_punch_x = hand1_base_x + dirVec[0] * this.handOffset1;
+        const hand1_punch_y = hand1_base_y + dirVec[1] * this.handOffset1;
+        
+        const hand2_punch_x = hand2_base_x + dirVec[0] * this.handOffset2;
+        const hand2_punch_y = hand2_base_y + dirVec[1] * this.handOffset2;
+
         ctx.fillStyle = '#9c825d';
         ctx.beginPath();
-        ctx.arc(sx - radius, sy, 8, 0, Math.PI * 2);
-        ctx.arc(sx - radius - this.handOffset2, sy, 8, 0, Math.PI * 2);
+        ctx.arc(hand1_punch_x, hand1_punch_y, fistSize, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(sx + radius, sy, 8, 0, Math.PI * 2);
-        ctx.arc(sx + radius + this.handOffset1, sy, 8, 0, Math.PI * 2);
+        ctx.arc(hand2_punch_x, hand2_punch_y, fistSize, 0, Math.PI * 2);
         ctx.fill();
     }
 }
@@ -191,43 +232,39 @@ export class WeepingAngel extends Enemy {
         if (this.validAttackers.includes(fromCharacterKey)) {
             super.takeDamage(amount); // Call the parent method to take damage
         }
-        // Otherwise, it takes no damage
+        return this.hp;
     }
 
     update(dt, players, map, net) {
+        if (this.attackCooldown > 0) this.attackCooldown -= dt;
+        
         const { player, distance } = this.findClosestPlayer(players);
         this.target = player;
 
         if (!this.target) return;
 
-        // Check if any player is looking at the angel
         this.isBeingLookedAt = players.some(p => {
             const dist = Math.hypot(p.x - this.x, p.y - this.y);
-            // "Looking at" is simplified to being close and facing its general direction
             return dist < TILE * 10 && isFacing(p, this);
         });
 
         if (this.isBeingLookedAt) {
             this.stareTimer += dt;
             if (this.stareTimer >= 3.0) {
-                this.isDefeated = true; // Disappears after 3 seconds of being watched
+                this.isDefeated = true;
             }
         } else {
             this.stareTimer = 0;
-            // Chase player (phases through walls, so no collision check)
             const dx = this.target.x - this.x;
             const dy = this.target.y - this.y;
             this.x += (dx / distance) * this.speed * dt;
             this.y += (dy / distance) * this.speed * dt;
 
-            // Attack player if in range
             if (distance < this.attackRange && this.attackCooldown <= 0) {
                 this.attackCooldown = 2.0;
                  net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange });
             }
         }
-        
-        if (this.attackCooldown > 0) this.attackCooldown -= dt;
     }
 
     draw(ctx, cam) {
@@ -235,15 +272,13 @@ export class WeepingAngel extends Enemy {
         const sy = Math.round(this.y - cam.y);
         const radius = 20;
 
-        // Flicker when being looked at
         ctx.globalAlpha = this.isBeingLookedAt ? (Math.random() * 0.5 + 0.3) : 0.8;
         
-        // Body
         ctx.fillStyle = '#666';
         ctx.beginPath();
         ctx.arc(sx, sy, radius, 0, Math.PI * 2);
         ctx.fill();
-        // Eyes
+
         ctx.fillStyle = 'red';
         ctx.beginPath();
         ctx.arc(sx - 7, sy - 5, 3, 0, Math.PI * 2);

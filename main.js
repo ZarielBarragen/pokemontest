@@ -39,7 +39,9 @@ const gameContext = {
 
 import { Net, firebaseConfig } from "./net.js";
 import { Player } from './Player.js';
+// --- ENEMY REFACTOR 1 of 6: Import the new enemy classes ---
 import { Turret, Brawler, WeepingAngel } from './enemies.js';
+import { TILE, isFacing } from './utils.js';
 import { Sableye } from './characters/Sableye.js';
 import { Ditto } from './characters/Ditto.js';
 import { HisuianZoroark } from './characters/Hisuian Zoroark.js';
@@ -103,7 +105,6 @@ const shopItemsContainer = document.getElementById("shop-items");
 const inventoryDisplay = document.getElementById("inventory-display");
 const inventoryItemsContainer = document.getElementById("inventory-items");
 const leaderboardEl = document.getElementById("leaderboard");
-// --- SMEARGLE FIX 1 of 5: Get references to the ability button UI ---
 const abilityBtn = document.getElementById("ability-btn");
 const abilityBtnText = abilityBtn.querySelector(".mobile-action-btn-text");
 const abilityCooldownOverlay = abilityBtn.querySelector(".cooldown-overlay");
@@ -162,7 +163,6 @@ function unmountChatLog(){
 }
 
 // ---------- Settings ----------
-const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
 
@@ -1203,30 +1203,71 @@ function startNetListeners(){
       }
   });
 
-  net.subscribeToProjectiles(p_data => {
-      playerProjectiles.push({
-          x: p_data.x,
-          y: p_data.y,
-          vx: p_data.vx,
-          vy: p_data.vy,
-          damage: p_data.damage,
-          life: p_data.life,
-          ownerId: p_data.ownerId,
-          color: p_data.color,
-          homing: p_data.homing,
-          targetId: p_data.targetId
-      });
-  });
+net.subscribeToProjectiles(p_data => {
+    // If the projectile has our new isEnemyProjectile flag, put it in the enemy projectile list.
+    if (p_data.isEnemyProjectile) {
+        projectiles.push({
+            x: p_data.x,
+            y: p_data.y,
+            vx: p_data.vx,
+            vy: p_data.vy,
+            damage: p_data.damage,
+            life: p_data.life
+        });
+    } 
+    // Otherwise, if it's from another player, put it in the player projectile list.
+    else if (p_data.ownerId !== net.auth.currentUser.uid) {
+        playerProjectiles.push({
+            x: p_data.x,
+            y: p_data.y,
+            vx: p_data.vx,
+            vy: p_data.vy,
+            damage: p_data.damage,
+            life: p_data.life,
+            ownerId: p_data.ownerId,
+            color: p_data.color,
+            homing: p_data.homing,
+            targetId: p_data.targetId
+        });
+    }
+});
   
-  net.subscribeToMeleeAttacks(attackData => {
-      const attackerId = attackData.by;
-      const remotePlayer = remote.get(attackerId);
-      if (remotePlayer) {
-          remotePlayer.anim = 'attack';
-          remotePlayer.frameStep = 0;
-          remotePlayer.frameTime = 0;
-      }
-  });
+// Find this function inside startNetListeners() in main.js and replace it
+
+net.subscribeToMeleeAttacks(attackData => {
+    // Check for our new isEnemy flag
+    if (attackData.isEnemy) {
+        // If the player is invulnerable, ignore the attack
+        if (state.invulnerableTimer > 0 || state.aquaShieldActive || state.isPhasing) return;
+        
+        const enemy = enemies.get(attackData.by);
+        if (!enemy) return;
+
+        // Check if the player is within the enemy's attack range
+        const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
+        if (dist < attackData.range) {
+            // Apply damage to the local player
+            state.hp = Math.max(0, state.hp - attackData.damage);
+            state.invulnerableTimer = 0.7;
+            state.anim = 'hurt';
+            state.frameStep = 0;
+            state.frameTime = 0;
+            net.updateState({ hp: state.hp }); // Sync health with the server
+            if (state.hp <= 0) {
+                goBackToSelect();
+            }
+        }
+    } else {
+        // This is the original logic for remote PLAYER attacks (it just plays the animation)
+        const attackerId = attackData.by;
+        const remotePlayer = remote.get(attackerId);
+        if (remotePlayer) {
+            remotePlayer.anim = 'attack';
+            remotePlayer.frameStep = 0;
+            remotePlayer.frameTime = 0;
+        }
+    }
+});
 
   net.subscribeToAbilities(abilityData => {
       if (abilityData.by === net.auth.currentUser.uid) return;
@@ -2383,7 +2424,7 @@ function draw(){
   for (const enemy of enemies.values()) {
       actors.push({
           kind: "enemy",
-          ...enemy
+          id: enemy.id // Pass id for lookup
       });
   }
   
@@ -2550,21 +2591,17 @@ function draw(){
         if (enemy) {
             drawShadow(enemy.x, enemy.y, 0, 3.0, false);
             enemy.draw(ctx, state.cam);
-        ctx.beginPath();
-        ctx.arc(sx, sy, ENEMY_R, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 80, 80, 0.8)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(180, 40, 40, 1)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        const sx = Math.round(enemy.x - state.cam.x);
+        const sy = Math.round(enemy.y - state.cam.y);
         const hpw = 30, hph = 5;
         const hpx = sx - hpw/2, hpy = sy - ENEMY_R - 10;
         ctx.fillStyle = '#333';
         ctx.fillRect(hpx, hpy, hpw, hph);
         ctx.fillStyle = '#f44';
-        ctx.fillRect(hpx, hpy, hpw * (a.hp / a.maxHp), hph);
+        ctx.fillRect(hpx, hpy, hpw * (enemy.hp / enemy.maxHp), hph);
         ctx.strokeStyle = '#fff';
         ctx.strokeRect(hpx, hpy, hpw, hph);
+    }
         continue;
     }
     
@@ -2714,21 +2751,31 @@ function spawnEnemies(map) {
     const enemyRng = mulberry32(map.seed);
     const maxEnemies = Math.floor((map.w * map.h) / 200);
     const validSpawns = [];
-    // ... (rest of the valid spawn finding logic is the same)
+    for (let y = 1; y < map.h - 1; y++) {
+        for (let x = 1; x < map.w - 1; x++) {
+            if (!map.walls[y][x]) {
+                validSpawns.push({ x, y });
+            }
+        }
+    }
+    for (let i = validSpawns.length - 1; i > 0; i--) {
+        const j = Math.floor(enemyRng() * (i + 1));
+        [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
+    }
     
     const enemiesData = {};
     let spawned = 0;
 
     for (const pos of validSpawns) {
         if (spawned >= maxEnemies) break;
-        // ... (distToPlayer check is the same)
+        const distToPlayer = Math.hypot(pos.x - map.spawn.x, pos.y - map.spawn.y);
+        if (distToPlayer < 10) continue;
 
         const id = `enemy_${spawned}`;
         const worldPos = tileCenter(pos.x, pos.y);
         
-        // Weighted random selection of enemy type
         let rand = enemyRng();
-        let typeToSpawn;
+        let typeToSpawn = 'Turret'; // Default to Turret
         for (const [type, weight] of Object.entries(weights)) {
             if (rand < weight) {
                 typeToSpawn = type;
@@ -2745,9 +2792,25 @@ function spawnEnemies(map) {
         spawned++;
     }
 
+    // --- THIS IS THE FIX ---
+    // The host (lobby owner) should create the enemy instances locally immediately,
+    // without waiting for the network event to come back.
+    for (const data of Object.values(enemiesData)) {
+        const { id, type, x, y, config } = data;
+        let enemyInstance;
+        switch (type) {
+            case 'Brawler':      enemyInstance = new Brawler(id, x, y, config); break;
+            case 'WeepingAngel': enemyInstance = new WeepingAngel(id, x, y, config); break;
+            case 'Turret':       
+            default:             enemyInstance = new Turret(id, x, y, config); break;
+        }
+        enemies.set(id, enemyInstance);
+    }
+    // --- END FIX ---
+
+    // Now, send this initial data to the server for all other clients.
     net.setInitialEnemies(enemiesData).catch(e => console.error("Failed to set initial enemies", e));
 }
-
 function spawnCoins(map) {
     coins.clear();
     const coinRng = mulberry32(map.seed + 1); // Use a different seed for coins
@@ -2831,7 +2894,6 @@ function updateEnemies(dt) {
         }
     }
 }
-
 function updateProjectiles(dt) {
     if (!state.ready) return;
     for (let i = projectiles.length - 1; i >= 0; i--) {
@@ -2998,24 +3060,6 @@ function addXp(amount) {
     }
 }
 
-
-function isFacing(player, target) {
-    const dx = target.x - player.x;
-    const dy = target.y - player.y;
-
-    switch (player.dir) {
-        case 'right':     return dx > 0 && Math.abs(dx) > Math.abs(dy);
-        case 'left':      return dx < 0 && Math.abs(dx) > Math.abs(dy);
-        case 'down':      return dy > 0 && Math.abs(dy) > Math.abs(dx);
-        case 'up':        return dy < 0 && Math.abs(dy) > Math.abs(dx);
-        case 'downRight': return dx > 0 && dy > 0;
-        case 'downLeft':  return dx < 0 && dy > 0;
-        case 'upRight':   return dx > 0 && dy < 0;
-        case 'upLeft':    return dx < 0 && dy < 0;
-    }
-    return false;
-}
-
 function tryMeleeAttack() {
     if (!state.ready || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
 
@@ -3041,13 +3085,13 @@ function tryMeleeAttack() {
 
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackRange && isFacing(state, enemy)) {
-            const newHp = enemy.takeDamage(damage, selectedKey);
+             enemy.takeDamage(damage, selectedKey);
             addXp(10);
-            if (newHp <= 0) {
+            if (enemy.hp <= 0) {
                 addXp(50);
                 net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
             } else {
-                net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
+                net.updateEnemyState(enemy.id, { hp: enemy.hp }).catch(e => console.error("Failed to update enemy HP", e));
             }
         }
     }
@@ -3172,7 +3216,7 @@ async function handleAbilityKeyPress() {
             state.highlightedPlayers = Array.from(remote.values())
                 .filter(p => CHARACTERS[p.character]?.ability?.type === 'active')
                 .map(p => p.uid);
-        } else {
+        } else if (abilityName !== 'sandSnare') { // Sand Snare targets ground, not players
             state.highlightedPlayers = Array.from(remote.keys());
         }
         return;
@@ -3188,7 +3232,13 @@ async function handleAbilityKeyPress() {
 
 async function activateTargetedAbility(target) {
     if (!localPlayer) return;
+
+    let ability = localPlayer.config.ability;
+    if (selectedKey === 'Smeargle' && state.copiedAbility) {
+        ability = state.copiedAbility;
+    }
     
+    // For abilities like transform/illusion that return a value
     const result = localPlayer.useAbility(target);
     if (result && result.isIllusion) {
         await applyVisualChange(result.visualKey);
@@ -3197,10 +3247,6 @@ async function activateTargetedAbility(target) {
     }
 
     // --- SMEARGLE FIX 5 of 5 (Part B): Apply cooldown for targeted abilities ---
-    let ability = localPlayer.config.ability;
-    if (selectedKey === 'Smeargle' && state.copiedAbility) {
-        ability = state.copiedAbility;
-    }
     if (ability) {
         state.abilityCooldown = ability.cooldown;
     }
@@ -3224,7 +3270,7 @@ async function applyCharacterChange(newKey) {
 
         // Re-instantiate player class on transform
         const PlayerClass = characterClassMap[newKey] || Player;
-        localPlayer = new PlayerClass(state, assets, net, sfx, newKey, gameContext);
+        localPlayer = new PlayerClass(state, assets, net, sfx, newKey, gameContext, CHARACTERS);
     }
 }
 

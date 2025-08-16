@@ -518,12 +518,17 @@ export class Net {
       return unsub;
   }
   
-  async performMeleeAttack() {
+  async performMeleeAttack(attackDetails = {}) {
     if (!this.currentLobbyId) return;
     const meleeAttacksRef = ref(this.db, `lobbies/${this.currentLobbyId}/melee_attacks`);
     const newAttackRef = push(meleeAttacksRef);
+    
+    // Use the attacker ID from the details, or default to the current player
+    const attackerId = attackDetails.by || this.auth.currentUser?.uid;
+
     await set(newAttackRef, {
-      by: this.auth.currentUser?.uid,
+      ...attackDetails, // Pass along all provided details (isEnemy, damage, etc.)
+      by: attackerId,   // Set the attacker's ID
       ts: rtdbServerTimestamp()
     });
   }
