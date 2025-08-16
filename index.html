@@ -16,17 +16,13 @@
     <canvas id="game" width="960" height="640"></canvas>
   </main>
 
-  <!-- Player HUD Container -->
   <div id="player-hud" class="hidden">
-    <!-- Player info will be dynamically inserted here -->
-  </div>
+    </div>
 
-  <!-- Shop Icon -->
   <div id="shop-icon" class="shop-icon-container hidden">
       <img src="assets/shop.png" alt="Shop" />
   </div>
 
-  <!-- Shop Modal -->
   <div id="shop-modal" class="shop-modal hidden">
       <div class="shop-content">
           <h2>Shop</h2>
@@ -35,14 +31,12 @@
       </div>
   </div>
 
-  <!-- Inventory Display -->
   <div id="inventory-display" class="inventory-display hidden">
       <h3>Inventory</h3>
       <div id="inventory-items"></div>
   </div>
 
 
-  <!-- Auth -->
   <div id="auth" class="auth-overlay">
     <form id="authForm" autocomplete="off" class="card" style="max-width:420px;width:min(92vw,420px);">
       <h2 id="authTitle">Sign up</h2>
@@ -58,7 +52,6 @@
     </form>
   </div>
 
-  <!-- Character select -->
   <div id="select" class="hidden">
     <div style="display:grid;gap:14px;place-items:center">
       <h1>Pick your character</h1>
@@ -67,7 +60,6 @@
     </div>
   </div>
 
-  <!-- Lobbies overlay -->
   <div id="lobbies" class="hidden">
     <div id="leaderboard" class="leaderboard-container"></div>
     <div style="display:grid;gap:14px;place-items:center;max-width:min(1000px,92vw);width:100%;">
@@ -88,7 +80,6 @@
     </div>
   </div>
 
-  <!-- Input Select -->
   <div id="input-select" class="hidden">
     <div style="display:grid;gap:14px;place-items:center">
       <h1>How are you playing?</h1>
@@ -99,15 +90,15 @@
     </div>
   </div>
 
-  <!-- Mobile Controls -->
-  <!-- Floating Joystick -->
   <div id="joystick-container">
       <div id="joystick-thumb"></div>
   </div>
-  <!-- Action Buttons -->
   <div id="mobile-controls" class="hidden">
     <div id="action-buttons">
-      <button id="ability-btn" class="mobile-action-btn" data-key="e">ABILITY</button>
+      <button id="ability-btn" class="mobile-action-btn" data-key="e">
+        <span class="mobile-action-btn-text">ABILITY</span>
+        <div class="cooldown-overlay"></div>
+      </button>
       <button id="attack-btn" class="mobile-action-btn" data-key="j">ATTACK</button>
       <button id="shoot-btn" class="mobile-action-btn" data-key="k">SHOOT</button>
       <button id="hop-btn" class="mobile-action-btn" data-key=" ">JUMP</button>
@@ -116,7 +107,6 @@
     </div>
   </div> 
 
-  <!-- Mobile Chat Input -->
   <div id="mobile-chat-overlay" class="hidden">
     <form id="mobile-chat-form">
       <input id="mobile-chat-input" type="text" placeholder="Type a message..." autocomplete="off" maxlength="140">
