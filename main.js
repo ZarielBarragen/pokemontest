@@ -102,6 +102,10 @@ const shopItemsContainer = document.getElementById("shop-items");
 const inventoryDisplay = document.getElementById("inventory-display");
 const inventoryItemsContainer = document.getElementById("inventory-items");
 const leaderboardEl = document.getElementById("leaderboard");
+// --- SMEARGLE FIX 1 of 5: Get references to the ability button UI ---
+const abilityBtn = document.getElementById("ability-btn");
+const abilityBtnText = abilityBtn.querySelector(".mobile-action-btn-text");
+const abilityCooldownOverlay = abilityBtn.querySelector(".cooldown-overlay");
 
 
 // ---------- Chat HUD (mount/unmount inside lobbies only) ----------
@@ -867,6 +871,7 @@ function resetPlayerState() {
     state.abilityTargetingMode = null;
     state.highlightedPlayers = [];
     state.isFlying = false;
+    // --- SMEARGLE FIX 2 of 5: Reset copied ability when leaving a lobby ---
     state.copiedAbility = null;
     state.rideBySlashActive = false;
     state.rideBySlashTimer = 0;
@@ -1164,7 +1169,6 @@ function startNetListeners(){
   net.subscribeToHits(async hit => {
       if (state.invulnerableTimer > 0 || state.aquaShieldActive) return;
 
-      // --- ZOROARK FIX 4 of 4: Update how illusion is broken by damage ---
       if (state.isIllusion) {
           const result = localPlayer.revertAbility();
           if (result && result.isIllusion) {
@@ -1967,6 +1971,33 @@ function drawChatBubble(text, typing, frame, wx, wy, z, scale){
 let frameDt = 1/60;
 let last = 0;
 
+// --- SMEARGLE FIX 3 of 5: Create a new function to update the ability UI ---
+function updateAbilityUI() {
+    if (!state.ready || !abilityBtn) return;
+
+    let text = "ABILITY";
+    let currentAbility = localPlayer.config.ability;
+
+    if (selectedKey === 'Smeargle' && state.copiedAbility) {
+        currentAbility = state.copiedAbility;
+        text = state.copiedAbility.name.toUpperCase();
+    }
+
+    if (abilityBtnText.textContent !== text) {
+        abilityBtnText.textContent = text;
+    }
+
+    if (state.abilityCooldown > 0) {
+        abilityBtn.disabled = true;
+        abilityCooldownOverlay.textContent = Math.ceil(state.abilityCooldown);
+        abilityCooldownOverlay.style.opacity = '1';
+    } else {
+        abilityBtn.disabled = false;
+        abilityCooldownOverlay.style.opacity = '0';
+    }
+}
+
+
 function updatePlayerHUD() {
     if (!state.ready || !net.auth.currentUser) {
         playerHudEl.innerHTML = '';
@@ -2049,6 +2080,8 @@ function update(dt){
     tryStartHop();
     keys.delete(" "); // Consume the key press
   }
+  
+  updateAbilityUI();
 
   if (keys.has("e")) {
       handleAbilityKeyPress();
@@ -3112,7 +3145,15 @@ function tryRangedAttack() {
 async function handleAbilityKeyPress() {
     if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion)) return;
 
-    const abilityName = localPlayer.config.ability?.name;
+    // --- SMEARGLE FIX 4 of 5: The main logic override for executing copied abilities ---
+    let ability = localPlayer.config.ability; // Get the default ability
+    if (selectedKey === 'Smeargle' && state.copiedAbility) {
+        ability = state.copiedAbility; // If Smeargle has a copied ability, use that instead!
+    }
+
+    if (ability?.type === 'passive') return; // Do nothing if the ability is passive
+    
+    const abilityName = ability?.name;
 
     // Special handling for toggle abilities like Sableye's phase
     if (abilityName === 'phase') {
@@ -3120,7 +3161,6 @@ async function handleAbilityKeyPress() {
         return;
     }
 
-    // --- ZOROARK FIX 3 of 4: Update how illusion is reverted by keypress ---
     if ((abilityName === 'transform' && state.isTransformed) ||
         (abilityName === 'illusion' && state.isIllusion)) {
         const result = localPlayer.revertAbility();
@@ -3133,7 +3173,7 @@ async function handleAbilityKeyPress() {
     }
 
     // The rest of the logic for activating abilities
-    if (['transform', 'illusion', 'hypnotize', 'copy'].includes(abilityName)) {
+    if (['transform', 'illusion', 'hypnotize', 'copy', 'sandSnare'].includes(abilityName)) {
         state.abilityTargetingMode = abilityName;
         if (abilityName === 'copy') {
             state.highlightedPlayers = Array.from(remote.values())
@@ -3145,24 +3185,31 @@ async function handleAbilityKeyPress() {
         return;
     }
     
-    if (abilityName === 'sandSnare') {
-        state.abilityTargetingMode = 'sandSnare';
-        state.highlightedPlayers = [];
-        return;
-    }
-
+    // For non-targeted abilities that need to be called on the player instance
     localPlayer.useAbility();
+    // --- SMEARGLE FIX 5 of 5 (Part A): Apply cooldown for non-targeted abilities ---
+    if (ability) {
+        state.abilityCooldown = ability.cooldown;
+    }
 }
 
 async function activateTargetedAbility(target) {
     if (!localPlayer) return;
     
-    // --- ZOROARK FIX 2 of 4: Update how abilities are activated to check for illusions ---
     const result = localPlayer.useAbility(target);
     if (result && result.isIllusion) {
         await applyVisualChange(result.visualKey);
     } else if (result) {
         await applyCharacterChange(result);
+    }
+
+    // --- SMEARGLE FIX 5 of 5 (Part B): Apply cooldown for targeted abilities ---
+    let ability = localPlayer.config.ability;
+    if (selectedKey === 'Smeargle' && state.copiedAbility) {
+        ability = state.copiedAbility;
+    }
+    if (ability) {
+        state.abilityCooldown = ability.cooldown;
     }
 }
 
@@ -3188,7 +3235,6 @@ async function applyCharacterChange(newKey) {
     }
 }
 
-// --- ZOROARK FIX 1 of 4: Added new function for visual-only character swaps ---
 async function applyVisualChange(newKey) {
     const assets = await loadCharacterAssets(newKey);
     if (assets) {
