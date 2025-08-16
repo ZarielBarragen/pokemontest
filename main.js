@@ -1443,7 +1443,7 @@ async function startWithCharacter(cfg, map){
 
     // Instantiate the correct player class
     const PlayerClass = characterClassMap[selectedKey] || Player;
-    localPlayer = new PlayerClass(state, assets, net, sfx, selectedKey, gameContext);
+    localPlayer = new PlayerClass(state, assets, net, sfx, selectedKey, gameContext, CHARACTERS);
 
     state.walkImg = assets.walk;
     state.idleImg = assets.idle;
@@ -1983,7 +1983,7 @@ function updateAbilityUI() {
         text = state.copiedAbility.name.toUpperCase();
     }
 
-    if (abilityBtnText.textContent !== text) {
+    if (abilityBtnText && abilityBtnText.textContent !== text) {
         abilityBtnText.textContent = text;
     }
 
@@ -2949,7 +2949,7 @@ function updatePlayerProjectiles(dt) {
                 if (dist < PLAYER_R + PROJECTILE_R) {
                     const isKill = (player.hp - p.damage) <= 0;
                     if(isKill) addXp(100);
-                    net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
+                    net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
                     hit = true;
                     break;
                 }

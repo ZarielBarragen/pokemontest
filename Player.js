@@ -10,8 +10,9 @@ export class Player {
      * @param {object} sfx The sound effects pool.
      * @param {string} characterKey The name of the character (e.g., "Sableye").
      * @param {object} gameContext An object containing shared game maps (e.g., sandTiles).
+     * @param {object} allCharsConfig The master configuration object for all characters.
      */
-    constructor(state, assets, net, sfx, characterKey, gameContext = {}) {
+    constructor(state, assets, net, sfx, characterKey, gameContext = {}, allCharsConfig = {}) { // --- PARAMETER ADDED ---
         this.state = state;
         this.assets = assets;
         this.net = net;
@@ -23,6 +24,10 @@ export class Player {
 
         // This gives the class access to shared game maps like sandTiles, poisonTiles, etc.
         this.game = gameContext;
+
+        // --- LINE ADDED ---
+        // This gives every character access to the master config list for all other characters.
+        this.ALL_CHARS = allCharsConfig;
     }
 
     /**

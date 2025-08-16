@@ -1,11 +1,11 @@
 import { Player } from '../Player.js';
 
 /**
- * Represents Smeargle, who can copy the ability of another player.
+ * Represents Smeargle, who can copy the active ability of another player.
  */
 export class Smeargle extends Player {
     constructor(state, assets, net, sfx, characterKey, gameContext) {
-        super(state, assets, net, sfx, characterKey, gameContext);
+        super(state, assets, net, sfx, characterKey, gameContext, CHARACTERS);
     }
 
     /**
@@ -15,29 +15,19 @@ export class Smeargle extends Player {
     useAbility(targetPlayer) {
         if (!targetPlayer) return;
 
-        console.log("--- Smeargle Debug Start ---");
-
-        // 1. Let's see what the target player object looks like
-        console.log("Target Player Object:", targetPlayer);
-
         const targetCharacterKey = targetPlayer.originalCharacterKey || targetPlayer.character;
-        // 2. Let's confirm we're getting the correct character name (should be "Sableye")
-        console.log("Resolved Target Key:", targetCharacterKey);
+        
+        // Use the injected master list instead of a global variable
+        const targetCharacterConfig = this.ALL_CHARS[targetCharacterKey];
 
-        const targetCharacterConfig = CHARACTERS[targetCharacterKey];
-        // 3. Let's see the configuration object found for that key
-        console.log("Target's Config from CHARACTERS:", targetCharacterConfig);
-
-        // 4. Let's check the ability object specifically
-        console.log("Target's Ability Object:", targetCharacterConfig?.ability);
-
+        // Check if the target has an ability and it's active (not passive)
         if (targetCharacterConfig?.ability?.type === 'active') {
             this.state.copiedAbility = { ...targetCharacterConfig.ability };
-            console.log(`SUCCESS: Smeargle copied ${this.state.copiedAbility.name}!`);
+            console.log(`Smeargle copied ${this.state.copiedAbility.name}!`);
         } else {
-            console.error("FAILURE: Target has no active ability to copy.");
+            // If the target has no active ability, we'll store a "dud" passive ability
+            this.state.copiedAbility = { name: 'None', type: 'passive' };
+            console.log("Target has no active ability to copy.");
         }
-        
-        console.log("--- Smeargle Debug End ---");
     }
 }
