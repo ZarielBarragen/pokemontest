@@ -1167,14 +1167,17 @@ async function loadCharacterAssets(key) {
 
 // ---------- Net listeners ----------
 function startNetListeners(){
-  net.subscribeToHits(hit => {
+  net.subscribeToHits(async hit => {
       if (state.invulnerableTimer > 0 || state.aquaShieldActive) return;
 
-      // If in illusion, break it
+      // --- CHANGE 4: Update how illusion is broken by damage ---
       if (state.isIllusion) {
-          const newKey = localPlayer.revertAbility();
-          if (newKey) applyCharacterChange(newKey);
+          const result = localPlayer.revertAbility();
+          if (result && result.isIllusion) {
+              await applyVisualChange(result.visualKey);
+          }
       }
+      
       // If asleep, wake up
       if (state.isAsleep) {
           state.isAsleep = false;
@@ -3127,11 +3130,15 @@ async function handleAbilityKeyPress() {
         return;
     }
 
-    // Handling for abilities that need an explicit revert action
+    // --- CHANGE 3: Update how illusion is reverted by keypress ---
     if ((abilityName === 'transform' && state.isTransformed) ||
         (abilityName === 'illusion' && state.isIllusion)) {
-        const newKey = localPlayer.revertAbility();
-        if (newKey) await applyCharacterChange(newKey);
+        const result = localPlayer.revertAbility();
+        if (result && result.isIllusion) {
+            await applyVisualChange(result.visualKey);
+        } else if (result) {
+            await applyCharacterChange(result);
+        }
         return;
     }
 
@@ -3159,9 +3166,13 @@ async function handleAbilityKeyPress() {
 
 async function activateTargetedAbility(target) {
     if (!localPlayer) return;
-    const newKey = localPlayer.useAbility(target);
-    if (newKey) { // For transform/illusion, this will be the new character key
-        await applyCharacterChange(newKey);
+    
+    // --- CHANGE 2: Update how abilities are activated to check for illusions ---
+    const result = localPlayer.useAbility(target);
+    if (result && result.isIllusion) {
+        await applyVisualChange(result.visualKey);
+    } else if (result) {
+        await applyCharacterChange(result);
     }
 }
 
@@ -3184,6 +3195,23 @@ async function applyCharacterChange(newKey) {
         // Re-instantiate player class on transform
         const PlayerClass = characterClassMap[newKey] || Player;
         localPlayer = new PlayerClass(state, assets, net, sfx, newKey, gameContext);
+    }
+}
+
+// --- CHANGE 1: Added new function for visual-only character swaps ---
+async function applyVisualChange(newKey) {
+    const assets = await loadCharacterAssets(newKey);
+    if (assets) {
+        // Only update the visuals and state related to appearance
+        state.walkImg = assets.walk;
+        state.idleImg = assets.idle;
+        state.hopImg = assets.hop;
+        state.hurtImg = assets.hurt;
+        state.attackImg = assets.attack;
+        state.shootImg = assets.shoot;
+        state.sleepImg = assets.sleep;
+        state.animMeta = assets.meta;
+        // NOTE: We do NOT re-instantiate localPlayer or change selectedKey here.
     }
 }
 
