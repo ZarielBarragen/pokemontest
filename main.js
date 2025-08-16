@@ -149,6 +149,8 @@ function unmountChatLog(){
 const TILE = 48;
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
+// --- BUG FIX START ---
+// This function is modified to include the speed reduction from Cacturne's sand traps.
 function currentSpeedMult(){ 
     const cfg = CHARACTERS[selectedKey]; 
     let mult = (cfg && cfg.speed) ? cfg.speed : 1.0;
@@ -157,8 +159,14 @@ function currentSpeedMult(){
     if (state.equippedItem === 'cyclizarMotor') {
         mult *= (selectedKey === 'Cyclizar' ? 3 : 2);
     }
+    // Check if the player is on a sand tile and apply slow
+    const playerTileKey = `${Math.floor(state.x / TILE)},${Math.floor(state.y / TILE)}`;
+    if (sandTiles.has(playerTileKey)) {
+        mult *= 0.7; // 30% slow
+    }
     return mult;
 }
+// --- BUG FIX END ---
 const WALK_FPS = 10, IDLE_FPS = 6, HOP_FPS = 12, HURT_FPS = 12, ATTACK_FPS = 12, SLEEP_FPS = 4;
 const IDLE_INTERVAL = 5;
 const HOP_HEIGHT = Math.round(TILE * 0.55);
@@ -833,6 +841,12 @@ const state = {
   aquaShieldTimer: 0,
   aquaShieldCooldown: 0,
   mouseTile: {x: null, y: null},
+  // --- BUG FIX START ---
+  // Added properties to track poison status
+  isPoisoned: false,
+  poisonTimer: 0,
+  lastPoisonTick: 0,
+  // --- BUG FIX END ---
 };
 
 function resetPlayerState() {
@@ -2144,6 +2158,32 @@ function update(dt){
       }
   }
 
+    // --- BUG FIX START ---
+    // This block handles the poison damage for the local player.
+    const playerTileKey = `${Math.floor(state.x / TILE)},${Math.floor(state.y / TILE)}`;
+    if (poisonTiles.has(playerTileKey) && !state.isPoisoned) {
+        state.isPoisoned = true;
+        state.poisonTimer = 5; // Poison lasts for 5 seconds
+        state.lastPoisonTick = 0; // Immediate first tick
+    }
+
+    if (state.isPoisoned) {
+        state.poisonTimer -= dt;
+        state.lastPoisonTick -= dt;
+
+        if (state.lastPoisonTick <= 0) {
+            state.hp = Math.max(0, state.hp - 2); // 2 damage per second
+            net.updateState({ hp: state.hp });
+            if (state.hp <= 0) goBackToSelect();
+            state.lastPoisonTick = 1; // Reset tick interval
+        }
+
+        // Remove poison effect if timer runs out or player moves off the tile
+        if (state.poisonTimer <= 0 || !poisonTiles.has(playerTileKey)) {
+            state.isPoisoned = false;
+        }
+    }
+    // --- BUG FIX END ---
 
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;

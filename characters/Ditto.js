@@ -1,44 +1,28 @@
-import { Player } from '../Player.js';
-
-/**
- * Represents Ditto, who can transform into other characters.
- */
-export class Ditto extends Player {
-    constructor(state, assets, net, sfx, characterKey) {
-        super(state, assets, net, sfx, characterKey);
+character_classes["Ditto"] = class extends Character {
+    constructor(player, game) {
+        super(player, game);
+        this.sprite = new Sprite(this.game.contexts.players, "assets/Ditto/walk.png", 4, 1, 0, 0, 32, 32, 150);
     }
 
-    /**
-     * Transforms Ditto into a target player's character.
-     * @param {object} targetPlayer - The remote player object to transform into.
-     * @returns {string|null} The character key to transform into, or null if failed.
-     */
-    useAbility(targetPlayer) {
-        if (this.state.isTransformed || !targetPlayer) return null;
-
-        this.state.isTransformed = true;
-        this.state.originalCharacterKey = this.characterKey;
-        const targetKey = targetPlayer.originalCharacterKey || targetPlayer.character;
-
-        this.net.broadcastAbility({ name: 'transform', targetCharacterKey: targetKey });
-        this.state.abilityCooldown = this.config.ability.cooldown;
-        
-        return targetKey; // Return the key to transform into
+    on_key_down(e) {
+        // When 'e' is pressed and Ditto is NOT already transformed
+        if (e.key === 'e' && !this.player.is_transformed) {
+            // Find a nearby player to transform into
+            for (let other_player of this.game.players) {
+                // Check for collision and ensure it's not another Ditto
+                if (other_player !== this.player && this.player.is_colliding_with(other_player) && other_player.characterName !== "Ditto") {
+                    this.transform(other_player);
+                    break; // Transform and stop searching
+                }
+            }
+        }
     }
 
-    /**
-     * Reverts Ditto's transformation back to its original form.
-     * @returns {string|null} The original character key to revert to, or null if not transformed.
-     */
-    revertAbility() {
-        if (!this.state.isTransformed) return null;
-        
-        const originalKey = this.state.originalCharacterKey;
-        this.state.isTransformed = false;
-        this.state.originalCharacterKey = null;
-        this.state.abilityCooldown = 0; // FIX: Reset cooldown
-
-        this.net.broadcastAbility({ name: 'transform', targetCharacterKey: originalKey, isRevert: true });
-        return originalKey; // Return the key to revert to
+    transform(target_player) {
+        // Set the player's transformation state
+        this.player.original_character = "Ditto";
+        this.player.is_transformed = true;
+        // Change the character
+        this.player.change_character(target_player.characterName);
     }
 }
