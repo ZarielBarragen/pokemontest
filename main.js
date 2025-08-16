@@ -1146,7 +1146,8 @@ function startNetListeners(){
 
       // If in illusion, break it
       if (state.isIllusion) {
-          revertIllusion();
+          const newKey = localPlayer.revertAbility();
+          if (newKey) applyCharacterChange(newKey);
       }
       // If asleep, wake up
       if (state.isAsleep) {
@@ -3062,7 +3063,7 @@ function tryRangedAttack() {
 
 // ---------- ABILITY LOGIC ----------
 
-function handleAbilityKeyPress() {
+async function handleAbilityKeyPress() {
     if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion)) return;
 
     const abilityName = localPlayer.config.ability?.name;
@@ -3076,7 +3077,8 @@ function handleAbilityKeyPress() {
     // Handling for abilities that need an explicit revert action
     if ((abilityName === 'transform' && state.isTransformed) ||
         (abilityName === 'illusion' && state.isIllusion)) {
-        localPlayer.revertAbility();
+        const newKey = localPlayer.revertAbility();
+        if (newKey) await applyCharacterChange(newKey);
         return;
     }
 
@@ -3102,9 +3104,12 @@ function handleAbilityKeyPress() {
     localPlayer.useAbility();
 }
 
-function activateTargetedAbility(target) {
+async function activateTargetedAbility(target) {
     if (!localPlayer) return;
-    localPlayer.useAbility(target);
+    const newKey = localPlayer.useAbility(target);
+    if (newKey) { // For transform/illusion, this will be the new character key
+        await applyCharacterChange(newKey);
+    }
 }
 
 async function applyCharacterChange(newKey) {
