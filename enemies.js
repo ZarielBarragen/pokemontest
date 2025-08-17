@@ -1,6 +1,5 @@
 import { TILE, isFacing } from './utils.js';
 
-// --- ANIMATION FIX: Helper function to determine direction from a vector ---
 const DIR_VECS = {
   down:[0,1], downRight:[1,1], right:[1,0], upRight:[1,-1],
   up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1], 
@@ -44,7 +43,6 @@ class Enemy {
         let minPlayerDist = Infinity;
 
         for (const player of players) {
-            // --- FIX: Ignore phasing and flying players ---
             if (player.isPhasing || player.isFlying) continue; 
             
             const dist = Math.hypot(player.x - this.x, player.y - this.y);
@@ -89,7 +87,7 @@ export class Turret extends Enemy {
         const { player, distance } = this.findClosestPlayer(players);
         
         if (player && distance < this.detectionRange) {
-            this.attackCooldown = 2.0; // Fire every 2 seconds
+            this.attackCooldown = 2.0;
             
             const dx = player.x - this.x;
             const dy = player.y - this.y;
@@ -146,13 +144,11 @@ export class Brawler extends Enemy {
             this.dir = vecToDir(dx, dy);
 
             if (distance > this.attackRange) {
-                // Chase player
                 const moveX = (dx / distance) * this.speed * dt;
                 const moveY = (dy / distance) * this.speed * dt;
                 this.x += moveX;
                 this.y += moveY;
             } else if (this.attackCooldown <= 0) {
-                // Attack player
                 this.attackCooldown = 1.5;
                 this.attackAnimTimer = 1.0;
                 net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 });
@@ -223,6 +219,7 @@ export class WeepingAngel extends Enemy {
         this.stareTimer = 0;
         this.isBeingLookedAt = false;
         this.validAttackers = ['Sableye', 'Mimikyu', 'Decidueye'];
+        this.despawnTimer = 90; // --- FIX: Add a 90-second despawn timer ---
     }
 
     takeDamage(amount, fromCharacterKey = null) {
@@ -238,7 +235,17 @@ export class WeepingAngel extends Enemy {
         const { player, distance } = this.findClosestPlayer(players);
         this.target = player;
 
-        if (!this.target) return;
+        if (!this.target) {
+            // --- FIX: If no target, count down to despawn ---
+            this.despawnTimer -= dt;
+            if (this.despawnTimer <= 0) {
+                this.isDefeated = true;
+            }
+            return;
+        }
+
+        // If a target is found, reset the despawn timer
+        this.despawnTimer = 90;
 
         this.isBeingLookedAt = players.some(p => {
             const dist = Math.hypot(p.x - this.x, p.y - this.y);
