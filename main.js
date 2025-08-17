@@ -37,6 +37,7 @@ const gameContext = {
 };
 
 
+import { generateMap, mulberry32 } from './mapGenerator.js';
 import { Net, firebaseConfig } from "./net.js";
 import { Player } from './Player.js';
 // --- ENEMY REFACTOR 1 of 6: Import the new enemy classes ---
@@ -77,6 +78,7 @@ const lobbyHintEl    = document.getElementById("lobbyHint");
 const newLobbyNameEl = document.getElementById("newLobbyName");
 const createLobbyBtn = document.getElementById("createLobbyBtn");
 const createPlainsLobbyBtn = document.getElementById("createPlainsLobbyBtn");
+const createForestLobbyBtn = document.getElementById("createForestLobbyBtn");
 const refreshBtn     = document.getElementById("refreshLobbiesBtn");
 const backBtn        = document.getElementById("backToSelectBtn");
 const authEl         = document.getElementById("auth");
@@ -206,9 +208,10 @@ const EDGE_LIP    = "rgba(255,255,255,0.08)";
 const TEX = {
     floor: null, wall: null, coin: null, health: null,
     grass: null, water: null, grass_water_transition: null, palm_tree: null,
-    poison: null, sand: null
+    poison: null, sand: null,
+    grass_tiles: null, pine_tree: null
 };
-const BG_TILE_SCALE = 3.0; // visual scale for floor & wall tiles (option 2)
+const BG_TILE_SCALE = 3.0;
 
 loadImage("assets/background/floor.png").then(im => TEX.floor = im).catch(()=>{});
 loadImage("assets/background/wall.png").then(im => TEX.wall  = im).catch(()=>{});
@@ -220,6 +223,8 @@ loadImage("assets/background/grass_water_transition.png").then(im => TEX.grass_w
 loadImage("assets/background/palm_tree.png").then(im => TEX.palm_tree = im).catch(() => {});
 loadImage("assets/background/poison.png").then(im => TEX.poison = im).catch(() => {});
 loadImage("assets/background/sand.png").then(im => TEX.sand = im).catch(() => {});
+loadImage("assets/background/grass_tiles.png").then(im => TEX.grass_tiles = im).catch(() => {});
+loadImage("assets/background/pine_tree.png").then(im => TEX.pine_tree = im).catch(() => {});
 
 
 // ---------- SFX & Music ----------
@@ -681,13 +686,17 @@ refreshBtn.onclick = ()=>{
 
 // ---------- Seeded map meta ----------
 function randSeed(){ return (Math.random()*0xFFFFFFFF)>>>0; }
-function mulberry32(a){ return function(){ let t=a+=0x6D2B79F5; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
 
 createLobbyBtn.onclick = () => createLobbyFlow('dungeon');
 createPlainsLobbyBtn.onclick = () => createLobbyFlow('plains');
+createForestLobbyBtn.onclick = () => createLobbyFlow('forest');
 
 async function createLobbyFlow(type) {
-    const btn = (type === 'dungeon') ? createLobbyBtn : createPlainsLobbyBtn;
+    let btn;
+    if (type === 'dungeon') btn = createLobbyBtn;
+    else if (type === 'plains') btn = createPlainsLobbyBtn;
+    else btn = createForestLobbyBtn;
+
     const btnLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = "Creating…";
@@ -695,10 +704,12 @@ async function createLobbyFlow(type) {
     try {
         const cfg = CHARACTERS[selectedKey];
         if (!cfg) throw new Error("Pick a character first");
+        
         const visW = Math.floor(canvas.width / TILE);
         const visH = Math.floor(canvas.height / TILE);
         const w = visW * MAP_SCALE;
         const h = visH * MAP_SCALE;
+
         const seed = randSeed();
         const lobbyId = await net.createLobby((newLobbyNameEl.value || "").trim(), { w, h, seed, type });
         await net.joinLobby(lobbyId);
@@ -1121,62 +1132,6 @@ mobileChatForm.addEventListener("submit", (e) => {
 });
 
 
-// ---------- Map generation (seeded) ----------
-
-function analyzeBitmap(sheet, sx, sy, sw, sh){
-  const tmp = document.createElement("canvas");
-  tmp.width = sw; tmp.height = sh;
-  const tctx = tmp.getContext("2d", { willReadFrequently: true });
-  tctx.imageSmoothingEnabled = false;
-  tctx.drawImage(sheet, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  let minX=sw, minY=sh, maxX=-1, maxY=-1;
-  try {
-    const data = tctx.getImageData(0,0,sw,sh).data;
-    for (let y=0; y<sh; y++){
-      for (let x=0; x<sw; x++){
-        if (data[(y*sw + x)*4 + 3] > 8){
-          if (x<minX) minX=x; if (y<minY) minY=y;
-          if (x>maxX) maxX=x; if (y>maxY) maxY=y;
-        }
-      }
-    }
-  } catch {
-    return { sx:sx, sy:sy, sw, sh, ox:sw/2, oy:sh-8 + BASELINE_NUDGE_Y };
-  }
-  if (maxX<minX || maxY<minY){
-    return { sx:sx, sy:sy, sw, sh, ox:sw/2, oy:sh-8 + BASELINE_NUDGE_Y };
-  }
-  const cropW = maxX - minX + 1;
-  const cropH = maxY - minY + 1;
-  const anchorX = (minX + maxX) / 2;
-  const anchorY = maxY + BASELINE_NUDGE_Y;
-  return { sx:sx+minX, sy:sy+minY, sw:cropW, sh:cropH, ox:anchorX-minX, oy:anchorY-minY };
-}
-
-// Slice a sprite sheet into direction -> frames[] using a row-based grid.
-function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
-  const out = {};
-  if (!sheet || !cols || !rows || !dirGrid || !framesPerDir) return out;
-  const cw = Math.floor(sheet.width / Math.max(1, cols));
-  const ch = Math.floor(sheet.height / Math.max(1, rows));
-
-  for (const [dir, info] of Object.entries(dirGrid)){
-    const r = Math.max(0, Math.min(rows-1, info.row|0));
-    const start = Math.max(0, Math.min(cols-1, info.start|0));
-    const strip = [];
-    for (let i=0; i<framesPerDir; i++){
-      const c = Math.min(cols-1, start + i);
-      const sx = c * cw;
-      const sy = r * ch;
-      const frame = analyzeBitmap(sheet, sx, sy, cw, ch);
-      strip.push(frame);
-    }
-    out[dir] = strip;
-  }
-  return out;
-}
-
 // ---------- Asset Loading ----------
 const _assetCache = new Map();
 
@@ -1234,6 +1189,59 @@ async function loadCharacterAssets(key) {
     console.error(`Failed to load assets for ${key}:`, err);
     return null;
   }
+}
+
+function analyzeBitmap(sheet, sx, sy, sw, sh){
+  const tmp = document.createElement("canvas");
+  tmp.width = sw; tmp.height = sh;
+  const tctx = tmp.getContext("2d", { willReadFrequently: true });
+  tctx.imageSmoothingEnabled = false;
+  tctx.drawImage(sheet, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  let minX=sw, minY=sh, maxX=-1, maxY=-1;
+  try {
+    const data = tctx.getImageData(0,0,sw,sh).data;
+    for (let y=0; y<sh; y++){
+      for (let x=0; x<sw; x++){
+        if (data[(y*sw + x)*4 + 3] > 8){
+          if (x<minX) minX=x; if (y<minY) minY=y;
+          if (x>maxX) maxX=x; if (y>maxY) maxY=y;
+        }
+      }
+    }
+  } catch {
+    return { sx:sx, sy:sy, sw, sh, ox:sw/2, oy:sh-8 + BASELINE_NUDGE_Y };
+  }
+  if (maxX<minX || maxY<minY){
+    return { sx:sx, sy:sy, sw, sh, ox:sw/2, oy:sh-8 + BASELINE_NUDGE_Y };
+  }
+  const cropW = maxX - minX + 1;
+  const cropH = maxY - minY + 1;
+  const anchorX = (minX + maxX) / 2;
+  const anchorY = maxY + BASELINE_NUDGE_Y;
+  return { sx:sx+minX, sy:sy+minY, sw:cropW, sh:cropH, ox:anchorX-minX, oy:anchorY-minY };
+}
+
+function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
+  const out = {};
+  if (!sheet || !cols || !rows || !dirGrid || !framesPerDir) return out;
+  const cw = Math.floor(sheet.width / Math.max(1, cols));
+  const ch = Math.floor(sheet.height / Math.max(1, rows));
+
+  for (const [dir, info] of Object.entries(dirGrid)){
+    const r = Math.max(0, Math.min(rows-1, info.row|0));
+    const start = Math.max(0, Math.min(cols-1, info.start|0));
+    const strip = [];
+    for (let i=0; i<framesPerDir; i++){
+      const c = Math.min(cols-1, start + i);
+      const sx = c * cw;
+      const sy = r * ch;
+      const frame = analyzeBitmap(sheet, sx, sy, cw, ch);
+      strip.push(frame);
+    }
+    out[dir] = strip;
+  }
+  return out;
 }
 
 // ---------- Net listeners ----------
@@ -1559,6 +1567,7 @@ async function startWithCharacter(cfg, map){
   state.animMeta = { walk:{}, idle:{}, hop:{}, hurt:{}, attack:{}, shoot:{}, sleep:{} };
   state.scale = cfg.scale ?? 3;
   state.map = map;
+  gameContext.map = map;
   state.maxHp = cfg.hp;
   state.hp = cfg.hp;
 
@@ -1854,34 +1863,47 @@ function drawMap(){
   const xe = Math.min(m.w - 1, Math.ceil((state.cam.x + canvas.width) / TILE));
   const ye = Math.min(m.h - 1, Math.ceil((state.cam.y + canvas.height) / TILE));
 
-  // Render plains maps differently from dungeon maps
-  if (m.type === 'plains') {
-    // First pass: draw base terrain (grass or water)
+  const overlap = 2; 
+
+  if (m.type === 'forest') {
+      const ts = TEX.grass_tiles;
+      if (ts && m.tiles) {
+          const tileW = ts.width / 10;
+          const tileH = ts.height / 7;
+          for (let y = ys; y <= ye; y++) {
+              for (let x = xs; x <= xe; x++) {
+                  const tileData = m.tiles[y][x];
+                  if (tileData) {
+                      const dx = x * TILE - state.cam.x;
+                      const dy = y * TILE - state.cam.y;
+                      ctx.drawImage(ts, 
+                        tileData.x * tileW, tileData.y * tileH, tileW, tileH, 
+                        dx - overlap / 2, dy - overlap / 2, TILE + overlap, TILE + overlap
+                      );
+                  }
+              }
+          }
+      }
+  } else if (m.type === 'plains') {
     for (let y = ys; y <= ye; y++) {
       for (let x = xs; x <= xe; x++) {
         const dx = x * TILE - state.cam.x;
         const dy = y * TILE - state.cam.y;
         const cell = m.walls[y][x];
+        let tileToDraw = null;
         if (cell === 2) {
-          // Water tile
-          if (TEX.water) {
-            ctx.drawImage(TEX.water, 0, 0, TEX.water.width, TEX.water.height, dx, dy, TILE, TILE);
-          } else {
-            ctx.fillStyle = '#183b5f';
-            ctx.fillRect(dx, dy, TILE, TILE);
-          }
+            tileToDraw = TEX.water;
         } else {
-          // Grass tile or tree tile base is grass
-          if (TEX.grass) {
-            ctx.drawImage(TEX.grass, 0, 0, TEX.grass.width, TEX.grass.height, dx, dy, TILE, TILE);
-          } else {
-            ctx.fillStyle = '#2a6b29';
-            ctx.fillRect(dx, dy, TILE, TILE);
-          }
+            tileToDraw = TEX.grass;
+        }
+
+        if(tileToDraw) {
+            ctx.drawImage(tileToDraw, 0, 0, tileToDraw.width, tileToDraw.height, 
+                dx - overlap / 2, dy - overlap / 2, TILE + overlap, TILE + overlap
+            );
         }
       }
     }
-    // Trees are drawn after ground effects
     for (let y = ys; y <= ye; y++) {
       for (let x = xs; x <= xe; x++) {
         if (m.walls[y][x] !== 1) continue;
@@ -1889,15 +1911,10 @@ function drawMap(){
         const dy = y * TILE - state.cam.y;
         if (TEX.palm_tree) {
           ctx.drawImage(TEX.palm_tree, 0, 0, TEX.palm_tree.width, TEX.palm_tree.height, dx, dy, TILE, TILE);
-        } else {
-          // fallback: draw a dark green square for trees
-          ctx.fillStyle = '#1c431b';
-          ctx.fillRect(dx, dy, TILE, TILE);
         }
       }
     }
-  } else { // Dungeon (default) rendering: floor, walls, and edges
-      // Draw floor background
+  } else { // Dungeon (default) rendering
       if (TEX.floor) {
         for (let y = ys; y <= ye; y++) {
           for (let x = xs; x <= xe; x++) {
@@ -1910,7 +1927,6 @@ function drawMap(){
         ctx.fillStyle = BG_FLOOR;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
-      // Draw walls
       for (let y = ys; y <= ye; y++) {
         for (let x = xs; x <= xe; x++) {
           if (!m.walls[y][x]) continue;
@@ -1931,7 +1947,6 @@ function drawMap(){
           }
         }
       }
-      // Draw vertical edges
       for (let y = ys; y <= ye; y++) {
         for (let xb = Math.max(1, xs); xb <= Math.min(m.w - 1, xe); xb++) {
           if (!m.edgesV[y][xb]) continue;
@@ -1946,7 +1961,6 @@ function drawMap(){
           ctx.fillRect(Math.floor(cx + GAP_W / 2), y0, 1, TILE);
         }
       }
-      // Draw horizontal edges
       for (let yb = Math.max(1, ys); yb <= Math.min(m.h - 1, ye); yb++) {
         for (let x = xs; x <= xe; x++) {
           if (!m.edgesH[yb][x]) continue;
@@ -1963,23 +1977,25 @@ function drawMap(){
       }
   }
 
+  // Ground effects like poison and sand are drawn for all map types
   for (const [key, tile] of poisonTiles.entries()) {
-      const [x, y] = key.split(',').map(Number);
-      if (x >= xs && x <= xe && y >= ys && y <= ye) {
-          if (TEX.poison) {
-              ctx.drawImage(TEX.poison, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
-          }
-      }
+    const [x, y] = key.split(',').map(Number);
+    if (x >= xs && x <= xe && y >= ys && y <= ye) {
+        if (TEX.poison) {
+            ctx.drawImage(TEX.poison, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
+        }
+    }
   }
   for (const [key, tile] of sandTiles.entries()) {
-      const [x, y] = key.split(',').map(Number);
-      if (x >= xs && x <= xe && y >= ys && y <= ye) {
-          if (TEX.sand) {
-              ctx.drawImage(TEX.sand, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
-          }
-      }
+    const [x, y] = key.split(',').map(Number);
+    if (x >= xs && x <= xe && y >= ys && y <= ye) {
+        if (TEX.sand) {
+            ctx.drawImage(TEX.sand, x * TILE - state.cam.x, y * TILE - state.cam.y, TILE, TILE);
+        }
+    }
   }
 }
+
 function drawNameTagAbove(name, level, frame, wx, wy, z, scale){
   if (!frame) return;
   const topWorldY = wy - frame.oy * scale - (z || 0);
@@ -2096,7 +2112,6 @@ function drawChatBubble(text, typing, frame, wx, wy, z, scale){
 let frameDt = 1/60;
 let last = 0;
 
-// --- SMEARGLE FIX 3 of 5: Create a new function to update the ability UI ---
 function updateAbilityUI() {
     if (!state.ready || !abilityBtn) return;
 
@@ -2174,19 +2189,17 @@ function getRemotePlayerSmoothedPos(r) {
         }
     }
 
-    // If no suitable points, extrapolate from the last two points
     if (!before) {
         before = r.history[r.history.length - 2] || r.history[r.history.length - 1];
         after = r.history[r.history.length - 1];
     }
     
-    if (!after) { // Should not happen if history has at least 2 points
+    if (!after) {
         return { x: before.x, y: before.y };
     }
 
 
     const timeDiff = after.t - before.t;
-    // Avoid division by zero
     if (timeDiff <= 0) {
         return { x: before.x, y: before.y };
     }
@@ -2366,6 +2379,7 @@ function update(dt){
   if (state.anim === 'hurt') {
     state.frameTime += dt;
     const tpf = 1 / HURT_FPS;
+    // --- FIX: Corrected typo from 'framesPerdir' to 'framesPerDir' ---
     const hurtFrames = CHARACTERS[selectedKey].hurt.framesPerDir;
     const frameOrder = [...Array(hurtFrames).keys()];
     while (state.frameTime >= tpf) {
@@ -2481,6 +2495,7 @@ function update(dt){
     }
   }
 }
+
 function draw(){
   ctx.fillStyle = '#061b21';
   ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -2496,16 +2511,33 @@ function draw(){
 
   const actors = [];
   
+  if (state.map.type === 'forest' && state.map.trees) {
+      for (const tree of state.map.trees) {
+          actors.push({
+              kind: "tree",
+              x: tree.x * TILE + TILE / 2,
+              y: (tree.y + 1) * TILE, // Sort by the bottom of the tree trunk
+              tileX: tree.x,
+              tileY: tree.y,
+              src: TEX.pine_tree
+          });
+      }
+  }
+  
   for (const enemy of enemies.values()) {
       actors.push({
           kind: "enemy",
-          id: enemy.id // Pass id for lookup
+          id: enemy.id,
+          x: enemy.x,
+          y: enemy.y,
       });
   }
   
   for (const coin of coins.values()) {
       actors.push({
           kind: "coin",
+          x: coin.x,
+          y: coin.y,
           ...coin
       });
   }
@@ -2513,6 +2545,8 @@ function draw(){
   for (const pack of healthPacks.values()) {
       actors.push({
           kind: "healthpack",
+          x: pack.x,
+          y: pack.y,
           ...pack
       });
   }
@@ -2658,11 +2692,21 @@ function draw(){
     });
   }
 
-  actors.sort((a,b)=> (a.y - (a.z || 0)*0.35) - (b.y - (b.z || 0)*0.35));
+  actors.sort((a,b)=> a.y - b.y);
   
   for (const a of actors){
+    if (a.kind === 'tree') {
+        if(a.src) {
+            const treeWidth = TILE * 2;
+            const treeHeight = TILE * 4;
+            const dx = a.tileX * TILE - state.cam.x - (treeWidth - TILE) / 2;
+            const dy = (a.tileY - 3) * TILE - state.cam.y;
+            ctx.drawImage(a.src, dx, dy, treeWidth, treeHeight);
+        }
+        continue;
+    }
     if (a.kind === 'enemy') {
-        const enemy = enemies.get(a.id); // Get the full enemy object
+        const enemy = enemies.get(a.id);
         if (enemy) {
             drawShadow(enemy.x, enemy.y, 0, 3.0, false);
             enemy.draw(ctx, state.cam);
@@ -2713,23 +2757,8 @@ function draw(){
     }
   
     const f = a.frame, scale = a.scale;
-    if (!f || !a.src) continue; // Safety check for drawImage
+    if (!f || !a.src) continue;
 
-    ctx.save(); // Save context state
-    if (state.playerViewMode && (a.kind === 'local' || a.kind === 'remote')) {
-        ctx.filter = 'drop-shadow(0 0 8px #aaddff) brightness(1.6)';
-    }
-
-    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
-        ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
-    }
-    
-    if (a.isHighlighted) {
-        // Combine filters if playerViewMode is also active
-        const existingFilter = ctx.filter === 'none' ? '' : ctx.filter + ' ';
-        ctx.filter = existingFilter + 'drop-shadow(0 0 8px #ffffaa) brightness(1.5)';
-    }
-    
     const dw = f.sw * scale, dh = f.sh * scale;
     const dx = Math.round(a.x - f.ox * scale - state.cam.x);
     const dy = Math.round(a.y - f.oy * scale - state.cam.y - a.z);
@@ -2737,12 +2766,29 @@ function draw(){
     const overGap = isOverGapWorld(a.x, a.y);
     drawShadow(a.x, a.y, a.z, a.scale, overGap);
     
-    const isAquaShielded = (a.kind === 'local' && state.aquaShieldActive) || (a.kind === 'remote' && remote.get(a.uid)?.aquaShieldActive);
+    ctx.save();
+
+    if ((a.kind === 'local' && state.invulnerableTimer > 0) || a.isPhasing) {
+        ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
+    }
+
+    const filters = [];
+
+    if (state.playerViewMode && (a.kind === 'local' || a.kind === 'remote')) {
+        filters.push('drop-shadow(0 0 8px #aaddff) brightness(1.6)');
+    }
+    if (a.isHighlighted) {
+        filters.push('drop-shadow(0 0 8px #ffffaa) brightness(1.5)');
+    }
+    if (filters.length > 0) {
+        ctx.filter = filters.join(' ');
+    }
 
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
-    
-    ctx.restore(); // Restore context state, removing filters for the next actor
 
+    ctx.restore();
+
+    const isAquaShielded = (a.kind === 'local' && state.aquaShieldActive) || (a.kind === 'remote' && remote.get(a.uid)?.aquaShieldActive);
     if (isAquaShielded) {
         ctx.globalAlpha = 0.4;
         ctx.beginPath();
@@ -2752,10 +2798,9 @@ function draw(){
         ctx.strokeStyle = 'rgba(150, 200, 255, 1)';
         ctx.lineWidth = 2;
         ctx.stroke();
+        ctx.globalAlpha = 1.0;
     }
-
-    ctx.globalAlpha = 1.0;
-
+    
     drawNameTagAbove(a.name, a.level, f, a.x, a.y, a.z, a.scale);
 
     if (a.kind === 'remote') {
@@ -2819,12 +2864,13 @@ function loop(ts){
 function spawnEnemies(map) {
     const enemyTypes = {
         'dungeon': { Turret: 0.5, WeepingAngel: 0.4, Brawler: 0.1 },
-        'plains':  { Turret: 0.4, Brawler: 0.5, WeepingAngel: 0.1 }
+        'plains':  { Turret: 0.4, Brawler: 0.5, WeepingAngel: 0.1 },
+        'forest':  { Turret: 0.3, Brawler: 0.55, WeepingAngel: 0.15 }
     };
     const configs = {
         Turret:       { hp: 50, speed: 0,      damage: 10, detectionRange: TILE * 7,  attackRange: 0,      projectileSpeed: TILE * 5 },
         Brawler:      { hp: 80, speed: TILE * 2, damage: 15, detectionRange: TILE * 8,  attackRange: TILE * 1.2 },
-        WeepingAngel: { hp: 100,speed: TILE * 4, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 }
+        WeepingAngel: { hp: 100,speed: TILE * 3.5, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 }
     };
 
     const weights = enemyTypes[map.type] || enemyTypes['dungeon'];
@@ -2872,9 +2918,6 @@ function spawnEnemies(map) {
         spawned++;
     }
 
-    // --- THIS IS THE FIX ---
-    // The host (lobby owner) should create the enemy instances locally immediately,
-    // without waiting for the network event to come back.
     for (const data of Object.values(enemiesData)) {
         const { id, type, x, y, config } = data;
         let enemyInstance;
@@ -2886,9 +2929,7 @@ function spawnEnemies(map) {
         }
         enemies.set(id, enemyInstance);
     }
-    // --- END FIX ---
 
-    // Now, send this initial data to the server for all other clients.
     net.setInitialEnemies(enemiesData).catch(e => console.error("Failed to set initial enemies", e));
 }
 function spawnCoins(map) {
@@ -2957,7 +2998,6 @@ function spawnHealthPacks(map) {
 function updateEnemies(dt) {
     if (!state.ready) return;
 
-    // Only the lobby owner simulates enemy AI
     if (net.auth.currentUser?.uid !== net.currentLobbyOwner) return;
 
     const allPlayers = [{ id: net.auth.currentUser.uid, x: state.x, y: state.y, isPhasing: state.isPhasing, dir: state.dir }];
@@ -2966,11 +3006,10 @@ function updateEnemies(dt) {
     for (const enemy of enemies.values()) {
         enemy.update(dt, allPlayers, state.map, net);
         
-        // Sync state changes to the network
         net.updateEnemyState(enemy.id, { x: enemy.x, y: enemy.y, hp: enemy.hp, target: enemy.target });
         
         if (enemy.isDefeated) {
-            net.removeEnemy(enemy.id); // This will trigger onRemove for all clients
+            net.removeEnemy(enemy.id);
         }
     }
 }
@@ -3019,7 +3058,6 @@ function updatePlayerProjectiles(dt) {
             continue;
         }
 
-        // Homing logic for Decidueye's arrows
         if (p.homing && p.targetId) {
             const target = enemies.get(p.targetId);
             if (target) {
@@ -3027,12 +3065,11 @@ function updatePlayerProjectiles(dt) {
                 const dx = target.x - p.x;
                 const dy = target.y - p.y;
                 const dist = Math.hypot(dx, dy);
-                if (dist > 1) { // Avoid division by zero
+                if (dist > 1) {
                     p.vx = (dx / dist) * projectileSpeed;
                     p.vy = (dy / dist) * projectileSpeed;
                 }
             } else {
-                // Target is gone, projectile no longer homes
                 p.homing = false;
                 p.targetId = null;
             }
@@ -3060,7 +3097,8 @@ function updatePlayerProjectiles(dt) {
                     if (newHp <= 0) {
                         addXp(50);
                         net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
-                        net.incrementKillCount('enemy'); // ADD THIS LINE
+                        net.incrementKillCount('enemy');
+                        state.enemyKills++;
                     } else {
                         net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
                     }
@@ -3082,7 +3120,8 @@ function updatePlayerProjectiles(dt) {
                     const isKill = (player.hp - p.damage) <= 0;
                     if(isKill) {
                         addXp(100);
-                        net.incrementKillCount('player'); // ADD THIS LINE
+                        net.incrementKillCount('player');
+                        state.playerKills++;
                     }
                     net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
                     
@@ -3120,7 +3159,7 @@ function checkHealthPackCollision() {
     for (const [id, pack] of healthPacks.entries()) {
         const dist = Math.hypot(state.x - pack.x, state.y - pack.y);
         if (dist < PLAYER_R + HEALTH_PACK_R) {
-            state.hp = Math.min(state.maxHp, state.hp + 50); // Heal for 50 HP
+            state.hp = Math.min(state.maxHp, state.hp + 50);
             net.updateState({ hp: state.hp });
             net.removeHealthPack(id);
             sfx.heal.play();
@@ -3158,7 +3197,7 @@ function tryMeleeAttack() {
     let damage = characterConfig.strength || 15;
     if (state.rideBySlashActive) {
         damage *= 2;
-        state.rideBySlashActive = false; // Consume the buff
+        state.rideBySlashActive = false;
     }
 
     for (const enemy of enemies.values()) {
@@ -3171,7 +3210,8 @@ function tryMeleeAttack() {
             if (enemy.hp <= 0) {
                 addXp(50);
                 net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
-                net.incrementKillCount('enemy'); // ADD THIS LINE
+                net.incrementKillCount('enemy');
+                state.enemyKills++;
             } else {
                 net.updateEnemyState(enemy.id, { hp: enemy.hp }).catch(e => console.error("Failed to update enemy HP", e));
             }
@@ -3186,7 +3226,8 @@ function tryMeleeAttack() {
             const isKill = (player.hp - damage) <= 0;
             if(isKill) {
                 addXp(100);
-                net.incrementKillCount('player'); // ADD THIS LINE
+                net.incrementKillCount('player');
+                state.playerKills++;
             }
             net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
         }
@@ -3211,7 +3252,6 @@ function tryRangedAttack() {
     let [vx, vy] = DIR_VECS[state.dir];
     let targetId = null;
 
-    // Decidueye's Aimbot passive
     if (cfg.ability?.name === 'aimbot') {
         let closestEnemy = null;
         let minDistance = Infinity;
@@ -3234,7 +3274,7 @@ function tryRangedAttack() {
 
     const startY = state.y - (TILE * 0.5);
     
-    let damage = cfg.rangedStrength || 20; // Use character's rangedStrength, or a default of 20
+    let damage = cfg.rangedStrength || 20;
     if (state.equippedItem === 'blastoiseBlaster' && selectedKey === 'Blastoise') {
         damage *= 2;
     }
@@ -3258,7 +3298,7 @@ function tryRangedAttack() {
 
     fire();
     if (state.equippedItem === 'blastoiseBlaster') {
-        fire(5); // second bullet
+        fire(5);
     }
 }
 
@@ -3267,19 +3307,17 @@ function tryRangedAttack() {
 async function handleAbilityKeyPress() {
     if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion)) return;
 
-    // --- SMEARGLE FIX 4 of 5: The main logic override for executing copied abilities ---
-    let ability = localPlayer.config.ability; // Get the default ability
+    let ability = localPlayer.config.ability;
     if (selectedKey === 'Smeargle' && state.copiedAbility) {
-        ability = state.copiedAbility; // If Smeargle has a copied ability, use that instead!
+        ability = state.copiedAbility;
     }
 
-    if (ability?.type === 'passive') return; // Do nothing if the ability is passive
+    if (ability?.type === 'passive') return;
     
     const abilityName = ability?.name;
 
-    // Special handling for toggle abilities like Sableye's phase
     if (abilityName === 'phase') {
-        localPlayer.useAbility(); // The useAbility method itself is a toggle
+        localPlayer.useAbility();
         return;
     }
 
@@ -3294,22 +3332,19 @@ async function handleAbilityKeyPress() {
         return;
     }
 
-    // The rest of the logic for activating abilities
     if (['transform', 'illusion', 'hypnotize', 'copy', 'sandSnare'].includes(abilityName)) {
         state.abilityTargetingMode = abilityName;
         if (abilityName === 'copy') {
             state.highlightedPlayers = Array.from(remote.values())
                 .filter(p => CHARACTERS[p.character]?.ability?.type === 'active')
                 .map(p => p.uid);
-        } else if (abilityName !== 'sandSnare') { // Sand Snare targets ground, not players
+        } else if (abilityName !== 'sandSnare') {
             state.highlightedPlayers = Array.from(remote.keys());
         }
         return;
     }
     
-    // For non-targeted abilities that need to be called on the player instance
     localPlayer.useAbility();
-    // --- SMEARGLE FIX 5 of 5 (Part A): Apply cooldown for non-targeted abilities ---
     if (ability) {
         state.abilityCooldown = ability.cooldown;
     }
@@ -3323,7 +3358,6 @@ async function activateTargetedAbility(target) {
         ability = state.copiedAbility;
     }
     
-    // For abilities like transform/illusion that return a value
     const result = localPlayer.useAbility(target);
     if (result && result.isIllusion) {
         await applyVisualChange(result.visualKey);
@@ -3331,7 +3365,6 @@ async function activateTargetedAbility(target) {
         await applyCharacterChange(result);
     }
 
-    // --- SMEARGLE FIX 5 of 5 (Part B): Apply cooldown for targeted abilities ---
     if (ability) {
         state.abilityCooldown = ability.cooldown;
     }
@@ -3353,7 +3386,6 @@ async function applyCharacterChange(newKey) {
         state.hp = Math.min(state.hp, state.maxHp);
         state.scale = assets.cfg.scale;
 
-        // Re-instantiate player class on transform
         const PlayerClass = characterClassMap[newKey] || Player;
         localPlayer = new PlayerClass(state, assets, net, sfx, newKey, gameContext, CHARACTERS);
     }
@@ -3362,7 +3394,6 @@ async function applyCharacterChange(newKey) {
 async function applyVisualChange(newKey) {
     const assets = await loadCharacterAssets(newKey);
     if (assets) {
-        // Only update the visuals and state related to appearance
         state.walkImg = assets.walk;
         state.idleImg = assets.idle;
         state.hopImg = assets.hop;
@@ -3371,7 +3402,6 @@ async function applyVisualChange(newKey) {
         state.shootImg = assets.shoot;
         state.sleepImg = assets.sleep;
         state.animMeta = assets.meta;
-        // NOTE: We do NOT re-instantiate localPlayer or change selectedKey here.
     }
 }
 
@@ -3380,7 +3410,6 @@ function toggleFlight() {
     state.isFlying = !state.isFlying;
 }
 
-// Handle remote ability effects
 async function handleRemoteTransform(player, targetKey, isRevert = false) {
     player.character = targetKey;
     player.isTransformed = !isRevert;
@@ -3406,8 +3435,7 @@ async function handleRemoteIllusion(player, target) {
 async function handleRemoteRevertIllusion(player) {
     player.isIllusion = false;
     player.illusionTarget = null;
-    player.illusionAssets = null; // Clear the illusion assets
-    // Revert to original assets
+    player.illusionAssets = null;
     player.assets = await loadCharacterAssets(player.originalCharacterKey);
 }
 
@@ -3482,7 +3510,7 @@ inventoryItemsContainer.addEventListener('click', (e) => {
     if (itemEl) {
         const itemId = itemEl.dataset.itemId;
         if (state.equippedItem === itemId) {
-            state.equippedItem = null; // Unequip
+            state.equippedItem = null;
         } else {
             state.equippedItem = itemId;
         }
@@ -3532,245 +3560,13 @@ function canWalk(tx, ty, map) {
     if (state.isPhasing || state.isFlying) return true;
     if (map.type === 'plains') {
         const waterPokemon = ["Quagsire", "Empoleon", "Primarina", "Dewgong"];
-        if (map.walls[ty][tx] === 2) { // Water tile
+        if (map.walls[ty][tx] === 2) {
             return waterPokemon.includes(selectedKey);
         }
     }
   return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && !map.walls[ty][tx];
 }
 
-function generateMap(w, h, seed=1234, type = 'dungeon'){
-  // Plains map generation
-  if (type === 'plains') {
-    // Use a deterministic RNG seeded by the given seed
-    const rnd = mulberry32((seed >>> 0) ^ 0x6D2B79F5);
-    // Initialize walls: 0 = grass, 1 = tree, 2 = water
-    const walls = Array.from({ length: h }, () => Array(w).fill(0));
-    // Edge arrays unused for plains
-    const edgesV = Array.from({ length: h }, () => Array(w + 1).fill(false));
-    const edgesH = Array.from({ length: h + 1 }, () => Array(w).fill(false));
-    // Randomly place water bodies
-    const numWater = Math.max(1, Math.floor((w * h) / 600));
-    for (let i = 0; i < numWater; i++) {
-      const cx = Math.floor(rnd() * w);
-      const cy = Math.floor(rnd() * h);
-      const radius = 2 + Math.floor(rnd() * 4); // radius 2–5
-      for (let yy = Math.max(0, cy - radius); yy <= Math.min(h - 1, cy + radius); yy++) {
-        for (let xx = Math.max(0, cx - radius); xx <= Math.min(w - 1, cx + radius); xx++) {
-          if (Math.hypot(xx - cx, yy - cy) <= radius) {
-            walls[yy][xx] = 2;
-          }
-        }
-      }
-    }
-    // Randomly place tree clusters
-    const numTrees = Math.max(1, Math.floor((w * h) / 500));
-    for (let i = 0; i < numTrees; i++) {
-      const cx = Math.floor(rnd() * w);
-      const cy = Math.floor(rnd() * h);
-      const radius = 1 + Math.floor(rnd() * 3); // radius 1–3
-      for (let yy = Math.max(0, cy - radius); yy <= Math.min(h - 1, cy + radius); yy++) {
-        for (let xx = Math.max(0, cx - radius); xx <= Math.min(w - 1, cx + radius); xx++) {
-          if (Math.hypot(xx - cx, yy - cy) <= radius && walls[yy][xx] === 0) {
-            walls[yy][xx] = 1;
-          }
-        }
-      }
-    }
-    // Choose a spawn location on grass
-    let spawn = { x: Math.floor(w / 2), y: Math.floor(h / 2) };
-    let tries = 0;
-    while (tries < 200) {
-      const sx = Math.floor(rnd() * w);
-      const sy = Math.floor(rnd() * h);
-      if (walls[sy][sx] === 0) {
-        spawn = { x: sx, y: sy };
-        break;
-      }
-      tries++;
-    }
-
-    const riverCount = Math.max(1, Math.floor(Math.min(w, h) / 20));
-    const dirs = [ [1,0], [0,1], [-1,0], [0,-1], [1,1], [-1,-1], [1,-1], [-1,1] ];
-    for (let i = 0; i < riverCount; i++) {
-      let rx = 2 + Math.floor(rnd() * Math.max(1, w - 4));
-      let ry = 2 + Math.floor(rnd() * Math.max(1, h - 4));
-      let [dx, dy] = dirs[Math.floor(rnd() * dirs.length)];
-      const minLen = Math.floor(Math.min(w, h) * 0.5);
-      const maxLen = Math.floor(Math.min(w, h) * 0.9);
-      const length = minLen + Math.floor(rnd() * Math.max(1, maxLen - minLen + 1));
-      for (let step = 0; step < length; step++) {
-        if (rx < 0 || ry < 0 || rx >= w || ry >= h) break;
-        if (!(rx === spawn.x && ry === spawn.y)) {
-          walls[ry][rx] = 2;
-        }
-        if (rnd() < 0.25) {
-          const possible = dirs.filter(([nx, ny]) => !(nx === -dx && ny === -dy));
-          [dx, dy] = possible[Math.floor(rnd() * possible.length)];
-        }
-        rx += dx;
-        ry += dy;
-      }
-    }
-    return { w, h, walls, edgesV, edgesH, spawn, seed, type };
-  }
-
-  const rnd = mulberry32((seed>>>0) ^ 0x9E3779B9);
-  const walls = Array.from({length:h}, ()=> Array(w).fill(true));
-  const edgesV = Array.from({length:h}, ()=> Array(w+1).fill(false));
-  const edgesH = Array.from({length:h+1}, ()=> Array(w).fill(false));
-
-  const hallW = 2;
-  const radius = 1;
-  const margin = Math.max(3, radius+2);
-  const cellStep = Math.max(hallW + 3, Math.floor(Math.min(w,h)/8));
-
-  const gx0 = margin, gy0 = margin;
-  const gx1 = w - margin - 1, gy1 = h - margin - 1;
-  const cols = Math.max(2, Math.floor((gx1 - gx0) / cellStep));
-  const rows = Math.max(2, Math.floor((gy1 - gy0) / cellStep));
-
-  const nodes = [];
-  for (let r=0; r<=rows; r++){
-    for (let c=0; c<=cols; c++){
-      const jitterX = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
-      const jitterY = Math.floor((rnd()-0.5) * Math.max(1, cellStep*0.2));
-      const x = gx0 + Math.floor(c * ((gx1-gx0)/Math.max(1,cols))) + jitterX;
-      const y = gy0 + Math.floor(r * ((gy1-gy0)/Math.max(1,rows))) + jitterY;
-      nodes.push({x: Math.max(margin, Math.min(w-margin-1, x)),
-                  y: Math.max(margin, Math.min(h-margin-1, y)),
-                  ix: c, iy: r, i: r*(cols+1)+c});
-    }
-  }
-  const idx = (c,r)=> r*(cols+1)+c;
-
-  const visited = new Set();
-  const stack = [];
-  const startC = Math.floor(rnd()*(cols+1));
-  const startR = Math.floor(rnd()*(rows+1));
-  stack.push([startC, startR]);
-  const links = new Set();
-
-  const dirs4 = [[0,-1],[1,0],[0,1],[-1,0]];
-  while (stack.length){
-    const [c,r] = stack[stack.length-1];
-    const here = idx(c,r);
-    visited.add(here);
-    const nbs = [];
-    for (const [dx,dy] of dirs4){
-      const nc = c+dx, nr = r+dy;
-      if (nc<0||nr<0||nc>cols||nr>rows) continue;
-      const j = idx(nc,nr);
-      if (!visited.has(j)) nbs.push([nc,nr]);
-    }
-    for (let i=nbs.length-1;i>0;i--){
-      const j = Math.floor(rnd()*(i+1)); const t = nbs[i]; nbs[i] = nbs[j]; nbs[j] = t;
-    }
-    if (nbs.length){
-      const [nc,nr] = nbs[0];
-      const a = Math.min(here, idx(nc,nr));
-      const b = Math.max(here, idx(nc,nr));
-      links.add(a+"-"+b);
-      stack.push([nc,nr]);
-    } else {
-      stack.pop();
-    }
-  }
-
-  const diagDirs = [[1,1],[1,-1],[-1,1],[-1,-1]];
-  const extraDiags = Math.floor((cols+1)*(rows+1)*0.15);
-  for (let k=0;k<extraDiags;k++){
-    const c = Math.floor(rnd()*(cols+1));
-    const r = Math.floor(rnd()*(rows+1));
-    const [dx,dy] = diagDirs[Math.floor(rnd()*diagDirs.length)];
-    const nc = c+dx, nr = r+dy;
-    if (nc<0||nr<0||nc>cols||nr>rows) continue;
-    const a = Math.min(idx(c,r), idx(nc,nr));
-    const b = Math.max(idx(c,r), idx(nc,nr));
-    links.add(a+"-"+b);
-  }
-
-  function carveDisk(cx, cy, rad){
-    for (let yy = cy-rad; yy<=cy+rad; yy++){
-      if (yy<=0 || yy>=h-1) continue;
-      for (let xx = cx-rad; xx<=cx+rad; xx++){
-        if (xx<=0 || xx>=w-1) continue;
-        const dx = xx-cx, dy = yy-cy;
-        if (dx*dx + dy*dy <= rad*rad) walls[yy][xx] = false;
-      }
-    }
-  }
-  function carveLine(x0,y0,x1,y1, rad){
-    x0|=0; y0|=0; x1|=0; y1|=0;
-    let dx = Math.abs(x1-x0), sx = x0<x1 ? 1 : -1;
-    let dy = -Math.abs(y1-y0), sy = y0<y1 ? 1 : -1;
-    let err = dx + dy, e2;
-    while (true){
-      carveDisk(x0, y0, rad);
-      if (x0===x1 && y0===y1) break;
-      e2 = 2*err;
-      if (e2 >= dy){ err += dy; x0 += sx; }
-      if (e2 <= dx){ err += dx; y0 += sy; }
-    }
-  }
-
-  const nodeRadius = Math.max(2, radius+1);
-  nodes.forEach(n => carveDisk(n.x, n.y, nodeRadius));
-  for (const key of links){
-    const [a,b] = key.split("-").map(s=>+s);
-    const na = nodes[a], nb = nodes[b];
-    carveLine(na.x, na.y, nb.x, nb.y, radius);
-  }
-
-  for (let pass=0; pass<2; pass++){
-    for (let y=1; y<h-1; y++){
-      for (let x=1; x<w-1; x++){
-        if (walls[y][x]){
-          let floorN=0;
-          for (let yy=y-1; yy<=y+1; yy++)
-            for (let xx=x-1; xx<=x+1; xx++)
-              if (!(xx===x&&yy===y) && !walls[yy][xx]) floorN++;
-          if (floorN >= 6) walls[y][x] = false;
-        }
-      }
-    }
-  }
-  
-  const gapChance = 0.25;
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      if (!walls[y][x-1] && !walls[y][x] &&
-          walls[y-1][x-1] && walls[y-1][x] &&
-          walls[y+1][x-1] && walls[y+1][x] &&
-          rnd() < gapChance) {
-        edgesV[y][x] = true;
-      }
-    }
-  }
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      if (!walls[y-1][x] && !walls[y][x] &&
-          walls[y-1][x-1] && walls[y][x-1] &&
-          walls[y-1][x+1] && walls[y][x+1] &&
-          rnd() < gapChance) {
-        edgesH[y][x] = true;
-      }
-    }
-  }
-
-
-  let sx = nodes.length ? nodes[0].x|0 : 1;
-  let sy = nodes.length ? nodes[0].y|0 : 1;
-  outer: for (let tries=0; tries<500; tries++){
-    const tx = 1 + Math.floor(rnd()*(w-2));
-    const ty = 1 + Math.floor(rnd()*(h-2));
-    if (!walls[ty][tx]){ sx=tx; sy=ty; break outer; }
-  }
-
-  return { w, h, walls, edgesV, edgesH, spawn: {x:sx, y:sy}, seed: seed, type: type };
-}
-
-// --- ADD THESE NEW FUNCTIONS AT THE END OF THE FILE ---
 function viewerAnimationLoop() {
     if (!viewerState.active) return;
 
@@ -3783,7 +3579,6 @@ function viewerAnimationLoop() {
     if (assets) {
         const strip = assets.meta.walk?.downRight;
         if (strip && strip.length > 0) {
-            // Animation timing
             viewerState.frameTime += dt;
             const tpf = 1 / WALK_FPS;
             while (viewerState.frameTime >= tpf) {
@@ -3794,12 +3589,11 @@ function viewerAnimationLoop() {
             const frameIdx = viewerState.frameOrder[viewerState.frameStep];
             const frame = strip[frameIdx];
 
-            // Center the sprite on the canvas
-            const scale = 3; // Use a fixed scale for the viewer
+            const scale = 3;
             const dw = frame.sw * scale;
             const dh = frame.sh * scale;
             const dx = (viewerCanvas.width / 2) - (frame.ox * scale);
-            const dy = (viewerCanvas.height / 2) - (frame.oy * scale) + 10; // Nudge down a bit
+            const dy = (viewerCanvas.height / 2) - (frame.oy * scale) + 10;
 
             viewerCtx.drawImage(assets.walk, frame.sx, frame.sy, frame.sw, frame.sh, dx, dy, dw, dh);
         }
@@ -3816,7 +3610,6 @@ async function openPlayerViewer(actorData) {
     playerViewerModal.classList.remove("hidden");
     viewerStatsEl.innerHTML = `<h3>Loading Stats...</h3>`;
     
-    // Fetch full stats from the database
     const fullStats = actorData.isLocal ? {
         username: actorData.username,
         level: actorData.level,
@@ -3843,7 +3636,6 @@ async function openPlayerViewer(actorData) {
         <p><strong>Speed Multiplier:</strong> ${charCfg.speed}</p>
     `;
 
-    // Start animation
     viewerState.assets = await loadCharacterAssets(actorData.character);
     if (viewerState.assets) {
         viewerState.frameOrder = makePingPong(viewerState.assets.cfg.walk.framesPerDir);

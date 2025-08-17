@@ -4,8 +4,8 @@ import { Player } from '../Player.js';
  * Represents Sableye, a character with the ability to phase through objects.
  */
 export class Sableye extends Player {
-    constructor(state, assets, net, sfx, characterKey) {
-        super(state, assets, net, sfx, characterKey);
+    constructor(state, assets, net, sfx, characterKey, gameContext, allCharsConfig) {
+        super(state, assets, net, sfx, characterKey, gameContext, allCharsConfig);
     }
 
     /**
