@@ -567,6 +567,24 @@ function setupMobileControls() {
             return;
         }
 
+        // --- NEW FIX: Check if touch is over the quest giver ---
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const touchWorldX = (touch.clientX - rect.left) * scaleX + state.cam.x;
+        const touchWorldY = (touch.clientY - rect.top) * scaleY + state.cam.y;
+
+        const isOverQuestGiver = touchWorldX > questGiver.x - questGiver.w / 2 &&
+                                 touchWorldX < questGiver.x + questGiver.w / 2 &&
+                                 touchWorldY > questGiver.y - questGiver.h &&
+                                 touchWorldY < questGiver.y;
+
+        if (isOverQuestGiver) {
+            return; // Do not activate the joystick
+        }
+        // --- END OF NEW FIX ---
+
+
         if (touch.clientX < window.innerWidth / 2) {
             e.preventDefault();
             if (joystick.active) return;

@@ -421,25 +421,25 @@ body::after{
 }
 
 
-/* ==== Responsive niceties ==== */
 @media (max-width: 720px){
   #charGrid {
-    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-    gap: 6px;
+    /* Make the grid columns smaller to fit the new card size */
+    grid-template-columns: repeat(auto-fill, minmax(65px, 1fr));
+    gap: 8px;
   }
   /* Further reduced card size for mobile */
   .small-card {
-    width: 80px;
-    height: 80px;
+    width: 65px;  /* smaller width */
+    height: 75px; /* smaller height */
     padding: 4px;
-    gap: 2px;
+    gap: 3px;
   }
   .small-card img {
-    width: 40px;
-    height: 40px;
+    width: 35px;  /* smaller image */
+    height: 35px;
   }
   .small-card span {
-    font-size: 7px;
+    font-size: 8px; /* smaller font */
     line-height: 1;
     padding: 2px;
   }
