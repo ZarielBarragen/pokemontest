@@ -13,6 +13,7 @@ function unsubscribeLobby(){
 // global selected character key for select screen
 let selectedKey = null;
 let localPlayer = null; // This will hold the instance of our player's class
+let lastTapHandledTime = 0;
 
 
 // Remote players registry
@@ -1084,15 +1085,36 @@ window.addEventListener("blur", () => {
   keys.clear();
 });
 
-canvas.addEventListener('click', (event) => {
+function handleCanvasTap(e) {
+    // Debounce to prevent touch and click firing together
+    const now = performance.now();
+    if (now - lastTapHandledTime < 500) {
+        e.preventDefault(); // Also prevent any follow-up events
+        return;
+    }
+    lastTapHandledTime = now;
+
     resetAfkTimer(); // --- AFK TIMER ---
+    
+    // Determine coordinates from either mouse or touch event
+    const touch = e.changedTouches ? e.changedTouches[0] : e;
+    if (!touch) return;
+
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    const mouseX = (event.clientX - rect.left) * scaleX;
-    const mouseY = (event.clientY - rect.top) * scaleY;
+    const mouseX = (touch.clientX - rect.left) * scaleX;
+    const mouseY = (touch.clientY - rect.top) * scaleY;
     const worldX = mouseX + state.cam.x;
     const worldY = mouseY + state.cam.y;
+    
+    // --- Logic for interacting with the quest giver ---
+    if (questGiver.isHovered || (Math.hypot(worldX - questGiver.x, worldY - (questGiver.y - questGiver.h/2)) < questGiver.interactionRadius)) {
+        if (!state.playerViewMode && !state.abilityTargetingMode) {
+             openQuestModal();
+             return; // End here to not process other interactions
+        }
+    }
 
     if (state.playerViewMode) {
         let clickedActor = null;
@@ -1159,7 +1181,11 @@ canvas.addEventListener('click', (event) => {
 
     state.abilityTargetingMode = null;
     state.highlightedPlayers = [];
-});
+}
+
+// Add listeners for both mouse and touch
+canvas.addEventListener('click', handleCanvasTap);
+canvas.addEventListener('touchend', handleCanvasTap);
 
 
 backBtnMobile.onclick = () => goBackToSelect(true);
