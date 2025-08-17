@@ -936,7 +936,8 @@ const state = {
   lastPoisonTick: 0,
   playerViewMode: false,
   afkTimer: 0,
-  currentQuest: null
+  currentQuest: null,
+  weepingAngelSpawnTimer: 20
 };
 
 let viewerState = {
@@ -3000,10 +3001,6 @@ function spawnEnemies(map) {
                 break;
             }
             rand -= weight;
-        }
-
-        if (typeToSpawn === 'WeepingAngel') {
-            continue;
         }
 
         enemiesData[id] = {
