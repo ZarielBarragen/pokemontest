@@ -13,7 +13,6 @@ function unsubscribeLobby(){
 // global selected character key for select screen
 let selectedKey = null;
 let localPlayer = null; // This will hold the instance of our player's class
-let lastTapHandledTime = 0;
 
 
 // Remote players registry
@@ -198,7 +197,7 @@ function unmountChatLog(){
 }
 
 // ---------- Settings ----------
-const MAP_SCALE = 4;
+const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
 
 // --- AFK TIMER ---
@@ -882,6 +881,7 @@ function watchdogEnsureGame(cfg, map){
 // ---------- Game state ----------
 const keys = new Set();
 let chatMode=false, chatBuffer="", chatTypingDots=0, chatShowTime=4.5;
+let lastTapHandledTime = 0;
 
 const state = {
   x:0, y:0, dir:"down",
@@ -1086,6 +1086,7 @@ window.addEventListener("blur", () => {
   keys.clear();
 });
 
+// --- NEW FUNCTION TO HANDLE BOTH CLICKS AND TAPS ---
 function handleCanvasTap(e) {
     // Debounce to prevent touch and click firing together
     const now = performance.now();
@@ -1547,12 +1548,7 @@ net.subscribeEnemies({
       r.x = data.x ?? r.x; r.y = data.y ?? r.y;
       if (!r.history) r.history=[];
       r.history.push({ t: performance.now()/1000, x: r.x, y: r.y });
-      
-      // --- FIX: Limit the history array to a reasonable size ---
-      if (r.history.length > 40) { // Keep the last 40 positions
-        r.history.shift(); 
-      }
-      
+      if (r.history.length > 40) r.history.shift();
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
       r.level = data.level ?? r.level;
@@ -1987,16 +1983,6 @@ function drawMap(){
             ctx.drawImage(tileToDraw, 0, 0, tileToDraw.width, tileToDraw.height, 
                 dx - overlap / 2, dy - overlap / 2, TILE + overlap, TILE + overlap
             );
-        }
-      }
-    }
-    for (let y = ys; y <= ye; y++) {
-      for (let x = xs; x <= xe; x++) {
-        if (m.walls[y][x] !== 1) continue;
-        const dx = x * TILE - state.cam.x;
-        const dy = y * TILE - state.cam.y;
-        if (TEX.palm_tree) {
-          ctx.drawImage(TEX.palm_tree, 0, 0, TEX.palm_tree.width, TEX.palm_tree.height, dx, dy, TILE, TILE);
         }
       }
     }
@@ -2595,6 +2581,19 @@ function draw(){
 
   const actors = [];
   
+  if (state.map.type === 'plains' && state.map.trees) {
+      for (const tree of state.map.trees) {
+          actors.push({
+              kind: "tree",
+              x: tree.x * TILE + TILE / 2,
+              y: (tree.y + 1) * TILE, // Set baseline for sorting
+              tileX: tree.x,
+              tileY: tree.y,
+              src: TEX.palm_tree // Use the palm tree texture
+          });
+      }
+  }
+  
   if (state.map.type === 'forest' && state.map.trees) {
       for (const tree of state.map.trees) {
           actors.push({
@@ -2789,10 +2788,19 @@ function draw(){
     }
     if (a.kind === 'tree') {
         if(a.src) {
-            const treeWidth = TILE * 2;
-            const treeHeight = TILE * 4;
-            const dx = a.tileX * TILE - state.cam.x - (treeWidth - TILE) / 2;
-            const dy = (a.tileY - 3) * TILE - state.cam.y;
+            let treeWidth, treeHeight, dy;
+            const dx = a.tileX * TILE - state.cam.x - ( (TILE * 2) - TILE) / 2; // Center the 2-tile wide sprite
+
+            if (state.map.type === 'forest') {
+                treeWidth = TILE * 2;
+                treeHeight = TILE * 4;
+                dy = (a.tileY - 3) * TILE - state.cam.y; // Offset for tall pine tree
+            } else { // Plains Palm Tree
+                treeWidth = TILE * 2;
+                treeHeight = TILE * 1;
+                dy = (a.tileY) * TILE - state.cam.y; // Offset for 1-tile high palm tree
+            }
+
             ctx.drawImage(a.src, dx, dy, treeWidth, treeHeight);
         }
         continue;
@@ -3642,6 +3650,7 @@ function updateInventoryUI() {
     }
 }
 
+// --- NEW FUNCTION TO HANDLE EQUIPPING ITEMS ON CLICK OR TAP ---
 function handleEquipItem(e) {
     // Prevent the event from also triggering a 'click' event right after
     e.preventDefault();
@@ -3884,7 +3893,7 @@ function drawQuestGiver() {
 
     const img = TEX.questGiver;
     // Scale the image up slightly
-    const scale = 0.09;
+    const scale = 0.06;
     const dw = img.width * scale;
     const dh = img.height * scale;
 
@@ -4010,20 +4019,3 @@ document.getElementById('claim-reward-btn').onclick = () => {
     state.currentQuest = null; // Quest is finished and reward is claimed
     questModalEl.classList.add('hidden');
 };
-
-// --- Hook into Click Listener ---
-canvas.addEventListener('click', (event) => {
-    if (state.playerViewMode) {
-        // ... Logic to open player viewer (already exists)
-        return;
-    }
-    if (state.abilityTargetingMode) {
-        // ... Logic for ability targeting (already exists)
-        return;
-    }
-
-    // New logic for quest giver
-    if (questGiver.isHovered) {
-        openQuestModal();
-    }
-});
