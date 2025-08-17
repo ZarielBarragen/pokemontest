@@ -3642,7 +3642,16 @@ function updateInventoryUI() {
     }
 }
 
-inventoryItemsContainer.addEventListener('click', (e) => {
+function handleEquipItem(e) {
+    // Prevent the event from also triggering a 'click' event right after
+    e.preventDefault();
+    
+    // Debounce to prevent rapid double-firing on some devices
+    const now = performance.now();
+    if (now - lastTapHandledTime < 300) return;
+    lastTapHandledTime = now;
+
+    // The rest of the original logic is the same
     const itemEl = e.target.closest('.inventory-item');
     if (itemEl) {
         const itemId = itemEl.dataset.itemId;
@@ -3654,7 +3663,11 @@ inventoryItemsContainer.addEventListener('click', (e) => {
         net.equipItem(state.equippedItem);
         updateInventoryUI();
     }
-});
+}
+
+// Listen for both mouse clicks and finger taps
+inventoryItemsContainer.addEventListener('click', handleEquipItem);
+inventoryItemsContainer.addEventListener('touchend', handleEquipItem);
 
 
 shopIcon.onclick = openShop;

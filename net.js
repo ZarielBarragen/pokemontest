@@ -321,23 +321,28 @@ export class Net {
     const uid = this.auth.currentUser?.uid;
     const base = ref(this.db, `lobbies/${this.currentLobbyId}/players`);
 
-    const a = onChildAdded(base, (snap) => {
+    const unsubAdded = onChildAdded(base, (snap) => {
       if (snap.key === uid) return;
       onAdd && onAdd(snap.key, snap.val());
     });
-    const c = onChildChanged(base, (snap) => {
+    const unsubChanged = onChildChanged(base, (snap) => {
       if (snap.key === uid) return;
       onChange && onChange(snap.key, snap.val());
     });
-    const r = onChildRemoved(base, (snap) => {
+    const unsubRemoved = onChildRemoved(base, (snap) => {
       if (snap.key === uid) return;
       onRemove && onRemove(snap.key, snap.val());
     });
 
-    const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
-    this.playersUnsubs.push(unsub);
-    return unsub;
+    const unsubAll = () => {
+        unsubAdded();
+        unsubChanged();
+        unsubRemoved();
+    };
+    this.playersUnsubs.push(unsubAll);
+    return unsubAll;
   }
+
   
     // ---------- USER STATS (persistent) ----------
   async getUserStats() {
@@ -643,19 +648,23 @@ export class Net {
       if (!this.currentLobbyId) return () => {};
       const base = ref(this.db, `lobbies/${this.currentLobbyId}/enemies`);
 
-      const a = onChildAdded(base, (snap) => {
+      const unsubAdded = onChildAdded(base, (snap) => {
           onAdd && onAdd(snap.key, snap.val());
       });
-      const c = onChildChanged(base, (snap) => {
+      const unsubChanged = onChildChanged(base, (snap) => {
           onChange && onChange(snap.key, snap.val());
       });
-      const r = onChildRemoved(base, (snap) => {
+      const unsubRemoved = onChildRemoved(base, (snap) => {
           onRemove && onRemove(snap.key);
       });
 
-      const unsub = () => { try{a();}catch{} try{c();}catch{} try{r();}catch{} };
-      this.playersUnsubs.push(unsub);
-      return unsub;
+      const unsubAll = () => {
+          unsubAdded();
+          unsubChanged();
+          unsubRemoved();
+      };
+      this.playersUnsubs.push(unsubAll);
+      return unsubAll;
   }
 
     // ---------- COINS (RTDB) ----------
@@ -676,16 +685,19 @@ export class Net {
       if (!this.currentLobbyId) return () => {};
       const base = ref(this.db, `lobbies/${this.currentLobbyId}/coins`);
 
-      const a = onChildAdded(base, (snap) => {
+      const unsubAdded = onChildAdded(base, (snap) => {
           onAdd && onAdd(snap.key, snap.val());
       });
-      const r = onChildRemoved(base, (snap) => {
+      const unsubRemoved = onChildRemoved(base, (snap) => {
           onRemove && onRemove(snap.key);
       });
 
-      const unsub = () => { try{a();}catch{} try{r();}catch{} };
-      this.playersUnsubs.push(unsub);
-      return unsub;
+      const unsubAll = () => {
+          unsubAdded();
+          unsubRemoved();
+      };
+      this.playersUnsubs.push(unsubAll);
+      return unsubAll;
   }
   
     // ---------- HEALTH PACKS (RTDB) ----------
@@ -706,16 +718,19 @@ export class Net {
       if (!this.currentLobbyId) return () => {};
       const base = ref(this.db, `lobbies/${this.currentLobbyId}/healthPacks`);
 
-      const a = onChildAdded(base, (snap) => {
+      const unsubAdded = onChildAdded(base, (snap) => {
           onAdd && onAdd(snap.key, snap.val());
       });
-      const r = onChildRemoved(base, (snap) => {
+      const unsubRemoved = onChildRemoved(base, (snap) => {
           onRemove && onRemove(snap.key);
       });
 
-      const unsub = () => { try{a();}catch{} try{r();}catch{} };
-      this.playersUnsubs.push(unsub);
-      return unsub;
+      const unsubAll = () => {
+          unsubAdded();
+          unsubRemoved();
+      };
+      this.playersUnsubs.push(unsubAll);
+      return unsubAll;
   }
 
   // --- NEW FUNCTIONS FOR PLAYER VIEWER ---

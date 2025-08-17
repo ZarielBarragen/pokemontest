@@ -451,6 +451,23 @@ body::after{
   .player-card {
     width: 180px;
   }
+
+    .inventory-display {
+    /* Move to top-right and make smaller */
+    top: 60px;
+    right: 10px;
+    bottom: auto;
+    width: 150px;
+    padding: 8px;
+  }
+  .inventory-display h3 {
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+  .inventory-item {
+    font-size: 10px;
+    padding: 4px;
+  }
 }
 
 @media (max-width: 480px) {
