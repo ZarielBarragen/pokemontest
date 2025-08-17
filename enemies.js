@@ -80,13 +80,29 @@ export class Turret extends Enemy {
         this.projectileSpeed = config.projectileSpeed;
     }
 
-    update(dt, players, map, net) {
-        if (this.attackCooldown > 0) this.attackCooldown -= dt;
-        if (this.attackCooldown > 0) return;
 
-        const { player, distance } = this.findClosestPlayer(players);
-        
-        if (player && distance < this.detectionRange) {
+update(dt, players, map, net) {
+    if (this.attackCooldown > 0) this.attackCooldown -= dt;
+    if (this.attackCooldown > 0) return;
+
+    const { player, distance } = this.findClosestPlayer(players);
+    
+    if (player && distance < this.detectionRange) {
+        // --- LINE-OF-SIGHT CHECK ---
+        let hasLineOfSight = true;
+        const steps = Math.floor(distance / (TILE / 4)); // Check every quarter tile
+        for (let i = 1; i <= steps; i++) {
+            const checkX = this.x + (player.x - this.x) * (i / steps);
+            const checkY = this.y + (player.y - this.y) * (i / steps);
+            const tileX = Math.floor(checkX / TILE);
+            const tileY = Math.floor(checkY / TILE);
+            if (map.walls[tileY]?.[tileX]) {
+                hasLineOfSight = false;
+                break;
+            }
+        }
+
+        if (hasLineOfSight) {
             this.attackCooldown = 2.0;
             
             const dx = player.x - this.x;
@@ -104,6 +120,7 @@ export class Turret extends Enemy {
             });
         }
     }
+}
 
     draw(ctx, cam) {
         const sx = Math.round(this.x - cam.x);
@@ -132,31 +149,43 @@ export class Brawler extends Enemy {
         this.dir = 'down';
     }
 
-    update(dt, players, map, net) {
-        if (this.attackCooldown > 0) this.attackCooldown -= dt;
-        
-        const { player, distance } = this.findClosestPlayer(players);
-        this.target = player;
+update(dt, players, map, net) {
+    if (this.attackCooldown > 0) this.attackCooldown -= dt;
+    
+    const { player, distance } = this.findClosestPlayer(players);
+    this.target = player;
 
-        if (this.target && distance < this.detectionRange) {
-            const dx = this.target.x - this.x;
-            const dy = this.target.y - this.y;
-            this.dir = vecToDir(dx, dy);
+    if (this.target && distance < this.detectionRange) {
+        const dx = this.target.x - this.x;
+        const dy = this.target.y - this.y;
+        this.dir = vecToDir(dx, dy);
 
-            if (distance > this.attackRange) {
-                const moveX = (dx / distance) * this.speed * dt;
-                const moveY = (dy / distance) * this.speed * dt;
-                this.x += moveX;
-                this.y += moveY;
-            } else if (this.attackCooldown <= 0) {
-                this.attackCooldown = 1.5;
-                this.attackAnimTimer = 1.0;
-                net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 });
+        if (distance > this.attackRange) {
+            const moveX = (dx / distance) * this.speed * dt;
+            const moveY = (dy / distance) * this.speed * dt;
+            
+            // --- COLLISION LOGIC ---
+            const nextX = this.x + moveX;
+            const nextY = this.y + moveY;
+            const tileX = Math.floor(nextX / TILE);
+            const tileY = Math.floor(nextY / TILE);
+
+            if (tileX >= 0 && tileX < map.w && !map.walls[Math.floor(this.y / TILE)][tileX]) {
+                this.x = nextX;
             }
+            if (tileY >= 0 && tileY < map.h && !map.walls[tileY][Math.floor(this.x / TILE)]) {
+                this.y = nextY;
+            }
+            
+        } else if (this.attackCooldown <= 0) {
+            this.attackCooldown = 1.5;
+            this.attackAnimTimer = 1.0;
+            net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 });
         }
-        
-        if (this.attackAnimTimer > 0) this.attackAnimTimer -= dt;
     }
+    
+    if (this.attackAnimTimer > 0) this.attackAnimTimer -= dt;
+}
 
     draw(ctx, cam) {
         const sx = Math.round(this.x - cam.x);

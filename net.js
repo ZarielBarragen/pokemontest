@@ -751,4 +751,11 @@ export class Net {
           return currentData;
       });
   }
+
+   async spawnNewEnemy(enemyData) {
+      if (!this.currentLobbyId || !enemyData || !enemyData.id) return;
+      // Use set() instead of update() to ensure it triggers 'onChildAdded' for all clients
+      const enemyRef = ref(this.db, `lobbies/${this.currentLobbyId}/enemies/${enemyData.id}`);
+      await set(enemyRef, enemyData);
+  }
 }

@@ -31,6 +31,32 @@
       </div>
   </div>
 
+  <div id="quest-modal" class="shop-modal hidden">
+      <div class="shop-content">
+          <h2 id="quest-title">A Proposition!</h2>
+          <p id="quest-giver-dialogue" style="font-size: 12px; line-height: 1.5;"></p>
+          
+          <div id="quest-details">
+              <p><strong>Task:</strong> <span id="quest-task"></span></p>
+              <p><strong>Reward:</strong> <span id="quest-reward"></span></p>
+          </div>
+
+          <div id="quest-actions" style="margin-top: 20px;">
+              <button id="accept-quest-btn" class="button8">Accept</button>
+              <button id="decline-quest-btn" class="button8">Decline</button>
+          </div>
+
+          <div id="quest-progress" class="hidden" style="margin-top: 20px;">
+               <p><strong>Progress:</strong> <span id="quest-progress-text"></span></p>
+               <button id="close-progress-btn" class="button8">Keep Going</button>
+          </div>
+
+           <div id="quest-complete" class="hidden" style="margin-top: 20px;">
+               <button id="claim-reward-btn" class="button8">Claim Reward</button>
+          </div>
+      </div>
+  </div>
+
   <div id="inventory-display" class="inventory-display hidden">
       <h3>Inventory</h3>
       <div id="inventory-items"></div>

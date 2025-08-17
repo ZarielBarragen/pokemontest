@@ -57,6 +57,32 @@ import { Cyclizar } from './characters/Cyclizar.js';
 import { Scolipede } from './characters/Scolipede.js';
 import { Altaria } from './characters/Altaria.js';
 
+// ---- HELPER FUNCTIONS AND VARIABLES ----
+// For network update throttling
+const NET_INTERVAL = 0.1;
+let _netAccum = 0;
+let _heartbeat = 0;
+let _lastSent = {};
+
+function _hasMeaningfulChange() {
+  if (!state.ready || !_lastSent) return false;
+
+  const posChanged = Math.abs(state.x - (_lastSent.x || 0)) > 0.5 || Math.abs(state.y - (_lastSent.y || 0)) > 0.5;
+  const dirChanged = state.dir !== (_lastSent.dir || "");
+  const animChanged = state.anim !== (_lastSent.anim || "");
+
+  return posChanged || dirChanged || animChanged;
+}
+
+function makePingPong(n) {
+  if (n <= 1) return [0];
+  const arr = [...Array(n).keys()];
+  const reverse = arr.slice(1, -1).reverse();
+  return [...arr, ...reverse];
+}
+// ------------------------------------
+
+
 const net = new Net(firebaseConfig);
 
 // ---------- Canvas ----------
@@ -174,6 +200,9 @@ function unmountChatLog(){
 const MAP_SCALE = 3;
 const SPEED = TILE * 2.6;
 
+// --- AFK TIMER ---
+const AFK_TIMEOUT = 300; // 300 seconds = 5 minutes
+
 function currentSpeedMult(){
     const cfg = CHARACTERS[selectedKey];
     let mult = (cfg && cfg.speed) ? cfg.speed : 1.0;
@@ -209,7 +238,8 @@ const TEX = {
     floor: null, wall: null, coin: null, health: null,
     grass: null, water: null, grass_water_transition: null, palm_tree: null,
     poison: null, sand: null,
-    grass_tiles: null, pine_tree: null
+    grass_tiles: null, pine_tree: null,
+    questGiver: null
 };
 const BG_TILE_SCALE = 3.0;
 
@@ -225,7 +255,48 @@ loadImage("assets/background/poison.png").then(im => TEX.poison = im).catch(() =
 loadImage("assets/background/sand.png").then(im => TEX.sand = im).catch(() => {});
 loadImage("assets/background/grass_tiles.png").then(im => TEX.grass_tiles = im).catch(() => {});
 loadImage("assets/background/pine_tree.png").then(im => TEX.pine_tree = im).catch(() => {});
+loadImage("assets/questGiver/questGiver.png").then(im => TEX.questGiver = im).catch(()=>{});
 
+// ---- QUEST GIVER AND QUEST SYSTEM ----
+const questGiver = {
+    x: 0, y: 0,
+    w: 48, h: 96, // width and height for interaction
+    flip: false,
+    isHovered: false,
+    dialogue: null,
+    dialogueTimer: 0,
+    proximityRadius: TILE * 4,
+    interactionRadius: TILE * 1.5,
+    hasSpoken: false
+};
+
+const QUEST_POOL = [
+    {
+        type: 'collectCoins',
+        amount: 20,
+        dialogue: "Psst! Shiny things catch your eye? Bring me 20 coins, and I'll make it worth your while.",
+        taskText: "Collect 20 coins.",
+        reward: { type: 'levelUp', amount: 1 },
+        rewardText: "1 Level Up"
+    },
+    {
+        type: 'killBrawlers',
+        amount: 5,
+        dialogue: "Those big brutes stomping around? Take out 5 of them for me. I've got a handsome reward waiting.",
+        taskText: "Defeat 5 Brawler enemies.",
+        reward: { type: 'multi', levels: 2, coins: 40 },
+        rewardText: "2 Level Ups and 40 Coins"
+    },
+    {
+        type: 'killEnemies',
+        amount: 10,
+        dialogue: "Feeling tough? Clear out 10 of any vermin you find in this place, and I'll line your pockets with 50 coins.",
+        taskText: "Defeat 10 enemies of any type.",
+        reward: { type: 'coins', amount: 50 },
+        rewardText: "50 Coins"
+    }
+];
+// ------------------------------------
 
 // ---------- SFX & Music ----------
 const lobbyMusic = new Audio('assets/sfx/lobby.mp3');
@@ -793,37 +864,6 @@ function watchdogEnsureGame(cfg, map){
 const keys = new Set();
 let chatMode=false, chatBuffer="", chatTypingDots=0, chatShowTime=4.5;
 
-
-// --- Net sync throttling ---
-let _netAccum = 0;
-const NET_INTERVAL = 0.12;   // ~8 Hz
-let _heartbeat = 0;
-let _lastSent = { x: NaN, y: NaN, dir: "", anim: "", character: "", typing: null, hp: 100, maxHp: 100 };
-
-function _hasMeaningfulChange() {
-  const dx = Math.abs(state.x - _lastSent.x);
-  const dy = Math.abs(state.y - _lastSent.y);
-  const moved = (dx + dy) > 0.6;
-  return moved ||
-         state.dir !== _lastSent.dir ||
-         state.anim !== _lastSent.anim ||
-         selectedKey !== _lastSent.character ||
-         state.typing !== _lastSent.typing ||
-         state.hp !== _lastSent.hp ||
-         state.level !== _lastSent.level ||
-         state.isPhasing !== _lastSent.isPhasing ||
-         state.isAsleep !== _lastSent.isAsleep;
-}
-
-function makePingPong(n){
-  // produce [0..n-1, n-2..1] for ping-pong frame order
-  n = Math.max(1, n|0);
-  const seq = [];
-  for (let i=0;i<n;i++) seq.push(i);
-  for (let i=n-2;i>0;i--) seq.push(i);
-  return seq;
-}
-
 const state = {
   x:0, y:0, dir:"down",
   moving:false, prevMoving:false,
@@ -876,7 +916,8 @@ const state = {
   poisonTimer: 0,
   lastPoisonTick: 0,
   playerViewMode: false,
-  weepingAngelSpawnTimer: 0,
+  afkTimer: 0,
+  currentQuest: null
 };
 
 let viewerState = {
@@ -887,6 +928,11 @@ let viewerState = {
     frameTime: 0,
     frameOrder: []
 };
+
+// --- AFK TIMER ---
+function resetAfkTimer() {
+    state.afkTimer = 0;
+}
 
 function resetPlayerState() {
     state.isPhasing = false;
@@ -900,7 +946,6 @@ function resetPlayerState() {
     state.abilityTargetingMode = null;
     state.highlightedPlayers = [];
     state.isFlying = false;
-    // --- SMEARGLE FIX 2 of 5: Reset copied ability when leaving a lobby ---
     state.copiedAbility = null;
     state.rideBySlashActive = false;
     state.rideBySlashTimer = 0;
@@ -948,9 +993,17 @@ function goBackToSelect(isSafeLeave = false) {
 
 leaveLobbyBtn.onclick = () => goBackToSelect(true);
 
+let lastMouseX = 0, lastMouseY = 0;
+canvas.addEventListener('mousemove', e => {
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+});
 
 window.addEventListener("keydown", e=>{
   if (chatMode){
+    if (e.key === "'") {
+      e.preventDefault();
+    }
     if (e.key === "Enter"){
       e.preventDefault();
       const clean = censorMessage(chatBuffer.trim());
@@ -959,6 +1012,7 @@ window.addEventListener("keydown", e=>{
         state.say = clean;
         state.sayTimer = chatShowTime;
         net.sendChat(clean).catch(()=>{});
+        resetAfkTimer(); // --- AFK TIMER ---
       }
       chatBuffer = "";
       renderChatLog();
@@ -989,17 +1043,15 @@ window.addEventListener("keydown", e=>{
     return;
   }
   
-  // If the game isn't active, don't hijack keyboard inputs.
   if (!state.ready || state.isAsleep) return;
 
-  // Prevent default browser action for game keys
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w", "a", "s", "d", "W", "A", "S", "D", " ", "j", "J", "k", "K", "e", "E"].includes(e.key)) e.preventDefault();
 
   if (e.key === "Enter"){ chatMode = true; chatBuffer = ""; state.typing = true; net.updateState({ typing:true }).catch(()=>{}); renderChatLog(); return; }
 
-  if (e.key.toLowerCase() === "q") { // New 'q' key logic
+  if (e.key.toLowerCase() === "q") {
     state.playerViewMode = !state.playerViewMode;
-    if (!state.playerViewMode) { // If turning off, close the viewer
+    if (!state.playerViewMode) {
         closePlayerViewer();
     }
   }
@@ -1010,24 +1062,12 @@ window.addEventListener("keydown", e=>{
   keys.add(e.key);
 });
 window.addEventListener("keyup", e=>{ if (!chatMode) keys.delete(e.key); });
-
-canvas.addEventListener('mousemove', (event) => {
-    if (!state.ready || state.abilityTargetingMode !== 'sandSnare') return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const mouseX = (event.clientX - rect.left) * scaleX;
-    const mouseY = (event.clientY - rect.top) * scaleY;
-
-    const worldX = mouseX + state.cam.x;
-    const worldY = mouseY + state.cam.y;
-    
-    state.mouseTile.x = Math.floor(worldX / TILE);
-    state.mouseTile.y = Math.floor(worldY / TILE);
+window.addEventListener("blur", () => {
+  keys.clear();
 });
 
-// Handle mouse clicks for targeting
 canvas.addEventListener('click', (event) => {
+    resetAfkTimer(); // --- AFK TIMER ---
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -1036,11 +1076,9 @@ canvas.addEventListener('click', (event) => {
     const worldX = mouseX + state.cam.x;
     const worldY = mouseY + state.cam.y;
 
-    // --- NEW: Player Viewer Click Logic ---
     if (state.playerViewMode) {
         let clickedActor = null;
 
-        // Check local player first
         const distToSelf = Math.hypot(worldX - state.x, worldY - state.y);
         if (distToSelf < PLAYER_R * 2) {
             clickedActor = {
@@ -1056,7 +1094,6 @@ canvas.addEventListener('click', (event) => {
             };
         }
 
-        // Check remote players
         if (!clickedActor) {
             for (const [uid, player] of remote.entries()) {
                 const dist = Math.hypot(worldX - player.x, worldY - player.y);
@@ -1075,10 +1112,9 @@ canvas.addEventListener('click', (event) => {
         if (clickedActor) {
             openPlayerViewer(clickedActor);
         }
-        return; // End click handling here for viewer mode
+        return;
     }
     
-    // --- Existing Ability Targeting Logic ---
     if (!state.abilityTargetingMode) return;
 
     if (state.abilityTargetingMode === 'sandSnare') {
@@ -1093,7 +1129,7 @@ canvas.addEventListener('click', (event) => {
     let clickedPlayer = null;
     for (const [uid, player] of remote.entries()) {
         const dist = Math.hypot(worldX - player.x, worldY - player.y);
-        if (dist < PLAYER_R * 2) { // Generous click radius
+        if (dist < PLAYER_R * 2) {
             clickedPlayer = { uid, ...player };
             break;
         }
@@ -1103,7 +1139,6 @@ canvas.addEventListener('click', (event) => {
         activateTargetedAbility(clickedPlayer);
     }
 
-    // Always exit targeting mode after a click
     state.abilityTargetingMode = null;
     state.highlightedPlayers = [];
 });
@@ -1125,6 +1160,7 @@ mobileChatForm.addEventListener("submit", (e) => {
         state.say = clean;
         state.sayTimer = chatShowTime;
         net.sendChat(clean).catch(() => {});
+        resetAfkTimer(); // --- AFK TIMER ---
     }
     
     mobileChatInput.value = "";
@@ -1257,7 +1293,6 @@ function startNetListeners(){
           }
       }
       
-      // If asleep, wake up
       if (state.isAsleep) {
           state.isAsleep = false;
           state.sleepTimer = 0;
@@ -1274,7 +1309,7 @@ function startNetListeners(){
       if(hit.from) {
           const attacker = remote.get(hit.from) || {uid: net.auth.currentUser.uid};
           if(attacker) {
-              addXp(5, attacker.uid); // Award XP to attacker
+              addXp(5, attacker.uid);
           }
       }
 
@@ -1284,7 +1319,6 @@ function startNetListeners(){
   });
 
 net.subscribeToProjectiles(p_data => {
-    // If the projectile has our new isEnemyProjectile flag, put it in the enemy projectile list.
     if (p_data.isEnemyProjectile) {
         projectiles.push({
             x: p_data.x,
@@ -1295,7 +1329,6 @@ net.subscribeToProjectiles(p_data => {
             life: p_data.life
         });
     }
-    // Otherwise, if it's from another player, put it in the player projectile list.
     else if (p_data.ownerId !== net.auth.currentUser.uid) {
         playerProjectiles.push({
             x: p_data.x,
@@ -1313,30 +1346,25 @@ net.subscribeToProjectiles(p_data => {
 });
   
 net.subscribeToMeleeAttacks(attackData => {
-    // Check for our new isEnemy flag
     if (attackData.isEnemy) {
-        // If the player is invulnerable, ignore the attack
         if (state.invulnerableTimer > 0 || state.aquaShieldActive || state.isPhasing) return;
         
         const enemy = enemies.get(attackData.by);
         if (!enemy) return;
 
-        // Check if the player is within the enemy's attack range
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackData.range) {
-            // Apply damage to the local player
             state.hp = Math.max(0, state.hp - attackData.damage);
             state.invulnerableTimer = 0.7;
             state.anim = 'hurt';
             state.frameStep = 0;
             state.frameTime = 0;
-            net.updateState({ hp: state.hp }); // Sync health with the server
+            net.updateState({ hp: state.hp });
             if (state.hp <= 0) {
                 goBackToSelect();
             }
         }
     } else {
-        // This is the original logic for remote PLAYER attacks (it just plays the animation)
         const attackerId = attackData.by;
         const remotePlayer = remote.get(attackerId);
         if (remotePlayer) {
@@ -1409,7 +1437,6 @@ net.subscribeEnemies({
     onChange: (id, data) => {
         const enemy = enemies.get(id);
         if (enemy) {
-            // Only sync essential state, not the whole object
             enemy.x = data.x;
             enemy.y = data.y;
             enemy.hp = data.hp;
@@ -1419,7 +1446,7 @@ net.subscribeEnemies({
     onRemove: (id) => {
         enemies.delete(id);
     }
-});
+  });
 
   net.subscribeCoins({
       onAdd: (id, data) => {
@@ -1475,7 +1502,12 @@ net.subscribeEnemies({
       r.x = data.x ?? r.x; r.y = data.y ?? r.y;
       if (!r.history) r.history=[];
       r.history.push({ t: performance.now()/1000, x: r.x, y: r.y });
-      if (r.history.length>40) r.history.shift();
+      
+      // --- FIX: Limit the history array to a reasonable size ---
+      if (r.history.length > 40) { // Keep the last 40 positions
+        r.history.shift(); 
+      }
+      
       r.dir = data.dir ?? r.dir;
       r.typing = !!data.typing;
       r.level = data.level ?? r.level;
@@ -1576,7 +1608,6 @@ async function startWithCharacter(cfg, map){
     const assets = await loadCharacterAssets(selectedKey);
     if (!assets) throw new Error("Failed to load character assets");
 
-    // Instantiate the correct player class
     const PlayerClass = characterClassMap[selectedKey] || Player;
     localPlayer = new PlayerClass(state, assets, net, sfx, selectedKey, gameContext, CHARACTERS);
 
@@ -1592,6 +1623,18 @@ async function startWithCharacter(cfg, map){
     const spawn = tileCenter(map.spawn.x, map.spawn.y);
     state.x = spawn.x + (Math.random()*8 - 4);
     state.y = spawn.y + (Math.random()*8 - 4);
+
+    // ---- SPAWN QUEST GIVER ----
+    // Place him a few tiles to the right of the player's spawn
+    const qg_tileX = map.spawn.x + 3;
+    const qg_tileY = map.spawn.y;
+    questGiver.x = qg_tileX * TILE + TILE / 2;
+    questGiver.y = qg_tileY * TILE + TILE / 2;
+    // He is on the right of spawn, so flip him to face left (towards the player)
+    questGiver.flip = true;
+    state.currentQuest = null; // Reset quest on new map
+    // -------------------------
+
     state.dir = "down"; state.anim = "stand"; state.hopping = false;
     state.frameOrder = makePingPong(cfg.walk.framesPerDir);
     state.frameStep = 0; state.frameTime = 0; state.idleAccum = 0;
@@ -1632,14 +1675,11 @@ const DIR_VECS = {
   up:[0,-1], upLeft:[-1,-1], left:[-1,0], downLeft:[-1,1],
 };
 function getInputVec(){
-  // Joystick input for touch devices
   if (inputMode === 'touch' && joystick.active) {
       const { dx, dy } = joystick;
-      // No need to normalize here if dx/dy are already capped at 1.0
       return { vx: dx, vy: dy };
   }
   
-  // Keyboard input
   if (chatMode || state.isAsleep) return {vx:0, vy:0};
   const up = keys.has("w") || keys.has("ArrowUp");
   const down = keys.has("s") || keys.has("ArrowDown");
@@ -1675,11 +1715,11 @@ function updateCamera(){
 }
 
 function resolvePlayerCollisions(nx, ny){
-  if (state.isPhasing) return { x: nx, y: ny }; // No collision while phasing
+  if (state.isPhasing) return { x: nx, y: ny };
   let x = nx, y = ny;
   const myR = PLAYER_R;
   for (const r of remote.values()){
-    if (r.isPhasing) continue; // Ignore phasing players
+    if (r.isPhasing) continue;
     const rr = PLAYER_R;
     const minD = myR + rr;
 
@@ -1978,7 +2018,6 @@ function drawMap(){
       }
   }
 
-  // Ground effects like poison and sand are drawn for all map types
   for (const [key, tile] of poisonTiles.entries()) {
     const [x, y] = key.split(',').map(Number);
     if (x >= xs && x <= xe && y >= ys && y <= ye) {
@@ -2003,18 +2042,16 @@ function drawNameTagAbove(name, level, frame, wx, wy, z, scale){
   const sx = Math.round(wx - state.cam.x);
   const sy = Math.round(topWorldY - state.cam.y) - 8;
 
-  // Level Text (smaller, above)
   ctx.font = '10px "Press Start 2P", monospace';
   ctx.textAlign = "center";
   ctx.lineWidth = 3;
   ctx.strokeStyle = "rgba(0,0,0,0.65)";
   const levelText = `Lvl ${level}`;
-  const levelY = sy - 14; // Position level text above the username
+  const levelY = sy - 14;
   ctx.strokeText(levelText, sx, levelY);
-  ctx.fillStyle = "#ddd"; // A slightly different color for the level
+  ctx.fillStyle = "#ddd";
   ctx.fillText(levelText, sx, levelY);
 
-  // Username Text (original size, below level)
   ctx.font = '12px "Press Start 2P", monospace';
   ctx.strokeText(name, sx, sy);
   ctx.fillStyle = "#ffea7a";
@@ -2175,10 +2212,9 @@ function getRemotePlayerSmoothedPos(r) {
     }
 
     const now = performance.now() / 1000;
-    const RENDER_DELAY = 0.1; // Delay rendering to allow for interpolation
+    const RENDER_DELAY = 0.1;
     const renderTime = now - RENDER_DELAY;
 
-    // Find two history points to interpolate between
     let before = null;
     let after = null;
 
@@ -2215,9 +2251,18 @@ function getRemotePlayerSmoothedPos(r) {
 
 
 function update(dt){
+  if (state.ready) {
+      state.afkTimer += dt;
+      if (state.afkTimer > AFK_TIMEOUT) {
+          alert("You have been kicked for being idle.");
+          goBackToSelect(true);
+          return; // Stop the rest of the update
+      }
+  }
+
   if (keys.has(" ")) {
     tryStartHop();
-    keys.delete(" "); // Consume the key press
+    keys.delete(" ");
   }
   
   updateAbilityUI();
@@ -2244,7 +2289,6 @@ function update(dt){
     tryRangedAttack();
   }
 
-  // Handle passive abilities and item effects
   const myConfig = CHARACTERS[selectedKey];
   let regenRate = 0;
   let regenInterval = Infinity;
@@ -2285,7 +2329,6 @@ function update(dt){
       }
   }
   
-  // Handle active ability states
   if (state.isPhasing) {
       state.phaseDamageTimer += dt;
       if (state.phaseDamageTimer >= 10) {
@@ -2342,8 +2385,8 @@ function update(dt){
     const playerTileKey = `${Math.floor(state.x / TILE)},${Math.floor(state.y / TILE)}`;
     if (poisonTiles.has(playerTileKey) && !state.isPoisoned) {
         state.isPoisoned = true;
-        state.poisonTimer = 5; // Poison lasts for 5 seconds
-        state.lastPoisonTick = 0; // Immediate first tick
+        state.poisonTimer = 5;
+        state.lastPoisonTick = 0;
     }
 
     if (state.isPoisoned) {
@@ -2351,13 +2394,12 @@ function update(dt){
         state.lastPoisonTick -= dt;
 
         if (state.lastPoisonTick <= 0) {
-            state.hp = Math.max(0, state.hp - 2); // 2 damage per second
+            state.hp = Math.max(0, state.hp - 2);
             net.updateState({ hp: state.hp });
             if (state.hp <= 0) goBackToSelect();
-            state.lastPoisonTick = 1; // Reset tick interval
+            state.lastPoisonTick = 1;
         }
 
-        // Remove poison effect if timer runs out or player moves off the tile
         if (state.poisonTimer <= 0 || !poisonTiles.has(playerTileKey)) {
             state.isPoisoned = false;
         }
@@ -2367,27 +2409,23 @@ function update(dt){
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
 
-  // --- MOVEMENT LOGIC ---
-  // This now runs even if the player is in the 'hurt' state.
   if (!state.hopping && !state.attacking && !state.isAsleep){
     state.dir = vecToDir(vx, vy);
     if (state.moving){
       tryMove(dt, vx, vy);
+      resetAfkTimer(); // --- AFK TIMER ---
     }
   }
 
-  // --- ANIMATION LOGIC ---
   if (state.anim === 'hurt') {
     state.frameTime += dt;
     const tpf = 1 / HURT_FPS;
-    // --- FIX: Corrected typo from 'framesPerdir' to 'framesPerDir' ---
     const hurtFrames = CHARACTERS[selectedKey].hurt.framesPerDir;
     const frameOrder = [...Array(hurtFrames).keys()];
     while (state.frameTime >= tpf) {
       state.frameTime -= tpf;
       state.frameStep += 1;
     }
-    // When the hurt animation finishes, transition smoothly to walk or stand.
     if (state.frameStep >= frameOrder.length) {
       state.anim = state.moving ? 'walk' : 'stand';
       state.frameStep = 0;
@@ -2431,7 +2469,7 @@ function update(dt){
         state.frameTime -= tpf;
         state.frameStep = (state.frameStep + 1) % state.frameOrder.length;
     }
-  } else { // Default animation handling (walk, idle, stand)
+  } else {
     if (state.moving){
       const wFrames = CHARACTERS[selectedKey].walk.framesPerDir;
       if (state.anim !== "walk"){
@@ -2495,8 +2533,8 @@ function update(dt){
       }
     }
   }
+  updateQuestGiver(dt);
 }
-
 function draw(){
   ctx.fillStyle = '#061b21';
   ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -2517,7 +2555,7 @@ function draw(){
           actors.push({
               kind: "tree",
               x: tree.x * TILE + TILE / 2,
-              y: (tree.y + 1) * TILE, // Sort by the bottom of the tree trunk
+              y: (tree.y + 1) * TILE,
               tileX: tree.x,
               tileY: tree.y,
               src: TEX.pine_tree
@@ -2693,9 +2731,17 @@ function draw(){
     });
   }
 
+  actors.push({
+    kind:"questGiver", x: questGiver.x, y: questGiver.y
+  });
+
   actors.sort((a,b)=> a.y - b.y);
   
   for (const a of actors){
+    if (a.kind === 'questGiver') {
+        drawQuestGiver();
+        continue;
+    }
     if (a.kind === 'tree') {
         if(a.src) {
             const treeWidth = TILE * 2;
@@ -2869,10 +2915,8 @@ function spawnEnemies(map) {
         'forest':  { Turret: 0.3, Brawler: 0.55, WeepingAngel: 0.15 }
     };
     const configs = {
-        Turret:       { hp: 50, speed: 0, damage: 10, detectionRange: TILE * 7,  attackRange: 0, projectileSpeed: TILE * 5 },
-        // --- FIX: Reduced Brawler speed ---
+        Turret:       { hp: 50, speed: 0,      damage: 10, detectionRange: TILE * 7,  attackRange: 0,      projectileSpeed: TILE * 5 },
         Brawler:      { hp: 80, speed: TILE * 1, damage: 15, detectionRange: TILE * 8,  attackRange: TILE * 1.2 },
-        // --- FIX: Reduced Weeping Angel speed ---
         WeepingAngel: { hp: 100,speed: TILE * 2.5, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 }
     };
 
@@ -2880,19 +2924,17 @@ function spawnEnemies(map) {
     const enemyRng = mulberry32(map.seed);
     const maxEnemies = Math.floor((map.w * map.h) / 200);
     
-    // Find all valid spawn locations
     const validSpawns = [];
     for (let y = 1; y < map.h - 1; y++) {
         for (let x = 1; x < map.w - 1; x++) {
             if (!map.walls[y][x]) {
                 const distToPlayer = Math.hypot(x - map.spawn.x, y - map.spawn.y);
-                if (distToPlayer > 10) { // Ensure enemies don't spawn right on top of player
+                if (distToPlayer > 10) {
                     validSpawns.push({ x, y });
                 }
             }
         }
     }
-    // Shuffle the spawn locations
     for (let i = validSpawns.length - 1; i > 0; i--) {
         const j = Math.floor(enemyRng() * (i + 1));
         [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
@@ -2901,7 +2943,6 @@ function spawnEnemies(map) {
     const enemiesData = {};
     let spawnedCount = 0;
 
-    // --- FIX: Spawn most enemies, but leave Weeping Angels for later ---
     while(spawnedCount < maxEnemies && validSpawns.length > 0) {
         const pos = validSpawns.pop();
         const id = `enemy_${spawnedCount}`;
@@ -2917,7 +2958,6 @@ function spawnEnemies(map) {
             rand -= weight;
         }
 
-        // If it's an angel, we don't spawn it now. We'll handle it in the update loop.
         if (typeToSpawn === 'WeepingAngel') {
             continue;
         }
@@ -2929,24 +2969,12 @@ function spawnEnemies(map) {
         };
         spawnedCount++;
     }
-
-    for (const data of Object.values(enemiesData)) {
-        const { id, type, x, y, config } = data;
-        let enemyInstance;
-        switch (type) {
-            case 'Brawler':      enemyInstance = new Brawler(id, x, y, config); break;
-            case 'Turret':
-            default:             enemyInstance = new Turret(id, x, y, config); break;
-        }
-        enemies.set(id, enemyInstance);
-    }
     
     net.setInitialEnemies(enemiesData).catch(e => console.error("Failed to set initial enemies", e));
 }
-
 function spawnCoins(map) {
     coins.clear();
-    const coinRng = mulberry32(map.seed + 1); // Use a different seed for coins
+    const coinRng = mulberry32(map.seed + 1);
     let spawned = 0;
     const maxCoins = Math.floor((map.w * map.h) / 100);
     const validSpawns = [];
@@ -3012,13 +3040,10 @@ function updateEnemies(dt) {
 
     if (net.auth.currentUser?.uid !== net.currentLobbyOwner) return;
 
-    // --- FIX: Add timed spawning for Weeping Angels ---
     state.weepingAngelSpawnTimer -= dt;
     if (state.weepingAngelSpawnTimer <= 0) {
-        // Reset timer to a random interval (e.g., 15-30 seconds)
-        state.weepingAngelSpawnTimer = 15 + Math.random() * 15;
+        state.weepingAngelSpawnTimer = 20 + Math.random() * 20;
         
-        // Find a random valid spawn location for the new angel
         const validSpawns = [];
         for (let y = 1; y < state.map.h - 1; y++) {
             for (let x = 1; x < state.map.w - 1; x++) {
@@ -3039,11 +3064,8 @@ function updateEnemies(dt) {
                 x: worldPos.x, y: worldPos.y,
                 config: angelConfig
             };
-
-            // Spawn for the host and broadcast to other players
-            const angelInstance = new WeepingAngel(id, worldPos.x, worldPos.y, angelConfig);
-            enemies.set(id, angelInstance);
-            net.updateEnemyState(id, angelData); // Use update to add new enemies after initial spawn
+            
+            net.spawnNewEnemy(angelData);
         }
     }
 
@@ -3100,8 +3122,17 @@ function updatePlayerProjectiles(dt) {
 
     for (let i = playerProjectiles.length - 1; i >= 0; i--) {
         const p = playerProjectiles[i];
+        
+        // --- Helper function to efficiently remove the current projectile ---
+        const removeCurrentProjectile = () => {
+            // Swap the current element with the last one
+            playerProjectiles[i] = playerProjectiles[playerProjectiles.length - 1];
+            // Remove the last element
+            playerProjectiles.pop();
+        };
+
         if (!p) {
-            playerProjectiles.splice(i, 1);
+            removeCurrentProjectile();
             continue;
         }
 
@@ -3127,7 +3158,7 @@ function updatePlayerProjectiles(dt) {
         p.life -= dt;
 
         if (p.life <= 0) {
-            playerProjectiles.splice(i, 1);
+            removeCurrentProjectile();
             continue;
         }
 
@@ -3142,10 +3173,7 @@ function updatePlayerProjectiles(dt) {
                    const newHp = enemy.takeDamage(p.damage, selectedKey);
                     addXp(10);
                     if (newHp <= 0) {
-                        addXp(50);
-                        net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
-                        net.incrementKillCount('enemy');
-                        state.enemyKills++;
+                        handleEnemyDefeat(enemy);
                     } else {
                         net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
                     }
@@ -3155,7 +3183,7 @@ function updatePlayerProjectiles(dt) {
             }
 
             if (hit) {
-                playerProjectiles.splice(i, 1);
+                removeCurrentProjectile();
                 continue;
             }
 
@@ -3178,8 +3206,26 @@ function updatePlayerProjectiles(dt) {
             }
 
             if (hit) {
-                playerProjectiles.splice(i, 1);
+                removeCurrentProjectile();
             }
+        }
+    }
+}
+
+function handleEnemyDefeat(enemy) {
+    addXp(50);
+    net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
+    net.incrementKillCount('enemy');
+    state.enemyKills++;
+
+    // --- QUEST PROGRESS LOGIC ---
+    if (state.currentQuest && state.currentQuest.active) {
+        if (state.currentQuest.type === 'killEnemies') {
+            state.currentQuest.progress++;
+        }
+        // Check the enemy's constructor name to see if it's a Brawler
+        if (state.currentQuest.type === 'killBrawlers' && enemy.constructor.name === 'Brawler') {
+            state.currentQuest.progress++;
         }
     }
 }
@@ -3197,6 +3243,9 @@ function checkCoinCollision() {
             net.updatePlayerStats({ coins: coinValue });
             net.removeCoin(id);
             sfx.coin.play();
+            if (state.currentQuest && state.currentQuest.active && state.currentQuest.type === 'collectCoins') {
+                state.currentQuest.progress++;
+            }
         }
     }
 }
@@ -3229,6 +3278,7 @@ function addXp(amount) {
 
 function tryMeleeAttack() {
     if (!state.ready || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
+    resetAfkTimer(); // --- AFK TIMER ---
 
     state.attacking = true;
     state.attackType = 'melee';
@@ -3255,10 +3305,7 @@ function tryMeleeAttack() {
              enemy.takeDamage(damage, selectedKey);
             addXp(10);
             if (enemy.hp <= 0) {
-                addXp(50);
-                net.removeEnemy(enemy.id).catch(e => console.error("Failed to remove enemy", e));
-                net.incrementKillCount('enemy');
-                state.enemyKills++;
+                handleEnemyDefeat(enemy);
             } else {
                 net.updateEnemyState(enemy.id, { hp: enemy.hp }).catch(e => console.error("Failed to update enemy HP", e));
             }
@@ -3284,6 +3331,7 @@ function tryMeleeAttack() {
 function tryRangedAttack() {
     const cfg = CHARACTERS[selectedKey];
     if (!state.ready || !cfg.ranged || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
+    resetAfkTimer(); // --- AFK TIMER ---
 
     state.attacking = true;
     state.attackType = 'ranged';
@@ -3353,6 +3401,7 @@ function tryRangedAttack() {
 
 async function handleAbilityKeyPress() {
     if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion)) return;
+    resetAfkTimer(); // --- AFK TIMER ---
 
     let ability = localPlayer.config.ability;
     if (selectedKey === 'Smeargle' && state.copiedAbility) {
@@ -3707,3 +3756,220 @@ function closePlayerViewer() {
 }
 
 closeViewerBtn.onclick = closePlayerViewer;
+
+// ===============================================
+// =========== QUEST GIVER LOGIC =================
+// ===============================================
+
+// Get references to the modal elements
+const questModalEl = document.getElementById('quest-modal');
+const questTitleEl = document.getElementById('quest-title');
+const questGiverDialogueEl = document.getElementById('quest-giver-dialogue');
+const questDetailsEl = document.getElementById('quest-details');
+const questTaskEl = document.getElementById('quest-task');
+const questRewardEl = document.getElementById('quest-reward');
+const questActionsEl = document.getElementById('quest-actions');
+const questProgressEl = document.getElementById('quest-progress');
+const questProgressTextEl = document.getElementById('quest-progress-text');
+const questCompleteEl = document.getElementById('quest-complete');
+
+// --- Main Update Function (called in the game loop) ---
+function updateQuestGiver(dt) {
+    if (!TEX.questGiver) return; // Don't run if the image isn't loaded
+
+    const dist = Math.hypot(state.x - questGiver.x, state.y - questGiver.y);
+
+    // --- Proximity Dialogue ---
+    if (dist < questGiver.proximityRadius && !questGiver.hasSpoken && !state.currentQuest) {
+        questGiver.dialogue = "Hey you! Over here!";
+        questGiver.dialogueTimer = 4.0;
+        questGiver.hasSpoken = true;
+    } else if (dist > questGiver.proximityRadius + TILE && questGiver.hasSpoken) {
+        // --- CHANGE: Check if the player has an active quest when leaving ---
+        if (state.currentQuest && state.currentQuest.active) {
+            questGiver.dialogue = "Do a good job out there."; // The new line for after accepting a quest.
+        } else {
+            questGiver.dialogue = "Fine, be that way!"; // The original line if no quest was accepted.
+        }
+        questGiver.dialogueTimer = 3.0;
+        questGiver.hasSpoken = false; // Allow him to speak again if player returns
+    }
+
+    // --- Quest Completion Dialogue ---
+    if (state.currentQuest?.active && state.currentQuest.progress >= state.currentQuest.goal) {
+        if (dist < questGiver.interactionRadius) {
+             questGiver.dialogue = "Looks like you did it! Let's see the proof.";
+             questGiver.dialogueTimer = 5.0;
+        }
+    }
+
+    if (questGiver.dialogueTimer > 0) {
+        questGiver.dialogueTimer -= dt;
+        if (questGiver.dialogueTimer <= 0) questGiver.dialogue = null;
+    }
+
+    // --- Hover Detection ---
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mouseWorldX = (lastMouseX - rect.left) * scaleX + state.cam.x;
+    const mouseWorldY = (lastMouseY - rect.top) * scaleY + state.cam.y;
+
+    const isHovered = mouseWorldX > questGiver.x - questGiver.w / 2 &&
+                      mouseWorldX < questGiver.x + questGiver.w / 2 &&
+                      mouseWorldY > questGiver.y - questGiver.h && // hitbox top
+                      mouseWorldY < questGiver.y;                  // hitbox bottom
+
+    questGiver.isHovered = isHovered;
+    canvas.style.cursor = isHovered ? 'pointer' : 'default';
+}
+
+// --- Drawing Function (called in the draw loop) ---
+function drawQuestGiver() {
+    if (!TEX.questGiver) return;
+
+    const img = TEX.questGiver;
+    // Scale the image up slightly
+    const scale = 0.09;
+    const dw = img.width * scale;
+    const dh = img.height * scale;
+
+    // Center horizontally, baseline at the feet
+    const dx = Math.round(questGiver.x - state.cam.x);
+    const dy = Math.round(questGiver.y - state.cam.y);
+
+    drawShadow(questGiver.x, questGiver.y, 0, 3.0, false);
+
+    ctx.save();
+    if (questGiver.isHovered) {
+        ctx.filter = 'drop-shadow(0 0 8px #66aaff) brightness(1.3)';
+    }
+
+    if (questGiver.flip) {
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, -dx - dw / 2, dy - dh, dw, dh);
+    } else {
+        ctx.drawImage(img, dx - dw / 2, dy - dh, dw, dh);
+    }
+    ctx.restore();
+
+    if (questGiver.dialogue) {
+        // --- FIX: Calculate the bubble position correctly ---
+        // Create a mock frame object similar to what players use.
+        // The 'oy' (offset y) property represents the distance from the baseline (feet) to the top of the sprite.
+        const questGiverFrame = { oy: dh }; 
+        
+        // Pass this frame to the drawChatBubble function. It will now correctly place
+        // the bubble just above the quest giver's head.
+        drawChatBubble(questGiver.dialogue, false, questGiverFrame, questGiver.x, questGiver.y, 0, 1.0);
+    }
+}
+
+// --- Modal Management ---
+function openQuestModal() {
+    const quest = state.currentQuest;
+
+    // Case 1: Player has an active quest that is COMPLETED
+    if (quest?.active && quest.progress >= quest.goal) {
+        questTitleEl.textContent = "A Job Well Done!";
+        questGiverDialogueEl.textContent = "Excellent work! Here is your reward, as promised.";
+        questDetailsEl.classList.add('hidden');
+        questActionsEl.classList.add('hidden');
+        questProgressEl.classList.add('hidden');
+        questCompleteEl.classList.remove('hidden');
+    }
+    // Case 2: Player has an active quest that is IN PROGRESS
+    else if (quest?.active) {
+        questTitleEl.textContent = "Quest in Progress";
+        questGiverDialogueEl.textContent = "You're not done yet! Get back to it.";
+        questDetailsEl.classList.add('hidden');
+        questActionsEl.classList.add('hidden');
+        questCompleteEl.classList.add('hidden');
+        questProgressEl.classList.remove('hidden');
+        questProgressTextEl.textContent = `${quest.progress} / ${quest.goal}`;
+    }
+    // Case 3: Player has NO quest, offer a new one
+    else {
+        const newQuest = QUEST_POOL[Math.floor(Math.random() * QUEST_POOL.length)];
+        state.currentQuest = { ...newQuest, goal: newQuest.amount, progress: 0, active: false };
+        
+        questTitleEl.textContent = "A Proposition!";
+        questGiverDialogueEl.textContent = newQuest.dialogue;
+        questTaskEl.textContent = newQuest.taskText;
+        questRewardEl.textContent = newQuest.rewardText;
+
+        questDetailsEl.classList.remove('hidden');
+        questActionsEl.classList.remove('hidden');
+        questProgressEl.classList.add('hidden');
+        questCompleteEl.classList.add('hidden');
+    }
+
+    questModalEl.classList.remove('hidden');
+}
+
+function giveQuestReward(quest) {
+    if (!quest) return;
+    const reward = quest.reward;
+
+    if (reward.type === 'levelUp') {
+        const xpNeeded = (state.xpToNextLevel - state.xp) + 1; // Add 1 to guarantee level up
+        addXp(xpNeeded);
+    } else if (reward.type === 'coins') {
+        state.coins += reward.amount;
+        net.updatePlayerStats({ coins: reward.amount });
+    } else if (reward.type === 'multi') {
+        let xpForLevels = 0;
+        let currentLevel = state.level;
+        let currentXp = state.xp;
+        let currentXpToNext = state.xpToNextLevel;
+        for (let i = 0; i < reward.levels; i++) {
+            xpForLevels += currentXpToNext - currentXp;
+            currentXp = 0;
+            currentLevel++;
+            currentXpToNext = Math.floor(100 * Math.pow(1.2, currentLevel - 1));
+        }
+        addXp(xpForLevels + 1); // Add 1 to guarantee final level up
+        
+        state.coins += reward.coins;
+        net.updatePlayerStats({ coins: reward.coins });
+    }
+    sfx.heal.play(0.8); // Play a success sound
+}
+
+// --- Click Handlers for Modal Buttons ---
+document.getElementById('accept-quest-btn').onclick = () => {
+    if (state.currentQuest) state.currentQuest.active = true;
+    questModalEl.classList.add('hidden');
+};
+
+document.getElementById('decline-quest-btn').onclick = () => {
+    state.currentQuest = null; // Player declined, so forget the quest
+    questModalEl.classList.add('hidden');
+};
+
+document.getElementById('close-progress-btn').onclick = () => {
+    questModalEl.classList.add('hidden');
+};
+
+document.getElementById('claim-reward-btn').onclick = () => {
+    giveQuestReward(state.currentQuest);
+    state.currentQuest = null; // Quest is finished and reward is claimed
+    questModalEl.classList.add('hidden');
+};
+
+// --- Hook into Click Listener ---
+canvas.addEventListener('click', (event) => {
+    if (state.playerViewMode) {
+        // ... Logic to open player viewer (already exists)
+        return;
+    }
+    if (state.abilityTargetingMode) {
+        // ... Logic for ability targeting (already exists)
+        return;
+    }
+
+    // New logic for quest giver
+    if (questGiver.isHovered) {
+        openQuestModal();
+    }
+});

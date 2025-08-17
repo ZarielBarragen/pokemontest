@@ -649,3 +649,8 @@ body::after{
 .highlighted-player {
     filter: drop-shadow(0 0 8px #aaddff) brightness(1.6);
 }
+
+.quest-giver-hover {
+    filter: drop-shadow(0 0 8px #66aaff) brightness(1.3);
+    cursor: pointer;
+}
