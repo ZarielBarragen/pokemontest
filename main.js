@@ -876,6 +876,7 @@ const state = {
   poisonTimer: 0,
   lastPoisonTick: 0,
   playerViewMode: false,
+  weepingAngelSpawnTimer: 0,
 };
 
 let viewerState = {
@@ -2863,45 +2864,51 @@ function loop(ts){
 // ---------- Enemy and Projectile Logic ----------
 function spawnEnemies(map) {
     const enemyTypes = {
-        'dungeon': { Turret: 0.5, WeepingAngel: 0.4, Brawler: 0.1 },
+        'dungeon': { Turret: 0.5, Brawler: 0.4, WeepingAngel: 0.1 },
         'plains':  { Turret: 0.4, Brawler: 0.5, WeepingAngel: 0.1 },
         'forest':  { Turret: 0.3, Brawler: 0.55, WeepingAngel: 0.15 }
     };
     const configs = {
-        Turret:       { hp: 50, speed: 0,      damage: 10, detectionRange: TILE * 7,  attackRange: 0,      projectileSpeed: TILE * 5 },
-        Brawler:      { hp: 80, speed: TILE * 2, damage: 15, detectionRange: TILE * 8,  attackRange: TILE * 1.2 },
-        WeepingAngel: { hp: 100,speed: TILE * 3.5, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 }
+        Turret:       { hp: 50, speed: 0, damage: 10, detectionRange: TILE * 7,  attackRange: 0, projectileSpeed: TILE * 5 },
+        // --- FIX: Reduced Brawler speed ---
+        Brawler:      { hp: 80, speed: TILE * 1, damage: 15, detectionRange: TILE * 8,  attackRange: TILE * 1.2 },
+        // --- FIX: Reduced Weeping Angel speed ---
+        WeepingAngel: { hp: 100,speed: TILE * 2.5, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 }
     };
 
     const weights = enemyTypes[map.type] || enemyTypes['dungeon'];
     const enemyRng = mulberry32(map.seed);
     const maxEnemies = Math.floor((map.w * map.h) / 200);
+    
+    // Find all valid spawn locations
     const validSpawns = [];
     for (let y = 1; y < map.h - 1; y++) {
         for (let x = 1; x < map.w - 1; x++) {
             if (!map.walls[y][x]) {
-                validSpawns.push({ x, y });
+                const distToPlayer = Math.hypot(x - map.spawn.x, y - map.spawn.y);
+                if (distToPlayer > 10) { // Ensure enemies don't spawn right on top of player
+                    validSpawns.push({ x, y });
+                }
             }
         }
     }
+    // Shuffle the spawn locations
     for (let i = validSpawns.length - 1; i > 0; i--) {
         const j = Math.floor(enemyRng() * (i + 1));
         [validSpawns[i], validSpawns[j]] = [validSpawns[j], validSpawns[i]];
     }
     
     const enemiesData = {};
-    let spawned = 0;
+    let spawnedCount = 0;
 
-    for (const pos of validSpawns) {
-        if (spawned >= maxEnemies) break;
-        const distToPlayer = Math.hypot(pos.x - map.spawn.x, pos.y - map.spawn.y);
-        if (distToPlayer < 10) continue;
-
-        const id = `enemy_${spawned}`;
+    // --- FIX: Spawn most enemies, but leave Weeping Angels for later ---
+    while(spawnedCount < maxEnemies && validSpawns.length > 0) {
+        const pos = validSpawns.pop();
+        const id = `enemy_${spawnedCount}`;
         const worldPos = tileCenter(pos.x, pos.y);
         
         let rand = enemyRng();
-        let typeToSpawn = 'Turret'; // Default to Turret
+        let typeToSpawn = 'Turret';
         for (const [type, weight] of Object.entries(weights)) {
             if (rand < weight) {
                 typeToSpawn = type;
@@ -2910,12 +2917,17 @@ function spawnEnemies(map) {
             rand -= weight;
         }
 
+        // If it's an angel, we don't spawn it now. We'll handle it in the update loop.
+        if (typeToSpawn === 'WeepingAngel') {
+            continue;
+        }
+
         enemiesData[id] = {
             id, type: typeToSpawn,
             x: worldPos.x, y: worldPos.y,
             config: configs[typeToSpawn]
         };
-        spawned++;
+        spawnedCount++;
     }
 
     for (const data of Object.values(enemiesData)) {
@@ -2923,15 +2935,15 @@ function spawnEnemies(map) {
         let enemyInstance;
         switch (type) {
             case 'Brawler':      enemyInstance = new Brawler(id, x, y, config); break;
-            case 'WeepingAngel': enemyInstance = new WeepingAngel(id, x, y, config); break;
             case 'Turret':
             default:             enemyInstance = new Turret(id, x, y, config); break;
         }
         enemies.set(id, enemyInstance);
     }
-
+    
     net.setInitialEnemies(enemiesData).catch(e => console.error("Failed to set initial enemies", e));
 }
+
 function spawnCoins(map) {
     coins.clear();
     const coinRng = mulberry32(map.seed + 1); // Use a different seed for coins
@@ -3000,8 +3012,43 @@ function updateEnemies(dt) {
 
     if (net.auth.currentUser?.uid !== net.currentLobbyOwner) return;
 
-    const allPlayers = [{ id: net.auth.currentUser.uid, x: state.x, y: state.y, isPhasing: state.isPhasing, dir: state.dir }];
-    remote.forEach(p => allPlayers.push({ id: p.uid, x: p.x, y: p.y, isPhasing: p.isPhasing, dir: p.dir }));
+    // --- FIX: Add timed spawning for Weeping Angels ---
+    state.weepingAngelSpawnTimer -= dt;
+    if (state.weepingAngelSpawnTimer <= 0) {
+        // Reset timer to a random interval (e.g., 15-30 seconds)
+        state.weepingAngelSpawnTimer = 15 + Math.random() * 15;
+        
+        // Find a random valid spawn location for the new angel
+        const validSpawns = [];
+        for (let y = 1; y < state.map.h - 1; y++) {
+            for (let x = 1; x < state.map.w - 1; x++) {
+                if (!state.map.walls[y][x]) {
+                    validSpawns.push({ x, y });
+                }
+            }
+        }
+
+        if (validSpawns.length > 0) {
+            const pos = validSpawns[Math.floor(Math.random() * validSpawns.length)];
+            const id = `enemy_angel_${Date.now()}`;
+            const worldPos = tileCenter(pos.x, pos.y);
+            const angelConfig = { hp: 100, speed: TILE * 2.5, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 };
+            
+            const angelData = {
+                id, type: 'WeepingAngel',
+                x: worldPos.x, y: worldPos.y,
+                config: angelConfig
+            };
+
+            // Spawn for the host and broadcast to other players
+            const angelInstance = new WeepingAngel(id, worldPos.x, worldPos.y, angelConfig);
+            enemies.set(id, angelInstance);
+            net.updateEnemyState(id, angelData); // Use update to add new enemies after initial spawn
+        }
+    }
+
+    const allPlayers = [{ id: net.auth.currentUser.uid, x: state.x, y: state.y, isPhasing: state.isPhasing, isFlying: state.isFlying, dir: state.dir }];
+    remote.forEach(p => allPlayers.push({ id: p.uid, x: p.x, y: p.y, isPhasing: p.isPhasing, isFlying: p.isFlying, dir: p.dir }));
 
     for (const enemy of enemies.values()) {
         enemy.update(dt, allPlayers, state.map, net);

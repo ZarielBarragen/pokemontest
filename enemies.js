@@ -44,7 +44,9 @@ class Enemy {
         let minPlayerDist = Infinity;
 
         for (const player of players) {
-            if (player.isPhasing) continue; // Ignore phasing players
+            // --- FIX: Ignore phasing and flying players ---
+            if (player.isPhasing || player.isFlying) continue; 
+            
             const dist = Math.hypot(player.x - this.x, player.y - this.y);
             if (dist < minPlayerDist) {
                 minPlayerDist = dist;
@@ -96,9 +98,8 @@ export class Turret extends Enemy {
             const vx = (dx / dist) * this.projectileSpeed;
             const vy = (dy / dist) * this.projectileSpeed;
 
-            // The host simulates and broadcasts projectiles
             net.fireProjectile({
-                ownerId: this.id, // Mark projectile as from an enemy
+                ownerId: this.id,
                 isEnemyProjectile: true,
                 x: this.x, y: this.y,
                 vx, vy, damage: this.damage, life: 3.0
@@ -111,7 +112,6 @@ export class Turret extends Enemy {
         const sy = Math.round(this.y - cam.y);
         const radius = 16;
 
-        // Simple drawing for a turret
         ctx.beginPath();
         ctx.arc(sx, sy, radius, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(255, 80, 80, 0.8)';
@@ -131,7 +131,7 @@ export class Brawler extends Enemy {
         this.attackAnimTimer = 0;
         this.handOffset1 = 0;
         this.handOffset2 = 0;
-        this.dir = 'down'; // --- ANIMATION FIX: Give Brawler a direction ---
+        this.dir = 'down';
     }
 
     update(dt, players, map, net) {
@@ -143,7 +143,7 @@ export class Brawler extends Enemy {
         if (this.target && distance < this.detectionRange) {
             const dx = this.target.x - this.x;
             const dy = this.target.y - this.y;
-            this.dir = vecToDir(dx, dy); // --- ANIMATION FIX: Update direction
+            this.dir = vecToDir(dx, dy);
 
             if (distance > this.attackRange) {
                 // Chase player
@@ -155,7 +155,7 @@ export class Brawler extends Enemy {
                 // Attack player
                 this.attackCooldown = 1.5;
                 this.attackAnimTimer = 1.0;
-                net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 }); // Add buffer to range
+                net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 });
             }
         }
         
@@ -167,7 +167,6 @@ export class Brawler extends Enemy {
         const sy = Math.round(this.y - cam.y);
         const radius = 18;
 
-        // --- ANIMATION FIX: Rewritten draw logic ---
         if (this.attackAnimTimer > 0) {
             const animProgress = 1.0 - this.attackAnimTimer;
             if (animProgress < 0.5) {
@@ -182,13 +181,11 @@ export class Brawler extends Enemy {
             this.handOffset2 = 0;
         }
 
-        // Body
         ctx.fillStyle = '#c2a374';
         ctx.beginPath();
         ctx.arc(sx, sy, radius, 0, Math.PI * 2);
         ctx.fill();
 
-        // Hands based on direction
         const dirVec = DIR_VECS[this.dir] || [0, 1];
         const perpendicularVec = { x: -dirVec[1], y: dirVec[0] };
 
@@ -230,7 +227,7 @@ export class WeepingAngel extends Enemy {
 
     takeDamage(amount, fromCharacterKey = null) {
         if (this.validAttackers.includes(fromCharacterKey)) {
-            super.takeDamage(amount); // Call the parent method to take damage
+            super.takeDamage(amount);
         }
         return this.hp;
     }
