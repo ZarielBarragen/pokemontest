@@ -198,7 +198,7 @@ function unmountChatLog(){
 }
 
 // ---------- Settings ----------
-const MAP_SCALE = 3;
+const MAP_SCALE = 4;
 const SPEED = TILE * 2.6;
 
 // --- AFK TIMER ---
