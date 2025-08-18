@@ -2581,30 +2581,34 @@ function draw(){
 
   const actors = [];
   
-  // --- CULLING LOGIC: Calculate visible boundaries ---
   const cam = state.cam;
   const canvasW = canvas.width;
   const canvasH = canvas.height;
-  const cullMargin = TILE * 4; // Margin in pixels to prevent pop-in
+  const cullMargin = TILE * 4;
 
+  // --- REVISED AND COMBINED TREE LOGIC ---
   if ((state.map.type === 'plains' || state.map.type === 'forest') && state.map.trees) {
       for (const tree of state.map.trees) {
-          // Only add trees that are near the viewport
           if (tree.x * TILE >= cam.x - cullMargin && tree.x * TILE <= cam.x + canvasW + cullMargin &&
               tree.y * TILE >= cam.y - cullMargin && tree.y * TILE <= cam.y + canvasH + cullMargin) {
+              
+              // Determine which tree texture to use
+              const treeTexture = state.map.type === 'plains' ? TEX.palm_tree : TEX.pine_tree;
+
               actors.push({
                   kind: "tree",
                   x: tree.x * TILE + TILE / 2,
                   y: (tree.y + 1) * TILE,
                   tileX: tree.x,
                   tileY: tree.y,
-                  src: state.map.type === 'plains' ? TEX.palm_tree : TEX.pine_tree
+                  src: treeTexture // Assign the correct texture
               });
           }
       }
   }
+  // --- END OF REVISED LOGIC ---
   
-  // --- CULLING APPLIED TO ENEMIES, COINS, AND HEALTH PACKS ---
+  // ... (the rest of the actor pushing logic for enemies, coins, etc. remains the same) ...
   for (const enemy of enemies.values()) {
       if (enemy.x >= cam.x - cullMargin && enemy.x <= cam.x + canvasW + cullMargin &&
           enemy.y >= cam.y - cullMargin && enemy.y <= cam.y + canvasH + cullMargin) {
@@ -2642,7 +2646,6 @@ function draw(){
   }
 
   for (const r of remote.values()){
-    // No culling needed for players as they are few and can appear anywhere quickly
     const assets = (r.isIllusion && r.illusionAssets) ? r.illusionAssets : r.assets;
     if (!assets) continue;
     
@@ -2794,6 +2797,7 @@ function draw(){
         drawQuestGiver();
         continue;
     }
+    // This logic now correctly draws both pine and palm trees
     if (a.kind === 'tree') {
         if(a.src) {
             let treeWidth, treeHeight, dy;
