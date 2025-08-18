@@ -56,6 +56,7 @@ import { Empoleon } from './characters/Empoleon.js';
 import { Cyclizar } from './characters/Cyclizar.js';
 import { Scolipede } from './characters/Scolipede.js';
 import { Altaria } from './characters/Altaria.js';
+import { SHOP_ITEMS } from './items.js';
 
 // ---- HELPER FUNCTIONS AND VARIABLES ----
 // For network update throttling
@@ -63,6 +64,7 @@ const NET_INTERVAL = 0.1;
 let _netAccum = 0;
 let _heartbeat = 0;
 let _lastSent = {};
+let dailyShopItems = {};
 
 function _hasMeaningfulChange() {
   if (!state.ready || !_lastSent) return false;
@@ -212,8 +214,15 @@ function currentSpeedMult(){
         mult *= (selectedKey === 'Cyclizar' ? 3 : 2);
     }
     const playerTileKey = `${Math.floor(state.x / TILE)},${Math.floor(state.y / TILE)}`;
+
+    if (state.equippedItem === 'protectivePads' && selectedKey === 'Scolipede' && (poisonTiles.has(playerTileKey) || sandTiles.has(playerTileKey))) {
+        mult *= 1.2; // 20% speed boost
+    }
+    
     if (sandTiles.has(playerTileKey)) {
-        mult *= 0.7; // 30% slow
+        if (state.equippedItem !== 'protectivePads') {
+             mult *= 0.7; // 30% slow
+        }
     }
     return mult;
 }
@@ -937,7 +946,9 @@ const state = {
   playerViewMode: false,
   afkTimer: 0,
   currentQuest: null,
-  weepingAngelSpawnTimer: 20
+  weepingAngelSpawnTimer: 20,
+  ghostCharmCooldown: 0,
+  ghostCharmCharges: 1
 };
 
 let viewerState = {
@@ -2414,7 +2425,12 @@ function update(dt){
   }
 
     const playerTileKey = `${Math.floor(state.x / TILE)},${Math.floor(state.y / TILE)}`;
-    if (poisonTiles.has(playerTileKey) && !state.isPoisoned) {
+    let isImmuneToGroundEffects = false;
+    if (state.equippedItem === 'protectivePads') {
+        isImmuneToGroundEffects = true;
+    }
+    
+    if (poisonTiles.has(playerTileKey) && !state.isPoisoned && !isImmuneToGroundEffects) {
         state.isPoisoned = true;
         state.poisonTimer = 5;
         state.lastPoisonTick = 0;
@@ -2434,6 +2450,12 @@ function update(dt){
         if (state.poisonTimer <= 0 || !poisonTiles.has(playerTileKey)) {
             state.isPoisoned = false;
         }
+    }
+
+    if (state.ghostCharmCooldown > 0) {
+        state.ghostCharmCooldown -= dt;
+    } else if (state.ghostCharmCharges < 1) {
+        state.ghostCharmCharges = 1;
     }
 
   const {vx, vy} = getInputVec();
@@ -2586,13 +2608,11 @@ function draw(){
   const canvasH = canvas.height;
   const cullMargin = TILE * 4;
 
-  // --- REVISED AND COMBINED TREE LOGIC ---
   if ((state.map.type === 'plains' || state.map.type === 'forest') && state.map.trees) {
       for (const tree of state.map.trees) {
           if (tree.x * TILE >= cam.x - cullMargin && tree.x * TILE <= cam.x + canvasW + cullMargin &&
               tree.y * TILE >= cam.y - cullMargin && tree.y * TILE <= cam.y + canvasH + cullMargin) {
               
-              // Determine which tree texture to use
               const treeTexture = state.map.type === 'plains' ? TEX.palm_tree : TEX.pine_tree;
 
               actors.push({
@@ -2601,14 +2621,12 @@ function draw(){
                   y: (tree.y + 1) * TILE,
                   tileX: tree.x,
                   tileY: tree.y,
-                  src: treeTexture // Assign the correct texture
+                  src: treeTexture
               });
           }
       }
   }
-  // --- END OF REVISED LOGIC ---
   
-  // ... (the rest of the actor pushing logic for enemies, coins, etc. remains the same) ...
   for (const enemy of enemies.values()) {
       if (enemy.x >= cam.x - cullMargin && enemy.x <= cam.x + canvasW + cullMargin &&
           enemy.y >= cam.y - cullMargin && enemy.y <= cam.y + canvasH + cullMargin) {
@@ -2797,7 +2815,6 @@ function draw(){
         drawQuestGiver();
         continue;
     }
-    // This logic now correctly draws both pine and palm trees
     if (a.kind === 'tree') {
         if(a.src) {
             let treeWidth, treeHeight, dy;
@@ -2962,7 +2979,6 @@ function draw(){
       }
   }
 }
-
 function loop(ts){
   const now = ts || 0;
   const dt = Math.min(0.033, (now - last)/1000);
@@ -3185,11 +3201,8 @@ function updatePlayerProjectiles(dt) {
     for (let i = playerProjectiles.length - 1; i >= 0; i--) {
         const p = playerProjectiles[i];
         
-        // --- Helper function to efficiently remove the current projectile ---
         const removeCurrentProjectile = () => {
-            // Swap the current element with the last one
             playerProjectiles[i] = playerProjectiles[playerProjectiles.length - 1];
-            // Remove the last element
             playerProjectiles.pop();
         };
 
@@ -3239,6 +3252,12 @@ function updatePlayerProjectiles(dt) {
                     } else {
                         net.updateEnemyState(enemy.id, { hp: newHp }).catch(e => console.error("Failed to update enemy HP", e));
                     }
+                    if (state.equippedItem === 'shellBell' && state.hp < state.maxHp) {
+                        let healAmount = Math.floor(p.damage * 0.05);
+                        if (selectedKey === 'Chandelure') healAmount *= 2;
+                        state.hp = Math.min(state.maxHp, state.hp + healAmount);
+                        net.updateState({ hp: state.hp });
+                    }
                     hit = true;
                     break;
                 }
@@ -3261,7 +3280,12 @@ function updatePlayerProjectiles(dt) {
                         state.playerKills++;
                     }
                     net.dealDamage(uid, p.damage, isKill).catch(e => console.error("Deal damage failed", e));
-                    
+                    if (state.equippedItem === 'shellBell' && state.hp < state.maxHp) {
+                        let healAmount = Math.floor(p.damage * 0.05);
+                        if (selectedKey === 'Chandelure') healAmount *= 2;
+                        state.hp = Math.min(state.maxHp, state.hp + healAmount);
+                        net.updateState({ hp: state.hp });
+                    }
                     hit = true;
                     break;
                 }
@@ -3280,12 +3304,19 @@ function handleEnemyDefeat(enemy) {
     net.incrementKillCount('enemy');
     state.enemyKills++;
 
-    // --- QUEST PROGRESS LOGIC ---
+    let coinChance = 0;
+    if (state.equippedItem === 'amuletCoin') {
+        coinChance = (selectedKey === 'Smeargle') ? 0.75 : 0.25;
+    }
+    if (Math.random() < coinChance) {
+        state.coins += 5;
+        net.updatePlayerStats({ coins: 5 });
+    }
+
     if (state.currentQuest && state.currentQuest.active) {
         if (state.currentQuest.type === 'killEnemies') {
             state.currentQuest.progress++;
         }
-        // Check the enemy's constructor name to see if it's a Brawler
         if (state.currentQuest.type === 'killBrawlers' && enemy.constructor.name === 'Brawler') {
             state.currentQuest.progress++;
         }
@@ -3340,7 +3371,7 @@ function addXp(amount) {
 
 function tryMeleeAttack() {
     if (!state.ready || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
-    resetAfkTimer(); // --- AFK TIMER ---
+    resetAfkTimer();
 
     state.attacking = true;
     state.attackType = 'melee';
@@ -3354,6 +3385,15 @@ function tryMeleeAttack() {
     const attackRange = TILE * 1.5;
     const characterConfig = CHARACTERS[selectedKey];
     let damage = characterConfig.strength || 15;
+
+    let critChance = 0;
+    if (state.equippedItem === 'scopeLens') {
+        critChance = (selectedKey === 'Decidueye') ? 0.25 : 0.10;
+    }
+    if (Math.random() < critChance) {
+        damage *= 1.5;
+    }
+
     if (state.rideBySlashActive) {
         damage *= 2;
         state.rideBySlashActive = false;
@@ -3366,6 +3406,12 @@ function tryMeleeAttack() {
         if (dist < attackRange && isFacing(state, enemy)) {
              enemy.takeDamage(damage, selectedKey);
             addXp(10);
+            if (state.equippedItem === 'shellBell' && state.hp < state.maxHp) {
+                let healAmount = Math.floor(damage * 0.05);
+                if (selectedKey === 'Chandelure') healAmount *= 2;
+                state.hp = Math.min(state.maxHp, state.hp + healAmount);
+                net.updateState({ hp: state.hp });
+            }
             if (enemy.hp <= 0) {
                 handleEnemyDefeat(enemy);
             } else {
@@ -3386,6 +3432,12 @@ function tryMeleeAttack() {
                 state.playerKills++;
             }
             net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
+            if (state.equippedItem === 'shellBell' && state.hp < state.maxHp) {
+                let healAmount = Math.floor(damage * 0.05);
+                if (selectedKey === 'Chandelure') healAmount *= 2;
+                state.hp = Math.min(state.maxHp, state.hp + healAmount);
+                net.updateState({ hp: state.hp });
+            }
         }
     }
 }
@@ -3393,7 +3445,7 @@ function tryMeleeAttack() {
 function tryRangedAttack() {
     const cfg = CHARACTERS[selectedKey];
     if (!state.ready || !cfg.ranged || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
-    resetAfkTimer(); // --- AFK TIMER ---
+    resetAfkTimer();
 
     state.attacking = true;
     state.attackType = 'ranged';
@@ -3432,6 +3484,15 @@ function tryRangedAttack() {
     const startY = state.y - (TILE * 0.5);
     
     let damage = cfg.rangedStrength || 20;
+
+    let critChance = 0;
+    if (state.equippedItem === 'scopeLens') {
+        critChance = (selectedKey === 'Decidueye') ? 0.25 : 0.10;
+    }
+    if (Math.random() < critChance) {
+        damage *= 1.5;
+    }
+    
     if (state.equippedItem === 'blastoiseBlaster' && selectedKey === 'Blastoise') {
         damage *= 2;
     }
@@ -3463,7 +3524,12 @@ function tryRangedAttack() {
 
 async function handleAbilityKeyPress() {
     if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion)) return;
-    resetAfkTimer(); // --- AFK TIMER ---
+    resetAfkTimer();
+
+    if (state.equippedItem === 'ghostCharm') {
+        useGhostCharm();
+        return;
+    }
 
     let ability = localPlayer.config.ability;
     if (selectedKey === 'Smeargle' && state.copiedAbility) {
@@ -3598,15 +3664,8 @@ async function handleRemoteRevertIllusion(player) {
 }
 
 // ---------- Shop and Inventory Logic ----------
-const SHOP_ITEMS = {
-    quagsireScale: { name: "Quagsire Scale", price: 100, description: "Slowly regenerate health." },
-    sableyeGem: { name: "Sableye Gem", price: 150, description: "Coins are worth double." },
-    blastoiseBlaster: { name: "Blastoise Blaster", price: 200, description: "Ranged attackers fire two projectiles." },
-    hypnosPendulum: { name: "Hypno's Pendulum", price: 120, description: "Slows nearby players." },
-    cyclizarMotor: { name: "Cyclizar Motor", price: 250, description: "Doubles your speed." },
-};
-
 function openShop() {
+    selectDailyShopItems();
     shopModal.classList.remove("hidden");
     populateShop();
 }
@@ -3615,12 +3674,63 @@ function closeShop() {
     shopModal.classList.add("hidden");
 }
 
+function selectDailyShopItems() {
+    const date = new Date();
+    const dateSeed = parseInt(`${date.getFullYear()}${date.getMonth()}${date.getDate()}`);
+    const dailyRng = mulberry32(dateSeed);
+
+    const itemList = Object.keys(SHOP_ITEMS);
+    const availableItems = {};
+
+    for (let i = itemList.length - 1; i > 0; i--) {
+        const j = Math.floor(dailyRng() * (i + 1));
+        [itemList[i], itemList[j]] = [itemList[j], itemList[i]];
+    }
+
+    for (let i = 0; i < 4 && i < itemList.length; i++) {
+        const key = itemList[i];
+        availableItems[key] = SHOP_ITEMS[key];
+    }
+    
+    dailyShopItems = availableItems;
+}
+
+function useGhostCharm() {
+    if (state.equippedItem !== 'ghostCharm' || state.ghostCharmCooldown > 0 || state.ghostCharmCharges < 1) return;
+
+    const dir = DIR_VECS[state.dir] || [0, 0];
+    const targetX = state.x + dir[0] * TILE;
+    const targetY = state.y + dir[1] * TILE;
+
+    const targetTileX = Math.floor(targetX / TILE);
+    const targetTileY = Math.floor(targetY / TILE);
+
+    if (state.map.walls[targetTileY]?.[targetTileX]) {
+        const originalPhasing = state.isPhasing;
+        state.isPhasing = true;
+        
+        state.x = targetX;
+        state.y = targetY;
+
+        state.isPhasing = originalPhasing;
+
+        state.ghostCharmCharges = 0;
+        let cooldown = 15;
+        if (selectedKey === 'Hisuian Zoroark') {
+            cooldown = 5;
+        }
+        state.ghostCharmCooldown = cooldown;
+        sfx.jump.play(0.5, 0.8);
+    }
+}
+
 function populateShop() {
     shopItemsContainer.innerHTML = "";
-    for (const [id, item] of Object.entries(SHOP_ITEMS)) {
+    for (const [id, item] of Object.entries(dailyShopItems)) {
         const itemEl = document.createElement("div");
         itemEl.className = "shop-item";
         itemEl.innerHTML = `
+            <img src="${item.icon}" alt="${item.name}" class="shop-item-icon">
             <h4>${item.name}</h4>
             <p>${item.description}</p>
             <p>Cost: ${item.price} coins</p>
@@ -3651,29 +3761,28 @@ function updateInventoryUI() {
     for (const [itemId, count] of Object.entries(state.inventory)) {
         const item = SHOP_ITEMS[itemId];
         if (item) {
-            const itemEl = document.createElement("div");
-            itemEl.className = "inventory-item";
+            const imgEl = document.createElement("img");
+            imgEl.className = "inventory-item";
+            imgEl.src = item.icon;
+            imgEl.alt = item.name;
+            imgEl.dataset.itemId = itemId;
+
             if (state.equippedItem === itemId) {
-                itemEl.classList.add("equipped");
+                imgEl.classList.add("equipped");
             }
-            itemEl.textContent = `${item.name} (x${count})`;
-            itemEl.dataset.itemId = itemId;
-            inventoryItemsContainer.appendChild(itemEl);
+            
+            inventoryItemsContainer.appendChild(imgEl);
         }
     }
 }
 
-// --- NEW FUNCTION TO HANDLE EQUIPPING ITEMS ON CLICK OR TAP ---
 function handleEquipItem(e) {
-    // Prevent the event from also triggering a 'click' event right after
     e.preventDefault();
     
-    // Debounce to prevent rapid double-firing on some devices
     const now = performance.now();
     if (now - lastTapHandledTime < 300) return;
     lastTapHandledTime = now;
 
-    // The rest of the original logic is the same
     const itemEl = e.target.closest('.inventory-item');
     if (itemEl) {
         const itemId = itemEl.dataset.itemId;
@@ -3687,7 +3796,6 @@ function handleEquipItem(e) {
     }
 }
 
-// Listen for both mouse clicks and finger taps
 inventoryItemsContainer.addEventListener('click', handleEquipItem);
 inventoryItemsContainer.addEventListener('touchend', handleEquipItem);
 

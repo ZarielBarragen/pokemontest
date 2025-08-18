@@ -555,6 +555,17 @@ body::after{
     margin: 0 0 10px;
 }
 
+.shop-item-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 10px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background-color: var(--bg-0); /* Dark background for transparent PNGs */
+  border: 2px solid var(--panel-2);
+  padding: 4px;
+}
+
 .inventory-display {
     position: fixed;
     bottom: 10px;
@@ -574,20 +585,27 @@ body::after{
 
 #inventory-items {
     display: flex;
-    flex-direction: column;
+    /* Allow items to wrap to the next line */
+    flex-wrap: wrap; 
     gap: 5px;
 }
 
 .inventory-item {
+    /* Style for the item icons */
+    width: 48px;
+    height: 48px;
     background: var(--panel);
-    padding: 5px;
-    font-size: 12px;
+    padding: 4px;
     cursor: pointer;
+    border: 2px solid var(--panel-2);
+    image-rendering: pixelated;
 }
 
 .inventory-item.equipped {
-    border: 2px solid var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
 }
+
 
 /* Leaderboard */
 .leaderboard-container {
