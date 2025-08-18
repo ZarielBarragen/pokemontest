@@ -3827,13 +3827,14 @@ function openShop() {
     shopModal.classList.remove("hidden");
     populateShop();
 
+    // --- START COUNTDOWN ---
     const countdownEl = document.getElementById("shop-countdown");
-    if (shopCountdownInterval) clearInterval(shopCountdownInterval);
+    if (shopCountdownInterval) clearInterval(shopCountdownInterval); // Clear any existing timer
 
     shopCountdownInterval = setInterval(() => {
         const now = new Date();
         const tomorrow = new Date(now);
-        tomorrow.setUTCHours(24, 0, 0, 0);
+        tomorrow.setUTCHours(24, 0, 0, 0); // Set to midnight UTC of the next day
 
         const diff = tomorrow.getTime() - now.getTime();
         const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
@@ -3850,6 +3851,7 @@ function openShop() {
 
 function closeShop() {
     shopModal.classList.add("hidden");
+    // --- STOP COUNTDOWN ---
     if (shopCountdownInterval) {
         clearInterval(shopCountdownInterval);
         shopCountdownInterval = null;
