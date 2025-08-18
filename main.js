@@ -2581,60 +2581,68 @@ function draw(){
 
   const actors = [];
   
-  if (state.map.type === 'plains' && state.map.trees) {
+  // --- CULLING LOGIC: Calculate visible boundaries ---
+  const cam = state.cam;
+  const canvasW = canvas.width;
+  const canvasH = canvas.height;
+  const cullMargin = TILE * 4; // Margin in pixels to prevent pop-in
+
+  if ((state.map.type === 'plains' || state.map.type === 'forest') && state.map.trees) {
       for (const tree of state.map.trees) {
-          actors.push({
-              kind: "tree",
-              x: tree.x * TILE + TILE / 2,
-              y: (tree.y + 1) * TILE, // Set baseline for sorting
-              tileX: tree.x,
-              tileY: tree.y,
-              src: TEX.palm_tree // Use the palm tree texture
-          });
+          // Only add trees that are near the viewport
+          if (tree.x * TILE >= cam.x - cullMargin && tree.x * TILE <= cam.x + canvasW + cullMargin &&
+              tree.y * TILE >= cam.y - cullMargin && tree.y * TILE <= cam.y + canvasH + cullMargin) {
+              actors.push({
+                  kind: "tree",
+                  x: tree.x * TILE + TILE / 2,
+                  y: (tree.y + 1) * TILE,
+                  tileX: tree.x,
+                  tileY: tree.y,
+                  src: state.map.type === 'plains' ? TEX.palm_tree : TEX.pine_tree
+              });
+          }
       }
   }
   
-  if (state.map.type === 'forest' && state.map.trees) {
-      for (const tree of state.map.trees) {
-          actors.push({
-              kind: "tree",
-              x: tree.x * TILE + TILE / 2,
-              y: (tree.y + 1) * TILE,
-              tileX: tree.x,
-              tileY: tree.y,
-              src: TEX.pine_tree
-          });
-      }
-  }
-  
+  // --- CULLING APPLIED TO ENEMIES, COINS, AND HEALTH PACKS ---
   for (const enemy of enemies.values()) {
-      actors.push({
-          kind: "enemy",
-          id: enemy.id,
-          x: enemy.x,
-          y: enemy.y,
-      });
+      if (enemy.x >= cam.x - cullMargin && enemy.x <= cam.x + canvasW + cullMargin &&
+          enemy.y >= cam.y - cullMargin && enemy.y <= cam.y + canvasH + cullMargin) {
+          actors.push({
+              kind: "enemy",
+              id: enemy.id,
+              x: enemy.x,
+              y: enemy.y,
+          });
+      }
   }
   
   for (const coin of coins.values()) {
-      actors.push({
-          kind: "coin",
-          x: coin.x,
-          y: coin.y,
-          ...coin
-      });
+      if (coin.x >= cam.x - cullMargin && coin.x <= cam.x + canvasW + cullMargin &&
+          coin.y >= cam.y - cullMargin && coin.y <= cam.y + canvasH + cullMargin) {
+          actors.push({
+              kind: "coin",
+              x: coin.x,
+              y: coin.y,
+              ...coin
+          });
+      }
   }
   
   for (const pack of healthPacks.values()) {
-      actors.push({
-          kind: "healthpack",
-          x: pack.x,
-          y: pack.y,
-          ...pack
-      });
+      if (pack.x >= cam.x - cullMargin && pack.x <= cam.x + canvasW + cullMargin &&
+          pack.y >= cam.y - cullMargin && pack.y <= cam.y + canvasH + cullMargin) {
+          actors.push({
+              kind: "healthpack",
+              x: pack.x,
+              y: pack.y,
+              ...pack
+          });
+      }
   }
 
   for (const r of remote.values()){
+    // No culling needed for players as they are few and can appear anywhere quickly
     const assets = (r.isIllusion && r.illusionAssets) ? r.illusionAssets : r.assets;
     if (!assets) continue;
     
@@ -2950,6 +2958,7 @@ function draw(){
       }
   }
 }
+
 function loop(ts){
   const now = ts || 0;
   const dt = Math.min(0.033, (now - last)/1000);
