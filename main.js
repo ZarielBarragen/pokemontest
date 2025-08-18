@@ -282,6 +282,7 @@ const questGiver = {
 };
 
 const QUEST_POOL = [
+    // --- Original Quests ---
     {
         type: 'collectCoins',
         amount: 20,
@@ -305,6 +306,47 @@ const QUEST_POOL = [
         taskText: "Defeat 10 enemies of any type.",
         reward: { type: 'coins', amount: 50 },
         rewardText: "50 Coins"
+    },
+    // --- NEW QUESTS ---
+    {
+        type: 'killTurrets',
+        amount: 8,
+        dialogue: "See those stationary contraptions spitting fire? They're a real nuisance. Dismantle 8 of them for me.",
+        taskText: "Defeat 8 Turret enemies.",
+        reward: { type: 'coins', amount: 75 },
+        rewardText: "75 Coins"
+    },
+    {
+        type: 'survive',
+        amount: 120, // 120 seconds = 2 minutes
+        dialogue: "Sometimes the best offense is not getting hit. Just stay alive for 2 minutes and I'll call it a job well done.",
+        taskText: "Survive for 2 minutes.",
+        reward: { type: 'levelUp', amount: 1 },
+        rewardText: "1 Level Up"
+    },
+    {
+        type: 'visitCorner',
+        amount: 1, 
+        dialogue: "I hear there's something interesting in the top-left corner of this place. Go check it out for me, will you?",
+        taskText: "Travel to the top-left corner of the map.",
+        reward: { type: 'coins', amount: 30 },
+        rewardText: "30 Coins"
+    },
+    {
+        type: 'killAngels',
+        amount: 1,
+        dialogue: "Have you seen that terrifying, weeping thing? Take it down. I don't care how, just get it done. There's a special reward in it for you.",
+        taskText: "Defeat 1 Weeping Angel.",
+        reward: { type: 'randomItem' },
+        rewardText: "A random item from the shop!"
+    },
+    {
+        type: 'clearZone',
+        amount: 25,
+        dialogue: "This whole area is crawling with pests. Thin the herd significantly—take out 25 enemies—and you'll be handsomely rewarded.",
+        taskText: "Defeat 25 enemies of any type.",
+        reward: { type: 'multi', levels: 3, coins: 100 },
+        rewardText: "3 Level Ups and 100 Coins"
     }
 ];
 // ------------------------------------
@@ -2565,6 +2607,24 @@ function update(dt){
         }
       }
     }
+
+      if (state.currentQuest && state.currentQuest.active) {
+      const quest = state.currentQuest;
+      // Survive Quest
+      if (quest.type === 'survive' && quest.progress < quest.goal) {
+          quest.progress += dt; // Add the delta time each frame
+      }
+      // Visit Corner Quest
+      if (quest.type === 'visitCorner') {
+          // Check if player is within the top-left 3x3 tile area
+          const playerTileX = Math.floor(state.x / TILE);
+          const playerTileY = Math.floor(state.y / TILE);
+          if (playerTileX <= 2 && playerTileY <= 2) {
+              quest.progress = 1;
+          }
+      }
+  }
+  updateQuestGiver(dt);
   }
 
   const adj = resolvePlayerCollisions(state.x, state.y);
@@ -3377,6 +3437,23 @@ function handleEnemyDefeat(enemy) {
         }
         if (state.currentQuest.type === 'killBrawlers' && enemy.constructor.name === 'Brawler') {
             state.currentQuest.progress++;
+        }
+    }
+
+        if (state.currentQuest && state.currentQuest.active) {
+        const quest = state.currentQuest;
+        if (quest.type === 'killEnemies' || quest.type === 'clearZone') {
+            quest.progress++;
+        }
+        if (quest.type === 'killBrawlers' && enemy.constructor.name === 'Brawler') {
+            quest.progress++;
+        }
+        // --- ADD THESE NEW CHECKS ---
+        if (quest.type === 'killTurrets' && enemy.constructor.name === 'Turret') {
+            quest.progress++;
+        }
+        if (quest.type === 'killAngels' && enemy.constructor.name === 'WeepingAngel') {
+            quest.progress++;
         }
     }
 }
@@ -4196,12 +4273,14 @@ function openQuestModal() {
     questModalEl.classList.remove('hidden');
 }
 
-function giveQuestReward(quest) {
+// main.js
+
+async function giveQuestReward(quest) { // <-- Make the function async
     if (!quest) return;
     const reward = quest.reward;
 
     if (reward.type === 'levelUp') {
-        const xpNeeded = (state.xpToNextLevel - state.xp) + 1; // Add 1 to guarantee level up
+        const xpNeeded = (state.xpToNextLevel - state.xp) + 1;
         addXp(xpNeeded);
     } else if (reward.type === 'coins') {
         state.coins += reward.amount;
@@ -4217,12 +4296,25 @@ function giveQuestReward(quest) {
             currentLevel++;
             currentXpToNext = Math.floor(100 * Math.pow(1.2, currentLevel - 1));
         }
-        addXp(xpForLevels + 1); // Add 1 to guarantee final level up
+        addXp(xpForLevels + 1);
         
         state.coins += reward.coins;
         net.updatePlayerStats({ coins: reward.coins });
+    } else if (reward.type === 'randomItem') { // <-- ADD THIS ENTIRE BLOCK
+        const itemList = Object.keys(SHOP_ITEMS);
+        const randomItemId = itemList[Math.floor(Math.random() * itemList.length)];
+        const item = { id: randomItemId, ...SHOP_ITEMS[randomItemId] };
+        
+        // Use a clever workaround: set the price to 0 and call the purchase function
+        item.price = 0;
+        await net.purchaseItem(item);
+        
+        // Update local state and UI
+        const stats = await net.getUserStats();
+        state.inventory = stats.inventory;
+        updateInventoryUI();
     }
-    sfx.heal.play(0.8); // Play a success sound
+    sfx.heal.play(0.8);
 }
 
 // --- Click Handlers for Modal Buttons ---
