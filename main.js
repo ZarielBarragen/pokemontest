@@ -65,6 +65,7 @@ let _netAccum = 0;
 let _heartbeat = 0;
 let _lastSent = {};
 let dailyShopItems = {};
+let shopCountdownInterval = null;
 
 function _hasMeaningfulChange() {
   if (!state.ready || !_lastSent) return false;
@@ -3668,10 +3669,36 @@ function openShop() {
     selectDailyShopItems();
     shopModal.classList.remove("hidden");
     populateShop();
+
+    // --- START COUNTDOWN ---
+    const countdownEl = document.getElementById("shop-countdown");
+    if (shopCountdownInterval) clearInterval(shopCountdownInterval); // Clear any existing timer
+
+    shopCountdownInterval = setInterval(() => {
+        const now = new Date();
+        const tomorrow = new Date(now);
+        tomorrow.setUTCHours(24, 0, 0, 0); // Set to midnight UTC of the next day
+
+        const diff = tomorrow.getTime() - now.getTime();
+        const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+        const minutes = Math.floor((diff / 1000 / 60) % 60);
+        const seconds = Math.floor((diff / 1000) % 60);
+
+        countdownEl.textContent = 
+            `${hours.toString().padStart(2, '0')}:` +
+            `${minutes.toString().padStart(2, '0')}:` +
+            `${seconds.toString().padStart(2, '0')}`;
+
+    }, 1000);
 }
 
 function closeShop() {
     shopModal.classList.add("hidden");
+    // --- STOP COUNTDOWN ---
+    if (shopCountdownInterval) {
+        clearInterval(shopCountdownInterval);
+        shopCountdownInterval = null;
+    }
 }
 
 function selectDailyShopItems() {
