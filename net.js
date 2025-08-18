@@ -733,6 +733,39 @@ export class Net {
       return unsubAll;
   }
 
+    // ---------- ITEM DROPS (RTDB) ----------
+  async createItemDrop(dropId, dropData) {
+      const uid = this.auth.currentUser?.uid;
+      if (!this.currentLobbyId || uid !== this.currentLobbyOwner) return;
+      const dropRef = ref(this.db, `lobbies/${this.currentLobbyId}/itemDrops/${dropId}`);
+      await set(dropRef, dropData);
+  }
+
+  async removeItemDrop(dropId) {
+      if (!this.currentLobbyId || !dropId) return;
+      const dropRef = ref(this.db, `lobbies/${this.currentLobbyId}/itemDrops/${dropId}`);
+      await remove(dropRef);
+  }
+
+  subscribeItemDrops({ onAdd, onRemove }) {
+      if (!this.currentLobbyId) return () => {};
+      const base = ref(this.db, `lobbies/${this.currentLobbyId}/itemDrops`);
+
+      const unsubAdded = onChildAdded(base, (snap) => {
+          onAdd && onAdd(snap.key, snap.val());
+      });
+      const unsubRemoved = onChildRemoved(base, (snap) => {
+          onRemove && onRemove(snap.key);
+      });
+      
+      const unsubAll = () => {
+          unsubAdded();
+          unsubRemoved();
+      };
+      this.playersUnsubs.push(unsubAll);
+      return unsubAll;
+  }
+
   // --- NEW FUNCTIONS FOR PLAYER VIEWER ---
   async getPublicUserData(uid) {
     if (!uid) return null;

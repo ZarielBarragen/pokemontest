@@ -25,6 +25,7 @@ const coins = new Map();
 const healthPacks = new Map();
 const poisonTiles = new Map();
 const sandTiles = new Map();
+const droppedItems = new Map();
 
 const gameContext = {
     enemies,
@@ -1524,6 +1525,15 @@ net.subscribeEnemies({
       }
   });
 
+  net.subscribeItemDrops({
+      onAdd: (id, data) => {
+          droppedItems.set(id, data);
+      },
+      onRemove: (id) => {
+          droppedItems.delete(id);
+      }
+  });
+
   return net.subscribePlayers({
     onAdd: async (uid, data)=>{
       const assets = await loadCharacterAssets(data.character);
@@ -2570,6 +2580,7 @@ function update(dt){
   updatePlayerProjectiles(dt);
   checkCoinCollision();
   checkHealthPackCollision();
+  checkItemDropCollision();
 
   if (selectedKey && state.ready){
     _netAccum += dt; _heartbeat += dt;
@@ -2660,6 +2671,18 @@ function draw(){
               x: pack.x,
               y: pack.y,
               ...pack
+          });
+      }
+  }
+
+  for (const itemDrop of droppedItems.values()) {
+      if (itemDrop.x >= cam.x - cullMargin && itemDrop.x <= cam.x + canvasW + cullMargin &&
+          itemDrop.y >= cam.y - cullMargin && itemDrop.y <= cam.y + canvasH + cullMargin) {
+          actors.push({
+              kind: "itemDrop",
+              x: itemDrop.x,
+              y: itemDrop.y,
+              itemId: itemDrop.itemId
           });
       }
   }
@@ -2886,6 +2909,28 @@ function draw(){
         continue;
     }
   
+    if (a.kind === 'itemDrop') {
+        const itemData = SHOP_ITEMS[a.itemId];
+        if (itemData && itemData.icon) {
+            // It's inefficient to create a new Image object every frame.
+            // A real game would cache these. For now, this is simple.
+            const img = new Image();
+            img.src = itemData.icon;
+            if (img.complete) { // Ensure image is loaded
+                const iconSize = 32;
+                const dx = a.x - state.cam.x - iconSize / 2;
+                const dy = a.y - state.cam.y - iconSize / 2;
+                
+                ctx.save();
+                ctx.shadowColor = 'yellow';
+                ctx.shadowBlur = 15;
+                ctx.drawImage(img, dx, dy, iconSize, iconSize);
+                ctx.restore();
+            }
+        }
+        continue;
+    }
+
     const f = a.frame, scale = a.scale;
     if (!f || !a.src) continue;
 
@@ -3305,13 +3350,25 @@ function handleEnemyDefeat(enemy) {
     net.incrementKillCount('enemy');
     state.enemyKills++;
 
-    let coinChance = 0;
-    if (state.equippedItem === 'amuletCoin') {
-        coinChance = (selectedKey === 'Smeargle') ? 0.75 : 0.25;
-    }
-    if (Math.random() < coinChance) {
-        state.coins += 5;
-        net.updatePlayerStats({ coins: 5 });
+    const ITEM_DROP_CHANCE = 0.15;
+    const COIN_DROP_CHANCE = 0.80;
+
+    if (Math.random() < ITEM_DROP_CHANCE) {
+        const itemList = Object.keys(SHOP_ITEMS);
+        const randomItemId = itemList[Math.floor(Math.random() * itemList.length)];
+        const dropId = `drop_${Date.now()}_${Math.random()}`;
+        
+        net.createItemDrop(dropId, {
+            itemId: randomItemId,
+            x: enemy.x,
+            y: enemy.y,
+        });
+    } 
+    
+    if (Math.random() < COIN_DROP_CHANCE) {
+        const coinAmount = Math.floor(Math.random() * 10) + 5;
+        state.coins += coinAmount;
+        net.updatePlayerStats({ coins: coinAmount });
     }
 
     if (state.currentQuest && state.currentQuest.active) {
@@ -3320,6 +3377,29 @@ function handleEnemyDefeat(enemy) {
         }
         if (state.currentQuest.type === 'killBrawlers' && enemy.constructor.name === 'Brawler') {
             state.currentQuest.progress++;
+        }
+    }
+}
+
+async function checkItemDropCollision() {
+    if (!state.ready) return;
+    const ITEM_PICKUP_R = 16;
+
+    for (const [id, itemDrop] of droppedItems.entries()) {
+        const dist = Math.hypot(state.x - itemDrop.x, state.y - itemDrop.y);
+        if (dist < PLAYER_R + ITEM_PICKUP_R) {
+            const item = { id: itemDrop.itemId, ...SHOP_ITEMS[itemDrop.itemId] };
+            
+            item.price = 0;
+            await net.purchaseItem(item);
+            
+            const stats = await net.getUserStats();
+            state.inventory = stats.inventory;
+            updateInventoryUI();
+
+            sfx.heal.play(0.8);
+
+            net.removeItemDrop(id);
         }
     }
 }
@@ -3670,14 +3750,13 @@ function openShop() {
     shopModal.classList.remove("hidden");
     populateShop();
 
-    // --- START COUNTDOWN ---
     const countdownEl = document.getElementById("shop-countdown");
-    if (shopCountdownInterval) clearInterval(shopCountdownInterval); // Clear any existing timer
+    if (shopCountdownInterval) clearInterval(shopCountdownInterval);
 
     shopCountdownInterval = setInterval(() => {
         const now = new Date();
         const tomorrow = new Date(now);
-        tomorrow.setUTCHours(24, 0, 0, 0); // Set to midnight UTC of the next day
+        tomorrow.setUTCHours(24, 0, 0, 0);
 
         const diff = tomorrow.getTime() - now.getTime();
         const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
@@ -3694,7 +3773,6 @@ function openShop() {
 
 function closeShop() {
     shopModal.classList.add("hidden");
-    // --- STOP COUNTDOWN ---
     if (shopCountdownInterval) {
         clearInterval(shopCountdownInterval);
         shopCountdownInterval = null;
