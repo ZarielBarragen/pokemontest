@@ -26,6 +26,7 @@ const healthPacks = new Map();
 const poisonTiles = new Map();
 const sandTiles = new Map();
 const droppedItems = new Map();
+const activeEffects = new Map();
 
 const gameContext = {
     enemies,
@@ -34,7 +35,8 @@ const gameContext = {
     coins,
     healthPacks,
     poisonTiles,
-    sandTiles
+    sandTiles,
+    activeEffects
 };
 
 
@@ -57,6 +59,13 @@ import { Empoleon } from './characters/Empoleon.js';
 import { Cyclizar } from './characters/Cyclizar.js';
 import { Scolipede } from './characters/Scolipede.js';
 import { Altaria } from './characters/Altaria.js';
+import { Gengar } from './characters/Gengar.js';
+import { Excadrill } from './characters/Excadrill.js';
+import { Chandelure } from './characters/Chandelure.js';
+import { Primarina } from './characters/Primarina.js';
+import { Dewgong } from './characters/Dewgong.js';
+import { Lopunny } from './characters/Lopunny.js';
+import { Spinda } from './characters/Spinda.js';
 import { SHOP_ITEMS } from './items.js';
 
 // ---- HELPER FUNCTIONS AND VARIABLES ----
@@ -282,7 +291,6 @@ const questGiver = {
 };
 
 const QUEST_POOL = [
-    // --- Original Quests ---
     {
         type: 'collectCoins',
         amount: 20,
@@ -307,7 +315,6 @@ const QUEST_POOL = [
         reward: { type: 'coins', amount: 50 },
         rewardText: "50 Coins"
     },
-    // --- NEW QUESTS ---
     {
         type: 'killTurrets',
         amount: 8,
@@ -411,6 +418,13 @@ const characterClassMap = {
     "Cyclizar": Cyclizar,
     "Scolipede": Scolipede,
     "Altaria": Altaria,
+    "Gengar": Gengar,
+    "Excadrill": Excadrill,
+    "Chandelure": Chandelure,
+    "Primarina": Primarina,
+    "Dewgong": Dewgong,
+    "Lopunny": Lopunny,
+    "Spinda": Spinda,
 };
 
 // We will fetch this from the JSON file now
@@ -992,7 +1006,14 @@ const state = {
   currentQuest: null,
   weepingAngelSpawnTimer: 20,
   ghostCharmCooldown: 0,
-  ghostCharmCharges: 1
+  ghostCharmCharges: 1,
+  darkRoomActive: false,
+  darkRoomTimer: 0,
+  isDarkRoomCaster: false,
+  isBubbled: false,
+  bubbleTimer: 0,
+  isConfused: false,
+  confusionTimer: 0
 };
 
 let viewerState = {
@@ -1214,7 +1235,7 @@ function handleCanvasTap(e) {
     
     if (!state.abilityTargetingMode) return;
 
-    if (state.abilityTargetingMode === 'sandSnare') {
+    if (state.abilityTargetingMode === 'sandSnare' || state.abilityTargetingMode === 'bubble') {
         const tileX = Math.floor(worldX / TILE);
         const tileY = Math.floor(worldY / TILE);
         activateTargetedAbility({ x: tileX, y: tileY });
@@ -1400,6 +1421,15 @@ function startNetListeners(){
           net.updateState({ isAsleep: false });
       }
 
+      if (state.isBubbled) {
+          state.isBubbled = false;
+          state.bubbleTimer = 0;
+      }
+      if (state.darkRoomActive && !state.isDarkRoomCaster) {
+          state.darkRoomActive = false;
+          state.darkRoomTimer = 0;
+      }
+
       state.hp = Math.max(0, state.hp - hit.damage);
       state.invulnerableTimer = 0.7;
       state.anim = 'hurt';
@@ -1501,6 +1531,53 @@ net.subscribeToMeleeAttacks(attackData => {
                   }
               }
               break;
+          case 'darkRoom':
+              state.darkRoomActive = true;
+              state.darkRoomTimer = 5.0;
+              state.isDarkRoomCaster = (abilityData.by === net.auth.currentUser.uid);
+              if (net.auth.currentUser.uid === net.currentLobbyOwner) {
+                  const enemiesData = {};
+                  for (const [id, enemy] of enemies.entries()) {
+                      enemiesData[id] = {
+                          id: enemy.id,
+                          type: enemy.constructor.name,
+                          x: enemy.x,
+                          y: enemy.y,
+                          config: {
+                              hp: enemy.maxHp,
+                              maxHp: enemy.maxHp,
+                              speed: enemy.speed,
+                              damage: enemy.damage,
+                              detectionRange: enemy.detectionRange,
+                              attackRange: enemy.attackRange,
+                              projectileSpeed: enemy.projectileSpeed || 0
+                          }
+                      };
+                  }
+                  window.savedEnemies = enemiesData;
+
+                  for (const id of enemies.keys()) {
+                      net.removeEnemy(id);
+                  }
+              }
+              break;
+          case 'popBubble':
+              const playerToPop = remote.get(abilityData.targetId);
+              if (playerToPop) playerToPop.isBubbled = false;
+              break;
+          case 'popBubbleEnemy':
+              const enemyToPop = enemies.get(abilityData.targetId);
+              if (enemyToPop) enemyToPop.isBubbled = false;
+              break;
+          case 'confusionDance':
+              activeEffects.set(abilityData.by, {
+                  name: 'confusionDance',
+                  x: abilityData.position.x,
+                  y: abilityData.position.y, // Corrected from ability.position.y
+                  timer: 10.0,
+                  by: abilityData.by
+              });
+              break;
       }
   });
 
@@ -1526,6 +1603,10 @@ net.subscribeToMeleeAttacks(attackData => {
 net.subscribeEnemies({
     onAdd: (id, data) => {
         const { type, x, y, config } = data;
+        if (!config) {
+            console.error("Enemy created without config!", id, data);
+            return;
+        }
         let enemyInstance;
         switch (type) {
             case 'Brawler':      enemyInstance = new Brawler(id, x, y, config); break;
@@ -1541,7 +1622,7 @@ net.subscribeEnemies({
             enemy.x = data.x;
             enemy.y = data.y;
             enemy.hp = data.hp;
-            enemy.target = data.target;
+            enemy.targetId = data.targetId;
         }
     },
     onRemove: (id) => {
@@ -1794,6 +1875,11 @@ function getInputVec(){
   if (up) vy -= 1; if (down) vy += 1;
   if (left) vx -= 1; if (right) vx += 1;
   if (vx && vy){ const inv = 1/Math.sqrt(2); vx *= inv; vy *= inv; }
+  
+  if (state.isConfused) {
+      vx *= -1;
+      vy *= -1;
+  }
   return {vx, vy};
 }
 function vecToDir(vx, vy){
@@ -1930,6 +2016,41 @@ function tryStartHop(){
   state.frameStep = 0; state.frameTime = 0;
   state.hop = { sx:start.x, sy:start.y, tx:end.x, ty:end.y, t:0, dur: cfg.hop.framesPerDir / HOP_FPS, z:0 };
   state.idleAccum = 0;
+}
+
+function tryStartSuperHop() {
+    if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking) return;
+    
+    const SUPER_HOP_DISTANCE = 4;
+    const [vx, vy] = DIR_VECS[state.dir];
+
+    let targetX = Math.floor(state.x / TILE);
+    let targetY = Math.floor(state.y / TILE);
+    let finalPos = { x: targetX, y: targetY };
+
+    for (let i = 1; i <= SUPER_HOP_DISTANCE; i++) {
+        const nextX = targetX + vx * i;
+        const nextY = targetY + vy * i;
+        if (canWalk(nextX, nextY, state.map)) {
+            finalPos = { x: nextX, y: nextY };
+        } else {
+            break;
+        }
+    }
+
+    const start = { x: state.x, y: state.y };
+    const end = tileCenter(finalPos.x, finalPos.y);
+
+    state.hopping = true;
+    sfx.jump.play(0.7, 1.2);
+
+    state.anim = "hop";
+    const hopFrames = CHARACTERS[selectedKey].hop.framesPerDir;
+    state.frameOrder = [...Array(hopFrames).keys()];
+    state.frameStep = 0;
+    state.frameTime = 0;
+    state.hop = { sx: start.x, sy: start.y, tx: end.x, ty: end.y, t: 0, dur: (hopFrames / HOP_FPS) * 1.5, z: 0 };
+    state.idleAccum = 0;
 }
 
 // ---------- Animation helpers ----------
@@ -2511,6 +2632,50 @@ function update(dt){
         state.ghostCharmCharges = 1;
     }
 
+    if (state.darkRoomActive) {
+        state.darkRoomTimer -= dt;
+        if (state.darkRoomTimer <= 0) {
+            state.darkRoomActive = false;
+
+            if (net.auth.currentUser.uid === net.currentLobbyOwner) {
+                if (window.savedEnemies) {
+                    net.setInitialEnemies(window.savedEnemies);
+                    window.savedEnemies = null;
+                }
+            }
+        }
+    }
+    if (state.isBubbled) {
+        state.bubbleTimer -= dt;
+        if (state.bubbleTimer <= 0) {
+            state.isBubbled = false;
+        }
+    }
+    if (state.isConfused) {
+        state.confusionTimer -= dt;
+        if (state.confusionTimer <= 0) {
+            state.isConfused = false;
+        }
+    }
+    for (const [id, effect] of activeEffects.entries()) {
+        effect.timer -= dt;
+        if (effect.timer <= 0) {
+            activeEffects.delete(id);
+        }
+    }
+
+    if (!state.isConfused) {
+        for (const [id, effect] of activeEffects.entries()) {
+            if (effect.name === 'confusionDance') {
+                const dist = Math.hypot(state.x - effect.x, state.y - effect.y);
+                if (dist < TILE * 3) {
+                    state.isConfused = true;
+                    state.confusionTimer = 3.0;
+                }
+            }
+        }
+    }
+
   const {vx, vy} = getInputVec();
   state.prevMoving = state.moving;
   state.moving = !!(vx || vy);
@@ -2607,24 +2772,6 @@ function update(dt){
         }
       }
     }
-
-      if (state.currentQuest && state.currentQuest.active) {
-      const quest = state.currentQuest;
-      // Survive Quest
-      if (quest.type === 'survive' && quest.progress < quest.goal) {
-          quest.progress += dt; // Add the delta time each frame
-      }
-      // Visit Corner Quest
-      if (quest.type === 'visitCorner') {
-          // Check if player is within the top-left 3x3 tile area
-          const playerTileX = Math.floor(state.x / TILE);
-          const playerTileY = Math.floor(state.y / TILE);
-          if (playerTileX <= 2 && playerTileY <= 2) {
-              quest.progress = 1;
-          }
-      }
-  }
-  updateQuestGiver(dt);
   }
 
   const adj = resolvePlayerCollisions(state.x, state.y);
@@ -2972,11 +3119,9 @@ function draw(){
     if (a.kind === 'itemDrop') {
         const itemData = SHOP_ITEMS[a.itemId];
         if (itemData && itemData.icon) {
-            // It's inefficient to create a new Image object every frame.
-            // A real game would cache these. For now, this is simple.
             const img = new Image();
             img.src = itemData.icon;
-            if (img.complete) { // Ensure image is loaded
+            if (img.complete) {
                 const iconSize = 32;
                 const dx = a.x - state.cam.x - iconSize / 2;
                 const dy = a.y - state.cam.y - iconSize / 2;
@@ -3073,6 +3218,67 @@ function draw(){
       ctx.fillStyle = p.color || '#FFFF00';
       ctx.fillRect(Math.round(p.x - state.cam.x - 4), Math.round(p.y - state.cam.y - 4), 8, 8);
   }
+
+    for (const effect of activeEffects.values()) {
+        if (effect.name === 'confusionDance') {
+            let caster = null;
+            if (effect.by === net.auth.currentUser.uid) {
+                caster = state;
+            } else {
+                caster = remote.get(effect.by);
+            }
+
+            if (caster) {
+                const angle = (performance.now() / 150) % (Math.PI * 2);
+                const radius = TILE * 1.5;
+                ctx.fillStyle = 'rgba(255, 105, 180, 0.7)';
+                
+                const x1 = caster.x - state.cam.x + Math.cos(angle) * radius;
+                const y1 = caster.y - state.cam.y + Math.sin(angle) * radius;
+                ctx.beginPath();
+                ctx.arc(x1, y1, 10, 0, Math.PI * 2);
+                ctx.fill();
+                
+                const x2 = caster.x - state.cam.x + Math.cos(angle + Math.PI) * radius;
+                const y2 = caster.y - state.cam.y + Math.sin(angle + Math.PI) * radius;
+                ctx.beginPath();
+                ctx.arc(x2, y2, 10, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    if (state.darkRoomActive) {
+        ctx.save();
+        if (state.isDarkRoomCaster) {
+            const sx = Math.round(state.x - state.cam.x);
+            const sy = Math.round(state.y - state.cam.y);
+            const gradient = ctx.createRadialGradient(sx, sy, TILE * 2, sx, sy, TILE * 4);
+            gradient.addColorStop(0, 'rgba(0,0,0,0)');
+            gradient.addColorStop(1, 'rgba(0,0,0,1)');
+            ctx.fillStyle = gradient;
+        } else {
+            ctx.fillStyle = 'black';
+        }
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+
+        const lf = currentFrame();
+        if (lf) {
+            const z = state.hopping ? state.hop.z : (state.isFlying ? TILE * 1.5 : 0);
+            const src = state.anim === "hop" ? state.hopImg :
+                        (state.anim === "walk" ? state.walkImg :
+                        (state.anim === "hurt" ? state.hurtImg :
+                        (state.anim === "attack" ? state.attackImg :
+                        (state.anim === "shoot" ? state.shootImg :
+                        (state.anim === "sleep" ? state.sleepImg : state.idleImg)))));
+            const dw = lf.sw * state.scale;
+            const dh = lf.sh * state.scale;
+            const dx = Math.round(state.x - lf.ox * state.scale - state.cam.x);
+            const dy = Math.round(state.y - lf.oy * state.scale - state.cam.y - z);
+            ctx.drawImage(src, lf.sx, lf.sy, lf.sw, lf.sh, dx, dy, dw, dh);
+        }
+    }
 
   if (state.abilityTargetingMode === 'sandSnare' && state.mouseTile.x !== null) {
       ctx.fillStyle = 'rgba(255, 223, 150, 0.4)';
@@ -3224,6 +3430,19 @@ function updateEnemies(dt) {
 
     if (net.auth.currentUser?.uid !== net.currentLobbyOwner) return;
 
+    for (const enemy of enemies.values()) {
+        enemy.isConfused = false;
+        for (const effect of activeEffects.values()) {
+            if (effect.name === 'confusionDance') {
+                const dist = Math.hypot(enemy.x - effect.x, enemy.y - effect.y);
+                if (dist < TILE * 3) {
+                    enemy.isConfused = true;
+                    break; 
+                }
+            }
+        }
+    }
+    
     state.weepingAngelSpawnTimer -= dt;
     if (state.weepingAngelSpawnTimer <= 0) {
         state.weepingAngelSpawnTimer = 20 + Math.random() * 20;
@@ -3259,7 +3478,8 @@ function updateEnemies(dt) {
     for (const enemy of enemies.values()) {
         enemy.update(dt, allPlayers, state.map, net);
         
-        net.updateEnemyState(enemy.id, { x: enemy.x, y: enemy.y, hp: enemy.hp, target: enemy.target });
+        const targetId = enemy.target ? enemy.target.id : null;
+        net.updateEnemyState(enemy.id, { x: enemy.x, y: enemy.y, hp: enemy.hp, targetId: targetId });
         
         if (enemy.isDefeated) {
             net.removeEnemy(enemy.id);
@@ -3410,6 +3630,10 @@ function handleEnemyDefeat(enemy) {
     net.incrementKillCount('enemy');
     state.enemyKills++;
 
+    if (enemy.isBubbled) {
+        net.broadcastAbility({ name: 'popBubbleEnemy', targetId: enemy.id });
+    }
+
     const ITEM_DROP_CHANCE = 0.15;
     const COIN_DROP_CHANCE = 0.80;
 
@@ -3432,15 +3656,6 @@ function handleEnemyDefeat(enemy) {
     }
 
     if (state.currentQuest && state.currentQuest.active) {
-        if (state.currentQuest.type === 'killEnemies') {
-            state.currentQuest.progress++;
-        }
-        if (state.currentQuest.type === 'killBrawlers' && enemy.constructor.name === 'Brawler') {
-            state.currentQuest.progress++;
-        }
-    }
-
-        if (state.currentQuest && state.currentQuest.active) {
         const quest = state.currentQuest;
         if (quest.type === 'killEnemies' || quest.type === 'clearZone') {
             quest.progress++;
@@ -3448,7 +3663,6 @@ function handleEnemyDefeat(enemy) {
         if (quest.type === 'killBrawlers' && enemy.constructor.name === 'Brawler') {
             quest.progress++;
         }
-        // --- ADD THESE NEW CHECKS ---
         if (quest.type === 'killTurrets' && enemy.constructor.name === 'Turret') {
             quest.progress++;
         }
@@ -3590,6 +3804,9 @@ function tryMeleeAttack() {
                 state.playerKills++;
             }
             net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
+            if (player.isBubbled) {
+                net.broadcastAbility({ name: 'popBubble', targetId: uid });
+            }
             if (state.equippedItem === 'shellBell' && state.hp < state.maxHp) {
                 let healAmount = Math.floor(damage * 0.05);
                 if (selectedKey === 'Chandelure') healAmount *= 2;
@@ -3689,46 +3906,10 @@ async function handleAbilityKeyPress() {
         return;
     }
 
-    let ability = localPlayer.config.ability;
-    if (selectedKey === 'Smeargle' && state.copiedAbility) {
-        ability = state.copiedAbility;
-    }
-
-    if (ability?.type === 'passive') return;
-    
-    const abilityName = ability?.name;
-
-    if (abilityName === 'phase') {
+    if (localPlayer instanceof Lopunny) {
+        localPlayer.useAbility(tryStartSuperHop); 
+    } else {
         localPlayer.useAbility();
-        return;
-    }
-
-    if ((abilityName === 'transform' && state.isTransformed) ||
-        (abilityName === 'illusion' && state.isIllusion)) {
-        const result = localPlayer.revertAbility();
-        if (result && result.isIllusion) {
-            await applyVisualChange(result.visualKey);
-        } else if (result) {
-            await applyCharacterChange(result);
-        }
-        return;
-    }
-
-    if (['transform', 'illusion', 'hypnotize', 'copy', 'sandSnare'].includes(abilityName)) {
-        state.abilityTargetingMode = abilityName;
-        if (abilityName === 'copy') {
-            state.highlightedPlayers = Array.from(remote.values())
-                .filter(p => CHARACTERS[p.character]?.ability?.type === 'active')
-                .map(p => p.uid);
-        } else if (abilityName !== 'sandSnare') {
-            state.highlightedPlayers = Array.from(remote.keys());
-        }
-        return;
-    }
-    
-    localPlayer.useAbility();
-    if (ability) {
-        state.abilityCooldown = ability.cooldown;
     }
 }
 
@@ -3827,14 +4008,13 @@ function openShop() {
     shopModal.classList.remove("hidden");
     populateShop();
 
-    // --- START COUNTDOWN ---
     const countdownEl = document.getElementById("shop-countdown");
-    if (shopCountdownInterval) clearInterval(shopCountdownInterval); // Clear any existing timer
+    if (shopCountdownInterval) clearInterval(shopCountdownInterval);
 
     shopCountdownInterval = setInterval(() => {
         const now = new Date();
         const tomorrow = new Date(now);
-        tomorrow.setUTCHours(24, 0, 0, 0); // Set to midnight UTC of the next day
+        tomorrow.setUTCHours(24, 0, 0, 0);
 
         const diff = tomorrow.getTime() - now.getTime();
         const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
@@ -3851,7 +4031,6 @@ function openShop() {
 
 function closeShop() {
     shopModal.classList.add("hidden");
-    // --- STOP COUNTDOWN ---
     if (shopCountdownInterval) {
         clearInterval(shopCountdownInterval);
         shopCountdownInterval = null;
@@ -4275,9 +4454,7 @@ function openQuestModal() {
     questModalEl.classList.remove('hidden');
 }
 
-// main.js
-
-async function giveQuestReward(quest) { // <-- Make the function async
+async function giveQuestReward(quest) {
     if (!quest) return;
     const reward = quest.reward;
 
@@ -4302,16 +4479,14 @@ async function giveQuestReward(quest) { // <-- Make the function async
         
         state.coins += reward.coins;
         net.updatePlayerStats({ coins: reward.coins });
-    } else if (reward.type === 'randomItem') { // <-- ADD THIS ENTIRE BLOCK
+    } else if (reward.type === 'randomItem') {
         const itemList = Object.keys(SHOP_ITEMS);
         const randomItemId = itemList[Math.floor(Math.random() * itemList.length)];
         const item = { id: randomItemId, ...SHOP_ITEMS[randomItemId] };
         
-        // Use a clever workaround: set the price to 0 and call the purchase function
         item.price = 0;
         await net.purchaseItem(item);
         
-        // Update local state and UI
         const stats = await net.getUserStats();
         state.inventory = stats.inventory;
         updateInventoryUI();

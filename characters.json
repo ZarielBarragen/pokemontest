@@ -206,6 +206,7 @@
       "rangedStrength": 30,
       "rangedSpeed": 0.9,
       "projectileColor": "#00008B",
+      "ability": { "type": "active", "name": "darkRoom", "cooldown": 10 },
       "sleep": { "sheet": "Sleep-Anim.png", "cols": 8, "rows": 1, "framesPerDir": 8, "dirGrid": "row" },
       "attack": { "cols": 13, "rows": 8, "framesPerDir": 13 },
       "shoot": { "sheet": "SpAttack-Anim.png", "cols": 14, "rows": 8, "framesPerDir": 14, "dirGrid": "row" },
@@ -321,6 +322,7 @@
       "rangedStrength": 25,
       "rangedSpeed": 1.0,
       "projectileColor": "#FFC0CB",
+      "ability": { "type": "active", "name": "bubble", "cooldown": 5 },
       "shoot": { "sheet": "SpAttack-Anim.png", "cols": 13, "rows": 8, "framesPerDir": 13, "dirGrid": "row" },
       "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" },
@@ -334,6 +336,7 @@
       "speed": 0.95,
       "hp": 190,
       "strength": 20,
+      "ability": { "type": "active", "name": "bubble", "cooldown": 5 },
       "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" },
       "walk": { "sheet": "walk.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" },
       "hop": { "sheet": "Hop-Anim.png", "cols": 10, "rows": 8, "framesPerDir": 10, "dirGrid": "row" }
@@ -397,8 +400,8 @@
       "base": "assets/Cubone/",
       "portrait": "portrait.png",
       "speed": 1.0,
-      "hp": 140,
-      "strength": 24,
+      "hp": 146,
+      "strength": 26,
       "ranged": false,
       "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }
     },
@@ -425,6 +428,7 @@
       "speed": 1.2,
       "hp": 165,
       "strength": 28,
+      "ability": { "type": "active", "name": "superHop", "cooldown": 8 },
       "ranged": false,
       "walk": { "sheet": "walk.png", "cols": 9, "rows": 8, "framesPerDir": 9, "dirGrid": "row" },
       "idle": { "sheet": "Idle-Anim.png", "cols": 7, "rows": 8, "framesPerDir": 7, "dirGrid": "row" }
@@ -466,6 +470,42 @@
       "rangedSpeed": 1.1,
       "projectileColor": "#FFFF00",
       "idle": { "sheet": "Idle-Anim.png", "cols": 6, "rows": 8, "framesPerDir": 6, "dirGrid": "row" }
+    },
+      "Gengar": {
+      "name": "Gengar",
+      "base": "assets/Gengar/",
+      "portrait": "portrait.png",
+      "speed": 1.15,
+      "hp": 160,
+      "strength": 18,
+      "ranged": true,
+      "rangedStrength": 28,
+      "projectileColor": "#705898",
+      "ability": { "type": "active", "name": "phase", "cooldown": 1 },
+      "idle": { "cols": 8, "rows": 8, "framesPerDir": 8 },
+      "shoot": { "cols": 12, "rows": 8, "framesPerDir": 12 }
+    },
+    "Excadrill": {
+      "name": "Excadrill",
+      "base": "assets/Excadrill/",
+      "portrait": "portrait.png",
+      "speed": 1.0,
+      "hp": 180,
+      "strength": 30,
+      "idle": { "cols": 4, "rows": 8, "framesPerDir": 4 },
+      "attack": { "cols": 9, "rows": 8, "framesPerDir": 9 }
+    },
+    "Spinda": {
+      "name": "Spinda",
+      "base": "assets/Spinda/",
+      "portrait": "portrait.png",
+      "speed": 0.9,
+      "hp": 150,
+      "strength": 20,
+      "ability": { "type": "active", "name": "confusionDance", "cooldown": 18 },
+      "idle": { "cols": 9, "rows": 8, "framesPerDir": 9 },
+      "walk": { "cols": 11, "rows": 8, "framesPerDir": 11 },
+      "attack": { "cols": 9, "rows": 8, "framesPerDir": 9 }
     }
   }
 }

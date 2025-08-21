@@ -36,6 +36,7 @@ class Enemy {
         this.attackCooldown = 0;
         this.target = null;
         this.isDefeated = false;
+        this.isConfused = false; // Property for Confusion Dance
     }
 
     findClosestPlayer(players) {
@@ -81,46 +82,51 @@ export class Turret extends Enemy {
     }
 
 
-update(dt, players, map, net) {
-    if (this.attackCooldown > 0) this.attackCooldown -= dt;
-    if (this.attackCooldown > 0) return;
+    update(dt, players, map, net) {
+        if (this.attackCooldown > 0) this.attackCooldown -= dt;
+        if (this.attackCooldown > 0) return;
 
-    const { player, distance } = this.findClosestPlayer(players);
-    
-    if (player && distance < this.detectionRange) {
-        // --- LINE-OF-SIGHT CHECK ---
-        let hasLineOfSight = true;
-        const steps = Math.floor(distance / (TILE / 4)); // Check every quarter tile
-        for (let i = 1; i <= steps; i++) {
-            const checkX = this.x + (player.x - this.x) * (i / steps);
-            const checkY = this.y + (player.y - this.y) * (i / steps);
-            const tileX = Math.floor(checkX / TILE);
-            const tileY = Math.floor(checkY / TILE);
-            if (map.walls[tileY]?.[tileX]) {
-                hasLineOfSight = false;
-                break;
+        const { player, distance } = this.findClosestPlayer(players);
+        
+        if (player && distance < this.detectionRange) {
+            let hasLineOfSight = true;
+            const steps = Math.floor(distance / (TILE / 4));
+            for (let i = 1; i <= steps; i++) {
+                const checkX = this.x + (player.x - this.x) * (i / steps);
+                const checkY = this.y + (player.y - this.y) * (i / steps);
+                const tileX = Math.floor(checkX / TILE);
+                const tileY = Math.floor(checkY / TILE);
+                if (map.walls[tileY]?.[tileX]) {
+                    hasLineOfSight = false;
+                    break;
+                }
+            }
+
+            if (hasLineOfSight) {
+                this.attackCooldown = 2.0;
+                
+                let dx = player.x - this.x;
+                let dy = player.y - this.y;
+
+                if (this.isConfused) {
+                    dx *= -1;
+                    dy *= -1;
+                }
+                
+                const dist = Math.hypot(dx, dy);
+                
+                const vx = (dx / dist) * this.projectileSpeed;
+                const vy = (dy / dist) * this.projectileSpeed;
+
+                net.fireProjectile({
+                    ownerId: this.id,
+                    isEnemyProjectile: true,
+                    x: this.x, y: this.y,
+                    vx, vy, damage: this.damage, life: 3.0
+                });
             }
         }
-
-        if (hasLineOfSight) {
-            this.attackCooldown = 2.0;
-            
-            const dx = player.x - this.x;
-            const dy = player.y - this.y;
-            const dist = Math.hypot(dx, dy);
-            
-            const vx = (dx / dist) * this.projectileSpeed;
-            const vy = (dy / dist) * this.projectileSpeed;
-
-            net.fireProjectile({
-                ownerId: this.id,
-                isEnemyProjectile: true,
-                x: this.x, y: this.y,
-                vx, vy, damage: this.damage, life: 3.0
-            });
-        }
     }
-}
 
     draw(ctx, cam) {
         const sx = Math.round(this.x - cam.x);
@@ -149,43 +155,49 @@ export class Brawler extends Enemy {
         this.dir = 'down';
     }
 
-update(dt, players, map, net) {
-    if (this.attackCooldown > 0) this.attackCooldown -= dt;
-    
-    const { player, distance } = this.findClosestPlayer(players);
-    this.target = player;
+    update(dt, players, map, net) {
+        if (this.attackCooldown > 0) this.attackCooldown -= dt;
+        
+        const { player, distance } = this.findClosestPlayer(players);
+        this.target = player;
 
-    if (this.target && distance < this.detectionRange) {
-        const dx = this.target.x - this.x;
-        const dy = this.target.y - this.y;
-        this.dir = vecToDir(dx, dy);
+        if (this.target && distance < this.detectionRange) {
+            let dx = this.target.x - this.x;
+            let dy = this.target.y - this.y;
 
-        if (distance > this.attackRange) {
-            const moveX = (dx / distance) * this.speed * dt;
-            const moveY = (dy / distance) * this.speed * dt;
-            
-            // --- COLLISION LOGIC ---
-            const nextX = this.x + moveX;
-            const nextY = this.y + moveY;
-            const tileX = Math.floor(nextX / TILE);
-            const tileY = Math.floor(nextY / TILE);
-
-            if (tileX >= 0 && tileX < map.w && !map.walls[Math.floor(this.y / TILE)][tileX]) {
-                this.x = nextX;
+            if (this.isConfused) {
+                dx *= -1;
+                dy *= -1;
             }
-            if (tileY >= 0 && tileY < map.h && !map.walls[tileY][Math.floor(this.x / TILE)]) {
-                this.y = nextY;
+
+            this.dir = vecToDir(dx, dy);
+
+            if (distance > this.attackRange || this.isConfused) {
+                const moveSpeed = this.isConfused ? this.speed * 0.7 : this.speed;
+                const moveX = (dx / distance) * moveSpeed * dt;
+                const moveY = (dy / distance) * moveSpeed * dt;
+                
+                const nextX = this.x + moveX;
+                const nextY = this.y + moveY;
+                const tileX = Math.floor(nextX / TILE);
+                const tileY = Math.floor(nextY / TILE);
+
+                if (tileX >= 0 && tileX < map.w && !map.walls[Math.floor(this.y / TILE)][tileX]) {
+                    this.x = nextX;
+                }
+                if (tileY >= 0 && tileY < map.h && !map.walls[tileY][Math.floor(this.x / TILE)]) {
+                    this.y = nextY;
+                }
+                
+            } else if (this.attackCooldown <= 0) {
+                this.attackCooldown = 1.5;
+                this.attackAnimTimer = 1.0;
+                net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 });
             }
-            
-        } else if (this.attackCooldown <= 0) {
-            this.attackCooldown = 1.5;
-            this.attackAnimTimer = 1.0;
-            net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange + 10 });
         }
+        
+        if (this.attackAnimTimer > 0) this.attackAnimTimer -= dt;
     }
-    
-    if (this.attackAnimTimer > 0) this.attackAnimTimer -= dt;
-}
 
     draw(ctx, cam) {
         const sx = Math.round(this.x - cam.x);
@@ -247,8 +259,8 @@ export class WeepingAngel extends Enemy {
         super(id, x, y, config);
         this.stareTimer = 0;
         this.isBeingLookedAt = false;
-        this.validAttackers = ['Sableye', 'Mimikyu', 'Decidueye'];
-        this.despawnTimer = 90; // --- FIX: Add a 90-second despawn timer ---
+        this.validAttackers = ['Sableye', 'Mimikyu', 'Decidueye', 'Gengar', 'Hisuian Zoroark'];
+        this.despawnTimer = 90;
     }
 
     takeDamage(amount, fromCharacterKey = null) {
@@ -265,7 +277,6 @@ export class WeepingAngel extends Enemy {
         this.target = player;
 
         if (!this.target) {
-            // --- FIX: If no target, count down to despawn ---
             this.despawnTimer -= dt;
             if (this.despawnTimer <= 0) {
                 this.isDefeated = true;
@@ -273,7 +284,6 @@ export class WeepingAngel extends Enemy {
             return;
         }
 
-        // If a target is found, reset the despawn timer
         this.despawnTimer = 90;
 
         this.isBeingLookedAt = players.some(p => {
@@ -288,12 +298,18 @@ export class WeepingAngel extends Enemy {
             }
         } else {
             this.stareTimer = 0;
-            const dx = this.target.x - this.x;
-            const dy = this.target.y - this.y;
+            let dx = this.target.x - this.x;
+            let dy = this.target.y - this.y;
+
+            if (this.isConfused) {
+                dx *= -1;
+                dy *= -1;
+            }
+
             this.x += (dx / distance) * this.speed * dt;
             this.y += (dy / distance) * this.speed * dt;
 
-            if (distance < this.attackRange && this.attackCooldown <= 0) {
+            if (distance < this.attackRange && this.attackCooldown <= 0 && !this.isConfused) {
                 this.attackCooldown = 2.0;
                  net.performMeleeAttack({ by: this.id, isEnemy: true, damage: this.damage, range: this.attackRange });
             }
