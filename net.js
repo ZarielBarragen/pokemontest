@@ -536,6 +536,8 @@ export class Net {
               return; 
           }
           onFire(projectileData);
+          // ADD THIS LINE TO FIX THE LAG
+          remove(snap.ref).catch(e => console.error("Failed to remove projectile event", e));
       });
 
       this.playersUnsubs.push(unsub);
