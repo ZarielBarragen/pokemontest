@@ -1233,9 +1233,47 @@ function handleCanvasTap(e) {
         return;
     }
     
+    // ===============================================
+    // =========== NEW BUBBLE CLICK LOGIC ============
+    // ===============================================
+    if (state.abilityTargetingMode === 'bubble') {
+        let clickedTarget = null;
+
+        // Prioritize clicking enemies
+        for (const [id, enemy] of enemies.entries()) {
+            if (enemy.isBubbled) continue; // Can't bubble an already bubbled enemy
+            const dist = Math.hypot(worldX - enemy.x, worldY - enemy.y);
+            if (dist < ENEMY_R * 2) {
+                clickedTarget = { type: 'enemy', id };
+                break;
+            }
+        }
+
+        // If no enemy was clicked, check for players
+        if (!clickedTarget) {
+            for (const [uid, player] of remote.entries()) {
+                if (player.isBubbled) continue;
+                const dist = Math.hypot(worldX - player.x, worldY - player.y);
+                if (dist < PLAYER_R * 2) {
+                    clickedTarget = { type: 'player', id: uid };
+                    break;
+                }
+            }
+        }
+
+        if (clickedTarget) {
+            activateTargetedAbility(clickedTarget);
+        }
+        
+        // Always exit targeting mode after a click, successful or not
+        state.abilityTargetingMode = null;
+        state.highlightedPlayers = [];
+        return; // Prevent other click logic from running
+    }
+    
     if (!state.abilityTargetingMode) return;
 
-    if (state.abilityTargetingMode === 'sandSnare' || state.abilityTargetingMode === 'bubble') {
+    if (state.abilityTargetingMode === 'sandSnare') { // Note: 'bubble' is handled above
         const tileX = Math.floor(worldX / TILE);
         const tileY = Math.floor(worldY / TILE);
         activateTargetedAbility({ x: tileX, y: tileY });
@@ -1408,6 +1446,16 @@ function startNetListeners(){
   net.subscribeToHits(async hit => {
       if (state.invulnerableTimer > 0 || state.aquaShieldActive) return;
 
+      // ===============================================
+      // =========== NEW BUBBLE POP LOGIC ==============
+      // ===============================================
+      if (state.isBubbled) {
+          state.isBubbled = false;
+          state.bubbleTimer = 0;
+          // Broadcast that our bubble was popped
+          net.broadcastAbility({ name: 'popBubble', targetId: net.auth.currentUser.uid });
+      }
+
       if (state.isIllusion) {
           const result = localPlayer.revertAbility();
           if (result && result.isIllusion) {
@@ -1421,10 +1469,6 @@ function startNetListeners(){
           net.updateState({ isAsleep: false });
       }
 
-      if (state.isBubbled) {
-          state.isBubbled = false;
-          state.bubbleTimer = 0;
-      }
       if (state.darkRoomActive && !state.isDarkRoomCaster) {
           state.darkRoomActive = false;
           state.darkRoomTimer = 0;
@@ -1485,6 +1529,11 @@ net.subscribeToMeleeAttacks(attackData => {
 
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackData.range) {
+            // Pop bubble on hit
+            if (state.isBubbled) {
+                state.isBubbled = false;
+                net.broadcastAbility({ name: 'popBubble', targetId: net.auth.currentUser.uid });
+            }
             state.hp = Math.max(0, state.hp - attackData.damage);
             state.invulnerableTimer = 0.7;
             state.anim = 'hurt';
@@ -1561,9 +1610,35 @@ net.subscribeToMeleeAttacks(attackData => {
                   }
               }
               break;
+          // ===============================================
+          // =========== NEW BUBBLE ABILITY CASES ==========
+          // ===============================================
+          case 'trapInBubble':
+              const targetInfo = abilityData.target;
+              if (targetInfo.type === 'player') {
+                  const targetPlayer = remote.get(targetInfo.id);
+                  if (targetPlayer) {
+                      targetPlayer.isBubbled = true;
+                      targetPlayer.bubbleTimer = 5.0; 
+                  }
+                  if (targetInfo.id === net.auth.currentUser.uid) {
+                      state.isBubbled = true;
+                      state.bubbleTimer = 5.0;
+                  }
+              } else if (targetInfo.type === 'enemy') {
+                  const targetEnemy = enemies.get(targetInfo.id);
+                  if (targetEnemy) {
+                      targetEnemy.isBubbled = true;
+                      targetEnemy.bubbleTimer = 5.0;
+                  }
+              }
+              break;
           case 'popBubble':
               const playerToPop = remote.get(abilityData.targetId);
               if (playerToPop) playerToPop.isBubbled = false;
+              if (abilityData.targetId === net.auth.currentUser.uid) {
+                  state.isBubbled = false;
+              }
               break;
           case 'popBubbleEnemy':
               const enemyToPop = enemies.get(abilityData.targetId);
@@ -1573,7 +1648,7 @@ net.subscribeToMeleeAttacks(attackData => {
               activeEffects.set(abilityData.by, {
                   name: 'confusionDance',
                   x: abilityData.position.x,
-                  y: abilityData.position.y, // Corrected from ability.position.y
+                  y: abilityData.position.y,
                   timer: 10.0,
                   by: abilityData.by
               });
@@ -1685,6 +1760,8 @@ net.subscribeEnemies({
         isIllusion: data.isIllusion || false,
         illusionTarget: data.illusionTarget || null,
         originalCharacterKey: data.originalCharacterKey || data.character,
+        isBubbled: false,     // NEW
+        bubbleTimer: 0,       // NEW
         equippedItem: data.equippedItem || null,
       });
     },
@@ -1715,6 +1792,10 @@ net.subscribeEnemies({
           }
           if (r.isAsleep) {
               r.isAsleep = false;
+          }
+          // Pop bubble on taking damage
+          if (r.isBubbled) {
+              r.isBubbled = false;
           }
           r.anim = 'hurt';
           r.frameStep = 0;
@@ -1866,7 +1947,7 @@ function getInputVec(){
       return { vx: dx, vy: dy };
   }
   
-  if (chatMode || state.isAsleep) return {vx:0, vy:0};
+  if (chatMode || state.isAsleep || state.isBubbled) return {vx:0, vy:0}; // CANNOT MOVE WHILE BUBBLED
   const up = keys.has("w") || keys.has("ArrowUp");
   const down = keys.has("s") || keys.has("ArrowDown");
   const left = keys.has("a") || keys.has("ArrowLeft");
@@ -1966,7 +2047,7 @@ function tryMove(dt, vx, vy){
   }
 }
 function tryStartHop(){
-  if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking || state.isAsleep) return;
+  if (!state.ready || state.hopping || state.anim === 'hurt' || state.attacking || state.isAsleep || state.isBubbled) return;
   const cfg = CHARACTERS[selectedKey];
   
   if (cfg.ability?.name === 'flight') {
@@ -2645,12 +2726,33 @@ function update(dt){
             }
         }
     }
+    
+    // ===============================================
+    // =========== NEW BUBBLE TIMER LOGIC ============
+    // ===============================================
     if (state.isBubbled) {
         state.bubbleTimer -= dt;
         if (state.bubbleTimer <= 0) {
             state.isBubbled = false;
         }
     }
+    for (const r of remote.values()) {
+        if (r.isBubbled) {
+            r.bubbleTimer -= dt;
+            if (r.bubbleTimer <= 0) {
+                r.isBubbled = false;
+            }
+        }
+    }
+    for (const e of enemies.values()) {
+        if (e.isBubbled) {
+            e.bubbleTimer -= dt;
+            if (e.bubbleTimer <= 0) {
+                e.isBubbled = false;
+            }
+        }
+    }
+
     if (state.isConfused) {
         state.confusionTimer -= dt;
         if (state.confusionTimer <= 0) {
@@ -3069,18 +3171,19 @@ function draw(){
         const enemy = enemies.get(a.id);
         if (enemy) {
             drawShadow(enemy.x, enemy.y, 0, 3.0, false);
-            enemy.draw(ctx, state.cam);
-        const sx = Math.round(enemy.x - state.cam.x);
-        const sy = Math.round(enemy.y - state.cam.y);
-        const hpw = 30, hph = 5;
-        const hpx = sx - hpw/2, hpy = sy - ENEMY_R - 10;
-        ctx.fillStyle = '#333';
-        ctx.fillRect(hpx, hpy, hpw, hph);
-        ctx.fillStyle = '#f44';
-        ctx.fillRect(hpx, hpy, hpw * (enemy.hp / enemy.maxHp), hph);
-        ctx.strokeStyle = '#fff';
-        ctx.strokeRect(hpx, hpy, hpw, hph);
-    }
+            const isHighlighted = state.abilityTargetingMode === 'bubble'; // NEW
+            enemy.draw(ctx, state.cam, isHighlighted); // MODIFIED
+            const sx = Math.round(enemy.x - state.cam.x);
+            const sy = Math.round(enemy.y - state.cam.y);
+            const hpw = 30, hph = 5;
+            const hpx = sx - hpw/2, hpy = sy - ENEMY_R - 10;
+            ctx.fillStyle = '#333';
+            ctx.fillRect(hpx, hpy, hpw, hph);
+            ctx.fillStyle = '#f44';
+            ctx.fillRect(hpx, hpy, hpw * (enemy.hp / enemy.maxHp), hph);
+            ctx.strokeStyle = '#fff';
+            ctx.strokeRect(hpx, hpy, hpw, hph);
+        }
         continue;
     }
     
@@ -3152,13 +3255,19 @@ function draw(){
         ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
     }
 
+    // ===============================================
+    // =========== NEW HIGHLIGHT LOGIC ==============
+    // ===============================================
     const filters = [];
-
     if (state.playerViewMode && (a.kind === 'local' || a.kind === 'remote')) {
         filters.push('drop-shadow(0 0 8px #aaddff) brightness(1.6)');
     }
     if (a.isHighlighted) {
         filters.push('drop-shadow(0 0 8px #ffffaa) brightness(1.5)');
+    }
+    // Highlight for bubble ability
+    if (state.abilityTargetingMode === 'bubble' && a.kind === 'remote' && a.uid !== net.auth.currentUser.uid) {
+        filters.push('drop-shadow(0 0 10px #6495ED) brightness(1.6)');
     }
     if (filters.length > 0) {
         ctx.filter = filters.join(' ');
@@ -3167,6 +3276,25 @@ function draw(){
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
     ctx.restore();
+    
+    // ===============================================
+    // =========== NEW BUBBLE DRAW LOGIC =============
+    // ===============================================
+    const actorObject = a.kind === 'local' ? state : remote.get(a.uid);
+    if (actorObject && actorObject.isBubbled) {
+        const bubbleX = Math.round(a.x - state.cam.x);
+        // Center the bubble on the character sprite
+        const bubbleY = Math.round(a.y - state.cam.y - (f.oy * scale / 2));
+        const bubbleR = Math.max(dw, dh) * 0.6; // Bubble radius based on sprite size
+
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = "#87CEEB";
+        ctx.beginPath();
+        ctx.arc(bubbleX, bubbleY, bubbleR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+    }
+
 
     const isAquaShielded = (a.kind === 'local' && state.aquaShieldActive) || (a.kind === 'remote' && remote.get(a.uid)?.aquaShieldActive);
     if (isAquaShielded) {
@@ -3506,6 +3634,11 @@ function updateProjectiles(dt) {
         if (state.invulnerableTimer <= 0 && !state.isPhasing && !state.isFlying) {
             const dist = Math.hypot(p.x - state.x, p.y - state.y);
             if (dist < PLAYER_R + PROJECTILE_R) {
+                // Pop bubble on hit
+                if (state.isBubbled) {
+                    state.isBubbled = false;
+                    net.broadcastAbility({ name: 'popBubble', targetId: net.auth.currentUser.uid });
+                }
                 state.hp = Math.max(0, state.hp - p.damage);
                 state.invulnerableTimer = 0.7;
                 state.anim = 'hurt';
@@ -3571,6 +3704,12 @@ function updatePlayerProjectiles(dt) {
 
                 const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
                 if (dist < ENEMY_R + PROJECTILE_R) {
+                   // ===============================================
+                   // =========== NEW BUBBLE POP LOGIC ==============
+                   // ===============================================
+                   if (enemy.isBubbled) {
+                       net.broadcastAbility({ name: 'popBubbleEnemy', targetId: enemy.id });
+                   }
                    const newHp = enemy.takeDamage(p.damage, selectedKey);
                     addXp(10);
                     if (newHp <= 0) {
@@ -3599,6 +3738,12 @@ function updatePlayerProjectiles(dt) {
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
+                    // ===============================================
+                    // =========== NEW BUBBLE POP LOGIC ==============
+                    // ===============================================
+                    if (player.isBubbled) {
+                        net.broadcastAbility({ name: 'popBubble', targetId: uid });
+                    }
                     const isKill = (player.hp - p.damage) <= 0;
                     if(isKill) {
                         addXp(100);
@@ -3742,7 +3887,7 @@ function addXp(amount) {
 }
 
 function tryMeleeAttack() {
-    if (!state.ready || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
+    if (!state.ready || state.attacking || state.attackCooldown > 0 || state.isAsleep || state.isBubbled) return;
     resetAfkTimer();
 
     state.attacking = true;
@@ -3776,6 +3921,12 @@ function tryMeleeAttack() {
 
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackRange && isFacing(state, enemy)) {
+             // ===============================================
+             // =========== NEW BUBBLE POP LOGIC ==============
+             // ===============================================
+             if (enemy.isBubbled) {
+                net.broadcastAbility({ name: 'popBubbleEnemy', targetId: enemy.id });
+             }
              enemy.takeDamage(damage, selectedKey);
             addXp(10);
             if (state.equippedItem === 'shellBell' && state.hp < state.maxHp) {
@@ -3797,6 +3948,12 @@ function tryMeleeAttack() {
         const smoothedPos = getRemotePlayerSmoothedPos(player);
         const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
         if (dist < attackRange && isFacing(state, { x: smoothedPos.x, y: smoothedPos.y })) {
+            // ===============================================
+            // =========== NEW BUBBLE POP LOGIC ==============
+            // ===============================================
+            if (player.isBubbled) {
+                net.broadcastAbility({ name: 'popBubble', targetId: uid });
+            }
             const isKill = (player.hp - damage) <= 0;
             if(isKill) {
                 addXp(100);
@@ -3804,9 +3961,6 @@ function tryMeleeAttack() {
                 state.playerKills++;
             }
             net.dealDamage(uid, damage, isKill).catch(e => console.error("Deal damage failed", e));
-            if (player.isBubbled) {
-                net.broadcastAbility({ name: 'popBubble', targetId: uid });
-            }
             if (state.equippedItem === 'shellBell' && state.hp < state.maxHp) {
                 let healAmount = Math.floor(damage * 0.05);
                 if (selectedKey === 'Chandelure') healAmount *= 2;
@@ -3819,7 +3973,7 @@ function tryMeleeAttack() {
 
 function tryRangedAttack() {
     const cfg = CHARACTERS[selectedKey];
-    if (!state.ready || !cfg.ranged || state.attacking || state.attackCooldown > 0 || state.isAsleep) return;
+    if (!state.ready || !cfg.ranged || state.attacking || state.attackCooldown > 0 || state.isAsleep || state.isBubbled) return;
     resetAfkTimer();
 
     state.attacking = true;
@@ -3898,7 +4052,7 @@ function tryRangedAttack() {
 // ---------- ABILITY LOGIC ----------
 
 async function handleAbilityKeyPress() {
-    if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion)) return;
+    if (!localPlayer || (state.abilityCooldown > 0 && !state.isIllusion) || state.isBubbled) return;
     resetAfkTimer();
 
     if (state.equippedItem === 'ghostCharm') {
@@ -3916,6 +4070,24 @@ async function handleAbilityKeyPress() {
 async function activateTargetedAbility(target) {
     if (!localPlayer) return;
 
+    // ===============================================
+    // =========== NEW BUBBLE ABILITY LOGIC ==========
+    // ===============================================
+    if (state.abilityTargetingMode === 'bubble') {
+        state.abilityCooldown = localPlayer.config.ability.cooldown;
+        net.broadcastAbility({ name: 'trapInBubble', target: target });
+        
+        // Apply the effect locally immediately for responsiveness
+        if (target.type === 'enemy') {
+            const enemy = enemies.get(target.id);
+            if (enemy) { enemy.isBubbled = true; enemy.bubbleTimer = 5.0; }
+        } else if (target.type === 'player') {
+            const player = remote.get(target.id);
+            if (player) { player.isBubbled = true; player.bubbleTimer = 5.0; }
+        }
+        return; // Exit after handling the bubble ability
+    }
+    
     let ability = localPlayer.config.ability;
     if (selectedKey === 'Smeargle' && state.copiedAbility) {
         ability = state.copiedAbility;

@@ -36,7 +36,9 @@ class Enemy {
         this.attackCooldown = 0;
         this.target = null;
         this.isDefeated = false;
-        this.isConfused = false; // Property for Confusion Dance
+        this.isBubbled = false;     // NEW
+        this.bubbleTimer = 0;       // NEW
+        this.isConfused = false; 
     }
 
     findClosestPlayer(players) {
@@ -67,7 +69,7 @@ class Enemy {
         // To be implemented by subclasses
     }
 
-    draw(ctx, cam) {
+    draw(ctx, cam, isHighlighted = false) {
         // To be implemented by subclasses
     }
 }
@@ -83,6 +85,7 @@ export class Turret extends Enemy {
 
 
     update(dt, players, map, net) {
+        if (this.isBubbled) return; // Cannot act while bubbled
         if (this.attackCooldown > 0) this.attackCooldown -= dt;
         if (this.attackCooldown > 0) return;
 
@@ -128,10 +131,15 @@ export class Turret extends Enemy {
         }
     }
 
-    draw(ctx, cam) {
+    draw(ctx, cam, isHighlighted = false) {
         const sx = Math.round(this.x - cam.x);
         const sy = Math.round(this.y - cam.y);
         const radius = 16;
+
+        if (isHighlighted) {
+            ctx.save();
+            ctx.filter = 'drop-shadow(0 0 10px #6495ED) brightness(1.6)';
+        }
 
         ctx.beginPath();
         ctx.arc(sx, sy, radius, 0, Math.PI * 2);
@@ -140,6 +148,19 @@ export class Turret extends Enemy {
         ctx.strokeStyle = 'rgba(180, 40, 40, 1)';
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        if (isHighlighted) {
+            ctx.restore();
+        }
+
+        if (this.isBubbled) {
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = "#87CEEB";
+            ctx.beginPath();
+            ctx.arc(sx, sy, radius * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
     }
 }
 
@@ -156,6 +177,7 @@ export class Brawler extends Enemy {
     }
 
     update(dt, players, map, net) {
+        if (this.isBubbled) return; // Cannot act while bubbled
         if (this.attackCooldown > 0) this.attackCooldown -= dt;
         
         const { player, distance } = this.findClosestPlayer(players);
@@ -199,10 +221,15 @@ export class Brawler extends Enemy {
         if (this.attackAnimTimer > 0) this.attackAnimTimer -= dt;
     }
 
-    draw(ctx, cam) {
+    draw(ctx, cam, isHighlighted = false) {
         const sx = Math.round(this.x - cam.x);
         const sy = Math.round(this.y - cam.y);
         const radius = 18;
+
+        if (isHighlighted) {
+            ctx.save();
+            ctx.filter = 'drop-shadow(0 0 10px #6495ED) brightness(1.6)';
+        }
 
         if (this.attackAnimTimer > 0) {
             const animProgress = 1.0 - this.attackAnimTimer;
@@ -247,6 +274,19 @@ export class Brawler extends Enemy {
         ctx.beginPath();
         ctx.arc(hand2_punch_x, hand2_punch_y, fistSize, 0, Math.PI * 2);
         ctx.fill();
+
+        if (isHighlighted) {
+            ctx.restore();
+        }
+
+        if (this.isBubbled) {
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = "#87CEEB";
+            ctx.beginPath();
+            ctx.arc(sx, sy, radius * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
     }
 }
 
@@ -271,6 +311,7 @@ export class WeepingAngel extends Enemy {
     }
 
     update(dt, players, map, net) {
+        if (this.isBubbled) return; // Cannot act while bubbled
         if (this.attackCooldown > 0) this.attackCooldown -= dt;
         
         const { player, distance } = this.findClosestPlayer(players);
@@ -316,10 +357,15 @@ export class WeepingAngel extends Enemy {
         }
     }
 
-    draw(ctx, cam) {
+    draw(ctx, cam, isHighlighted = false) {
         const sx = Math.round(this.x - cam.x);
         const sy = Math.round(this.y - cam.y);
         const radius = 20;
+
+        if (isHighlighted) {
+            ctx.save();
+            ctx.filter = 'drop-shadow(0 0 10px #6495ED) brightness(1.6)';
+        }
 
         ctx.globalAlpha = this.isBeingLookedAt ? (Math.random() * 0.5 + 0.3) : 0.8;
         
@@ -333,6 +379,19 @@ export class WeepingAngel extends Enemy {
         ctx.arc(sx - 7, sy - 5, 3, 0, Math.PI * 2);
         ctx.arc(sx + 7, sy - 5, 3, 0, Math.PI * 2);
         ctx.fill();
+
+        if (isHighlighted) {
+            ctx.restore();
+        }
+        
+        if (this.isBubbled) {
+            // We draw the bubble before resetting globalAlpha
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = "#87CEEB";
+            ctx.beginPath();
+            ctx.arc(sx, sy, radius * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         ctx.globalAlpha = 1.0;
     }
