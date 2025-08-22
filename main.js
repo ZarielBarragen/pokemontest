@@ -2,6 +2,7 @@
 // global to avoid strict-mode ReferenceError on auth
 let localUsername = "";
 let lobbyUnsub = null; // unsubscribe fn for lobby snapshot
+let onlineCountUnsub = null; // NEW: Unsubscribe fn for the online count listener
 
 // Safe unsubscribe wrapper for lobby snapshot
 function unsubscribeLobby(){
@@ -43,7 +44,6 @@ const gameContext = {
 import { generateMap, mulberry32 } from './mapGenerator.js';
 import { Net, firebaseConfig } from "./net.js";
 import { Player } from './Player.js';
-// --- ENEMY REFACTOR 1 of 6: Import the new enemy classes ---
 import { Turret, Brawler, WeepingAngel } from './enemies.js';
 import { TILE, isFacing } from './utils.js';
 import { Sableye } from './characters/Sableye.js';
@@ -757,6 +757,21 @@ let isJoiningLobby = false;
 let leaderboardInterval = null;
 let leaderboardUnsub = null;
 
+// ===================================================================
+// ============= NEW: Central Cleanup Function for Leaks ==============
+// ===================================================================
+function cleanupLobbyScreenListeners() {
+    if (typeof lobbyUnsub === 'function') {
+        try { lobbyUnsub(); } catch(e) {}
+        lobbyUnsub = null;
+    }
+    if (typeof onlineCountUnsub === 'function') {
+        try { onlineCountUnsub(); } catch(e) {}
+        onlineCountUnsub = null;
+    }
+    stopLeaderboardCycle();
+}
+
 function renderLobbyList(list){
   lobbyListEl.innerHTML = "";
   lobbyHintEl.style.display = list.length ? "none" : "block";
@@ -784,10 +799,12 @@ function renderLobbyList(list){
 
 function showLobbies(){
   overlayLobbies.classList.remove("hidden");
-  if (lobbyUnsub) try{ unsubscribeLobby(); }catch{}
-  net.cleanupEmptyLobbies().catch(()=>{}).catch(()=>{});
+  // Use the new, more thorough cleanup function
+  cleanupLobbyScreenListeners(); 
+  
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
-  net.subscribeOnlineCount(count => {
+  // Store the unsubscribe function when you create the listener
+  onlineCountUnsub = net.subscribeOnlineCount(count => {
       onlineCountEl.textContent = count;
   });
   startLeaderboardCycle();
@@ -833,11 +850,18 @@ backBtn.onclick = ()=>{
   overlayLobbies.classList.add("hidden");
   overlaySelect.classList.remove("hidden");
   mobileControls.classList.add("hidden");
-  stopLeaderboardCycle();
+  cleanupLobbyScreenListeners(); // Use the new cleanup function
 };
+
 refreshBtn.onclick = ()=>{
-  if (lobbyUnsub) { try{ unsubscribeLobby(); }catch{} lobbyUnsub = null; }
+  // Clean up before refreshing to prevent duplicate listeners
+  cleanupLobbyScreenListeners();
+  // Re-subscribe
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
+  onlineCountUnsub = net.subscribeOnlineCount(count => {
+    onlineCountEl.textContent = count;
+  });
+  startLeaderboardCycle();
 };
 
 // ---------- Seeded map meta ----------
@@ -879,7 +903,9 @@ async function createLobbyFlow(type) {
         leaveLobbyBtn.classList.remove("hidden");
         shopIcon.classList.remove("hidden");
         inventoryDisplay.classList.remove("hidden");
-        stopLeaderboardCycle();
+        
+        cleanupLobbyScreenListeners(); // Add this line here
+        
         if (inputMode === 'touch') {
             mobileControls.classList.remove("hidden");
         }
@@ -918,7 +944,9 @@ async function joinLobbyFlow(lobbyId, btnEl){
     leaveLobbyBtn.classList.remove("hidden");
     shopIcon.classList.remove("hidden");
     inventoryDisplay.classList.remove("hidden");
-    stopLeaderboardCycle();
+
+    cleanupLobbyScreenListeners(); // And add this line here
+    
     if (inputMode === 'touch') {
         mobileControls.classList.remove("hidden");
     }
@@ -1233,9 +1261,6 @@ function handleCanvasTap(e) {
         return;
     }
     
-    // ===============================================
-    // =========== NEW BUBBLE CLICK LOGIC ============
-    // ===============================================
     if (state.abilityTargetingMode === 'bubble') {
         let clickedTarget = null;
 
@@ -1273,7 +1298,7 @@ function handleCanvasTap(e) {
     
     if (!state.abilityTargetingMode) return;
 
-    if (state.abilityTargetingMode === 'sandSnare') { // Note: 'bubble' is handled above
+    if (state.abilityTargetingMode === 'sandSnare') {
         const tileX = Math.floor(worldX / TILE);
         const tileY = Math.floor(worldY / TILE);
         activateTargetedAbility({ x: tileX, y: tileY });
@@ -1446,13 +1471,9 @@ function startNetListeners(){
   net.subscribeToHits(async hit => {
       if (state.invulnerableTimer > 0 || state.aquaShieldActive) return;
 
-      // ===============================================
-      // =========== NEW BUBBLE POP LOGIC ==============
-      // ===============================================
       if (state.isBubbled) {
           state.isBubbled = false;
           state.bubbleTimer = 0;
-          // Broadcast that our bubble was popped
           net.broadcastAbility({ name: 'popBubble', targetId: net.auth.currentUser.uid });
       }
 
@@ -1529,7 +1550,6 @@ net.subscribeToMeleeAttacks(attackData => {
 
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackData.range) {
-            // Pop bubble on hit
             if (state.isBubbled) {
                 state.isBubbled = false;
                 net.broadcastAbility({ name: 'popBubble', targetId: net.auth.currentUser.uid });
@@ -1610,9 +1630,6 @@ net.subscribeToMeleeAttacks(attackData => {
                   }
               }
               break;
-          // ===============================================
-          // =========== NEW BUBBLE ABILITY CASES ==========
-          // ===============================================
           case 'trapInBubble':
               const targetInfo = abilityData.target;
               if (targetInfo.type === 'player') {
@@ -1760,8 +1777,8 @@ net.subscribeEnemies({
         isIllusion: data.isIllusion || false,
         illusionTarget: data.illusionTarget || null,
         originalCharacterKey: data.originalCharacterKey || data.character,
-        isBubbled: false,     // NEW
-        bubbleTimer: 0,       // NEW
+        isBubbled: false,
+        bubbleTimer: 0,
         equippedItem: data.equippedItem || null,
       });
     },
@@ -1793,7 +1810,6 @@ net.subscribeEnemies({
           if (r.isAsleep) {
               r.isAsleep = false;
           }
-          // Pop bubble on taking damage
           if (r.isBubbled) {
               r.isBubbled = false;
           }
@@ -1947,7 +1963,7 @@ function getInputVec(){
       return { vx: dx, vy: dy };
   }
   
-  if (chatMode || state.isAsleep || state.isBubbled) return {vx:0, vy:0}; // CANNOT MOVE WHILE BUBBLED
+  if (chatMode || state.isAsleep || state.isBubbled) return {vx:0, vy:0};
   const up = keys.has("w") || keys.has("ArrowUp");
   const down = keys.has("s") || keys.has("ArrowDown");
   const left = keys.has("a") || keys.has("ArrowLeft");
@@ -2726,33 +2742,12 @@ function update(dt){
             }
         }
     }
-    
-    // ===============================================
-    // =========== NEW BUBBLE TIMER LOGIC ============
-    // ===============================================
     if (state.isBubbled) {
         state.bubbleTimer -= dt;
         if (state.bubbleTimer <= 0) {
             state.isBubbled = false;
         }
     }
-    for (const r of remote.values()) {
-        if (r.isBubbled) {
-            r.bubbleTimer -= dt;
-            if (r.bubbleTimer <= 0) {
-                r.isBubbled = false;
-            }
-        }
-    }
-    for (const e of enemies.values()) {
-        if (e.isBubbled) {
-            e.bubbleTimer -= dt;
-            if (e.bubbleTimer <= 0) {
-                e.isBubbled = false;
-            }
-        }
-    }
-
     if (state.isConfused) {
         state.confusionTimer -= dt;
         if (state.confusionTimer <= 0) {
@@ -3171,8 +3166,8 @@ function draw(){
         const enemy = enemies.get(a.id);
         if (enemy) {
             drawShadow(enemy.x, enemy.y, 0, 3.0, false);
-            const isHighlighted = state.abilityTargetingMode === 'bubble'; // NEW
-            enemy.draw(ctx, state.cam, isHighlighted); // MODIFIED
+            const isHighlighted = state.abilityTargetingMode === 'bubble';
+            enemy.draw(ctx, state.cam, isHighlighted);
             const sx = Math.round(enemy.x - state.cam.x);
             const sy = Math.round(enemy.y - state.cam.y);
             const hpw = 30, hph = 5;
@@ -3255,9 +3250,6 @@ function draw(){
         ctx.globalAlpha = (Math.floor(performance.now() / 80) % 2 === 0) ? 0.4 : 0.8;
     }
 
-    // ===============================================
-    // =========== NEW HIGHLIGHT LOGIC ==============
-    // ===============================================
     const filters = [];
     if (state.playerViewMode && (a.kind === 'local' || a.kind === 'remote')) {
         filters.push('drop-shadow(0 0 8px #aaddff) brightness(1.6)');
@@ -3265,7 +3257,6 @@ function draw(){
     if (a.isHighlighted) {
         filters.push('drop-shadow(0 0 8px #ffffaa) brightness(1.5)');
     }
-    // Highlight for bubble ability
     if (state.abilityTargetingMode === 'bubble' && a.kind === 'remote' && a.uid !== net.auth.currentUser.uid) {
         filters.push('drop-shadow(0 0 10px #6495ED) brightness(1.6)');
     }
@@ -3276,16 +3267,12 @@ function draw(){
     ctx.drawImage(a.src, f.sx, f.sy, f.sw, f.sh, dx, dy, dw, dh);
 
     ctx.restore();
-    
-    // ===============================================
-    // =========== NEW BUBBLE DRAW LOGIC =============
-    // ===============================================
+
     const actorObject = a.kind === 'local' ? state : remote.get(a.uid);
     if (actorObject && actorObject.isBubbled) {
         const bubbleX = Math.round(a.x - state.cam.x);
-        // Center the bubble on the character sprite
-        const bubbleY = Math.round(a.y - state.cam.y - (f.oy * scale / 2));
-        const bubbleR = Math.max(dw, dh) * 0.6; // Bubble radius based on sprite size
+        const bubbleY = Math.round(a.y - f.oy * scale / 2 - state.cam.y - a.z);
+        const bubbleR = Math.max(dw, dh) * 0.6;
 
         ctx.globalAlpha = 0.5;
         ctx.fillStyle = "#87CEEB";
@@ -3294,7 +3281,6 @@ function draw(){
         ctx.fill();
         ctx.globalAlpha = 1.0;
     }
-
 
     const isAquaShielded = (a.kind === 'local' && state.aquaShieldActive) || (a.kind === 'remote' && remote.get(a.uid)?.aquaShieldActive);
     if (isAquaShielded) {
@@ -3634,7 +3620,6 @@ function updateProjectiles(dt) {
         if (state.invulnerableTimer <= 0 && !state.isPhasing && !state.isFlying) {
             const dist = Math.hypot(p.x - state.x, p.y - state.y);
             if (dist < PLAYER_R + PROJECTILE_R) {
-                // Pop bubble on hit
                 if (state.isBubbled) {
                     state.isBubbled = false;
                     net.broadcastAbility({ name: 'popBubble', targetId: net.auth.currentUser.uid });
@@ -3704,9 +3689,6 @@ function updatePlayerProjectiles(dt) {
 
                 const dist = Math.hypot(p.x - enemy.x, p.y - enemy.y);
                 if (dist < ENEMY_R + PROJECTILE_R) {
-                   // ===============================================
-                   // =========== NEW BUBBLE POP LOGIC ==============
-                   // ===============================================
                    if (enemy.isBubbled) {
                        net.broadcastAbility({ name: 'popBubbleEnemy', targetId: enemy.id });
                    }
@@ -3738,9 +3720,6 @@ function updatePlayerProjectiles(dt) {
                 const smoothedPos = getRemotePlayerSmoothedPos(player);
                 const dist = Math.hypot(p.x - smoothedPos.x, p.y - smoothedPos.y);
                 if (dist < PLAYER_R + PROJECTILE_R) {
-                    // ===============================================
-                    // =========== NEW BUBBLE POP LOGIC ==============
-                    // ===============================================
                     if (player.isBubbled) {
                         net.broadcastAbility({ name: 'popBubble', targetId: uid });
                     }
@@ -3921,9 +3900,6 @@ function tryMeleeAttack() {
 
         const dist = Math.hypot(state.x - enemy.x, state.y - enemy.y);
         if (dist < attackRange && isFacing(state, enemy)) {
-             // ===============================================
-             // =========== NEW BUBBLE POP LOGIC ==============
-             // ===============================================
              if (enemy.isBubbled) {
                 net.broadcastAbility({ name: 'popBubbleEnemy', targetId: enemy.id });
              }
@@ -3948,9 +3924,6 @@ function tryMeleeAttack() {
         const smoothedPos = getRemotePlayerSmoothedPos(player);
         const dist = Math.hypot(state.x - smoothedPos.x, state.y - smoothedPos.y);
         if (dist < attackRange && isFacing(state, { x: smoothedPos.x, y: smoothedPos.y })) {
-            // ===============================================
-            // =========== NEW BUBBLE POP LOGIC ==============
-            // ===============================================
             if (player.isBubbled) {
                 net.broadcastAbility({ name: 'popBubble', targetId: uid });
             }
@@ -4070,9 +4043,6 @@ async function handleAbilityKeyPress() {
 async function activateTargetedAbility(target) {
     if (!localPlayer) return;
 
-    // ===============================================
-    // =========== NEW BUBBLE ABILITY LOGIC ==========
-    // ===============================================
     if (state.abilityTargetingMode === 'bubble') {
         state.abilityCooldown = localPlayer.config.ability.cooldown;
         net.broadcastAbility({ name: 'trapInBubble', target: target });
