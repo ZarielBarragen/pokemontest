@@ -525,24 +525,24 @@ export class Net {
       });
   }
 
-  subscribeToProjectiles(onFire) {
-      if (!this.currentLobbyId) return () => {};
-      const projectilesRef = ref(this.db, `lobbies/${this.currentLobbyId}/projectiles`);
-      const q = query(projectilesRef, orderByChild('ts'), startAt(this.joinTimestamp));
+subscribeToProjectiles(onFire) {
+    if (!this.currentLobbyId) return () => {};
+    const projectilesRef = ref(this.db, `lobbies/${this.currentLobbyId}/projectiles`);
+    const q = query(projectilesRef, orderByChild('ts'), startAt(this.joinTimestamp));
 
-      const unsub = onChildAdded(q, (snap) => {
-          const projectileData = snap.val();
-          if (projectileData.ownerId === this.auth.currentUser?.uid) {
-              return; 
-          }
-          onFire(projectileData);
-          // ADD THIS LINE TO FIX THE LAG
-          remove(snap.ref).catch(e => console.error("Failed to remove projectile event", e));
-      });
+    const unsub = onChildAdded(q, (snap) => {
+        const projectileData = snap.val();
+        if (projectileData.ownerId === this.auth.currentUser?.uid) {
+            return; 
+        }
+        onFire(projectileData);
+        // THIS IS THE CRITICAL FIX:
+        remove(snap.ref).catch(e => console.error("Failed to remove projectile event", e));
+    });
 
-      this.playersUnsubs.push(unsub);
-      return unsub;
-  }
+    this.playersUnsubs.push(unsub);
+    return unsub;
+}
   
   async performMeleeAttack(attackDetails = {}) {
     if (!this.currentLobbyId) return;
