@@ -500,7 +500,7 @@ formEl.addEventListener("submit", async (e)=>{
   errEl.textContent = "";
   const u = userEl.value.trim().toLowerCase();
   const p = passEl.value;
-  if (!/^[a-z0-9_]{3,16}$/.test(u)) { errEl.textContent = "3–16 chars a–z, 0–9, _"; return; }
+  if (!/^[a-z0-9_]{3,16}$/.test(u)) { errEl.textContent = "3–16 chars a–z, 0-9, _"; return; }
   try{
     if (authMode === "signup") await net.signUp(u, p);
     else await net.logIn(u, p);
