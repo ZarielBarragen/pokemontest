@@ -1557,28 +1557,23 @@ function startNetListeners(){
 
 net.subscribeToProjectiles(p_data => {
     if (p_data.isEnemyProjectile) {
-        // Cap projectile life at 3 seconds to ensure old enemy shots
-        // disappear if they don't hit the player.  Some older client
-        // versions may send a different life; we override it here.
-        const life = p_data.life !== undefined ? Math.min(p_data.life, 3.0) : 3.0;
         projectiles.push({
             x: p_data.x,
             y: p_data.y,
             vx: p_data.vx,
             vy: p_data.vy,
             damage: p_data.damage,
-            life: life
+            life: p_data.life
         });
     }
     else if (p_data.ownerId !== net.auth.currentUser.uid) {
-        const life = p_data.life !== undefined ? Math.min(p_data.life, 3.0) : 3.0;
         playerProjectiles.push({
             x: p_data.x,
             y: p_data.y,
             vx: p_data.vx,
             vy: p_data.vy,
             damage: p_data.damage,
-            life: life,
+            life: p_data.life,
             ownerId: p_data.ownerId,
             color: p_data.color,
             homing: p_data.homing,
@@ -3476,10 +3471,7 @@ function spawnEnemies(map) {
 
     const weights = enemyTypes[map.type] || enemyTypes['dungeon'];
     const enemyRng = mulberry32(map.seed);
-    // Lower the density of enemies spawning on the map by reducing the spawn rate.
-    // Previously we spawned roughly one enemy per 200 tiles; increasing the divisor
-    // reduces the number of initial enemies, thereby easing CPU load during gameplay.
-    const maxEnemies = Math.floor((map.w * map.h) / 400);
+    const maxEnemies = Math.floor((map.w * map.h) / 200);
     
     const validSpawns = [];
     for (let y = 1; y < map.h - 1; y++) {
@@ -3608,10 +3600,7 @@ function updateEnemies(dt) {
     
     state.weepingAngelSpawnTimer -= dt;
     if (state.weepingAngelSpawnTimer <= 0) {
-        // Increase the interval between Weeping Angel spawns to reduce the number of
-        // powerful enemies active at once.  Previously angels spawned every 20‑40s.
-        // Now they will spawn roughly every 40‑60s.
-        state.weepingAngelSpawnTimer = 40 + Math.random() * 20;
+        state.weepingAngelSpawnTimer = 20 + Math.random() * 20;
         
         const validSpawns = [];
         for (let y = 1; y < state.map.h - 1; y++) {
@@ -3846,6 +3835,57 @@ function handleEnemyDefeat(enemy) {
             quest.progress++;
         }
     }
+
+    // After defeating an enemy, schedule a respawn of one enemy of the same type
+    // after 30 seconds.  This keeps maps from becoming empty without increasing
+    // the peak number of active enemies.  We only respawn if the player is still
+    // in the current lobby and the game is ready.
+    setTimeout(() => {
+        // If we have left the lobby or the game is not ready, skip respawning.
+        if (!state.ready || !net.currentLobbyId) return;
+        try {
+            // Build a list of all non-wall tiles on the map as potential spawn locations.
+            const validSpawns = [];
+            for (let y = 1; y < state.map.h - 1; y++) {
+                for (let x = 1; x < state.map.w - 1; x++) {
+                    if (!state.map.walls[y][x]) {
+                        validSpawns.push({ x, y });
+                    }
+                }
+            }
+            if (validSpawns.length === 0) return;
+            const pos = validSpawns[Math.floor(Math.random() * validSpawns.length)];
+            const worldPos = tileCenter(pos.x, pos.y);
+            // Determine the config for the enemy type.  Use base stats matching the
+            // initial spawn definitions.
+            let config;
+            switch (enemy.constructor.name) {
+                case 'Turret':
+                    config = { hp: 50, speed: 0, damage: 10, detectionRange: TILE * 7, attackRange: 0, projectileSpeed: TILE * 5 };
+                    break;
+                case 'Brawler':
+                    config = { hp: 80, speed: TILE * 1, damage: 15, detectionRange: TILE * 8, attackRange: TILE * 1.2 };
+                    break;
+                case 'WeepingAngel':
+                    config = { hp: 100, speed: TILE * 2.5, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 };
+                    break;
+                default:
+                    // Fallback to the enemy's existing config if available
+                    config = enemy.config || {};
+            }
+            const id = `enemy_respawn_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+            const newEnemyData = {
+                id: id,
+                type: enemy.constructor.name,
+                x: worldPos.x,
+                y: worldPos.y,
+                config: config
+            };
+            net.spawnNewEnemy(newEnemyData);
+        } catch (e) {
+            console.error('Failed to respawn enemy:', e);
+        }
+    }, 30000);
 }
 
 async function checkItemDropCollision() {
@@ -4052,16 +4092,13 @@ function tryRangedAttack() {
     }
 
     const fire = (offsetX = 0) => {
-        // Set projectile lifespan to 3 seconds so projectiles despawn if they
-        // don't hit anything within that time. This helps prevent old shots
-        // from lingering and eating memory/CPU.
         const p_data = {
             x: state.x + offsetX,
             y: startY,
             vx: vx * projectileSpeed,
             vy: vy * projectileSpeed,
             damage: damage,
-            life: 3.0,
+            life: 2.0,
             ownerId: net.auth.currentUser.uid,
             color: cfg.projectileColor || '#FFFF00',
             homing: cfg.ability?.name === 'aimbot',
