@@ -882,6 +882,21 @@ async function createLobbyFlow(type) {
     btn.textContent = "Creating…";
 
     try {
+            if (net.currentLobbyId) {
+            await net.leaveLobby().catch(() => {});
+            keys.clear();
+            remote.clear();
+            enemies.clear();
+            coins.clear();
+            healthPacks.clear();
+            poisonTiles.clear();
+            sandTiles.clear();
+            droppedItems.clear();
+            activeEffects.clear();
+            projectiles.length = 0;
+            playerProjectiles.length = 0;
+        }
+
         const cfg = CHARACTERS[selectedKey];
         if (!cfg) throw new Error("Pick a character first");
         
@@ -929,6 +944,20 @@ async function joinLobbyFlow(lobbyId, btnEl){
   btnEl.innerHTML = `<div><strong>Joining...</strong></div>`;
   
   try{
+        if (net.currentLobbyId && net.currentLobbyId !== lobbyId) {
+            await net.leaveLobby().catch(() => {});
+            keys.clear();
+            remote.clear();
+            enemies.clear();
+            coins.clear();
+            healthPacks.clear();
+            poisonTiles.clear();
+            sandTiles.clear();
+            droppedItems.clear();
+            activeEffects.clear();
+            projectiles.length = 0;
+            playerProjectiles.length = 0;
+        }
     const cfg = CHARACTERS[selectedKey];
     if (!cfg) { alert("Pick a character first"); return; }
     const lobby = await net.getLobby(lobbyId);
@@ -1465,6 +1494,18 @@ function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
   }
   return out;
 }
+
+if (net.playersUnsubs && net.playersUnsubs.length) {
+    net.playersUnsubs.forEach((unsub) => {
+        try { unsub(); } catch (e) {}
+    });
+    net.playersUnsubs = [];
+}
+if (net.chatUnsub) {
+    try { net.chatUnsub(); } catch (e) {}
+    net.chatUnsub = null;
+}
+
 
 // ---------- Net listeners ----------
 function startNetListeners(){
