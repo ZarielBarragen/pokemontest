@@ -1495,18 +1495,17 @@ function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
   return out;
 }
 
-function resetNetListeners() {
-    if (net.playersUnsubs && net.playersUnsubs.length) {
-        net.playersUnsubs.forEach((unsub) => {
-            try { unsub(); } catch (e) {}
-        });
-        net.playersUnsubs = [];
-    }
-    if (net.chatUnsub) {
-        try { net.chatUnsub(); } catch (e) {}
-        net.chatUnsub = null;
-    }
+if (net.playersUnsubs && net.playersUnsubs.length) {
+    net.playersUnsubs.forEach((unsub) => {
+        try { unsub(); } catch (e) {}
+    });
+    net.playersUnsubs = [];
 }
+if (net.chatUnsub) {
+    try { net.chatUnsub(); } catch (e) {}
+    net.chatUnsub = null;
+}
+
 
 // ---------- Net listeners ----------
 function startNetListeners(){
@@ -1558,23 +1557,28 @@ function startNetListeners(){
 
 net.subscribeToProjectiles(p_data => {
     if (p_data.isEnemyProjectile) {
+        // Cap projectile life at 3 seconds to ensure old enemy shots
+        // disappear if they don't hit the player.  Some older client
+        // versions may send a different life; we override it here.
+        const life = p_data.life !== undefined ? Math.min(p_data.life, 3.0) : 3.0;
         projectiles.push({
             x: p_data.x,
             y: p_data.y,
             vx: p_data.vx,
             vy: p_data.vy,
             damage: p_data.damage,
-            life: p_data.life
+            life: life
         });
     }
     else if (p_data.ownerId !== net.auth.currentUser.uid) {
+        const life = p_data.life !== undefined ? Math.min(p_data.life, 3.0) : 3.0;
         playerProjectiles.push({
             x: p_data.x,
             y: p_data.y,
             vx: p_data.vx,
             vy: p_data.vy,
             damage: p_data.damage,
-            life: p_data.life,
+            life: life,
             ownerId: p_data.ownerId,
             color: p_data.color,
             homing: p_data.homing,
@@ -1986,7 +1990,6 @@ async function startWithCharacter(cfg, map){
       originalCharacterKey: selectedKey,
       equippedItem: state.equippedItem
     });
-    resetNetListeners(); 
     startNetListeners();
     updateInventoryUI();
   } catch (err){
@@ -3473,7 +3476,10 @@ function spawnEnemies(map) {
 
     const weights = enemyTypes[map.type] || enemyTypes['dungeon'];
     const enemyRng = mulberry32(map.seed);
-    const maxEnemies = Math.floor((map.w * map.h) / 200);
+    // Lower the density of enemies spawning on the map by reducing the spawn rate.
+    // Previously we spawned roughly one enemy per 200 tiles; increasing the divisor
+    // reduces the number of initial enemies, thereby easing CPU load during gameplay.
+    const maxEnemies = Math.floor((map.w * map.h) / 400);
     
     const validSpawns = [];
     for (let y = 1; y < map.h - 1; y++) {
@@ -3602,7 +3608,10 @@ function updateEnemies(dt) {
     
     state.weepingAngelSpawnTimer -= dt;
     if (state.weepingAngelSpawnTimer <= 0) {
-        state.weepingAngelSpawnTimer = 20 + Math.random() * 20;
+        // Increase the interval between Weeping Angel spawns to reduce the number of
+        // powerful enemies active at once.  Previously angels spawned every 20‑40s.
+        // Now they will spawn roughly every 40‑60s.
+        state.weepingAngelSpawnTimer = 40 + Math.random() * 20;
         
         const validSpawns = [];
         for (let y = 1; y < state.map.h - 1; y++) {
@@ -4043,13 +4052,16 @@ function tryRangedAttack() {
     }
 
     const fire = (offsetX = 0) => {
+        // Set projectile lifespan to 3 seconds so projectiles despawn if they
+        // don't hit anything within that time. This helps prevent old shots
+        // from lingering and eating memory/CPU.
         const p_data = {
             x: state.x + offsetX,
             y: startY,
             vx: vx * projectileSpeed,
             vy: vy * projectileSpeed,
             damage: damage,
-            life: 2.0,
+            life: 3.0,
             ownerId: net.auth.currentUser.uid,
             color: cfg.projectileColor || '#FFFF00',
             homing: cfg.ability?.name === 'aimbot',
