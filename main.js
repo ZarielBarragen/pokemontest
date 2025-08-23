@@ -882,9 +882,26 @@ async function createLobbyFlow(type) {
     btn.textContent = "Creating…";
 
     try {
+        // Leave existing lobby to clean up listeners and data
+        if (net.currentLobbyId) {
+            await net.leaveLobby().catch(() => {});
+            // Reset input keys and in‑memory collections
+            keys.clear();
+            remote.clear();
+            enemies.clear();
+            coins.clear();
+            healthPacks.clear();
+            poisonTiles.clear();
+            sandTiles.clear();
+            droppedItems.clear();
+            activeEffects.clear();
+            projectiles.length = 0;
+            playerProjectiles.length = 0;
+        }
+
         const cfg = CHARACTERS[selectedKey];
         if (!cfg) throw new Error("Pick a character first");
-        
+
         const visW = Math.floor(canvas.width / TILE);
         const visH = Math.floor(canvas.height / TILE);
         const w = visW * MAP_SCALE;
@@ -903,9 +920,9 @@ async function createLobbyFlow(type) {
         leaveLobbyBtn.classList.remove("hidden");
         shopIcon.classList.remove("hidden");
         inventoryDisplay.classList.remove("hidden");
-        
-        cleanupLobbyScreenListeners(); // Add this line here
-        
+
+        cleanupLobbyScreenListeners();
+
         if (inputMode === 'touch') {
             mobileControls.classList.remove("hidden");
         }
@@ -923,47 +940,62 @@ async function createLobbyFlow(type) {
     }
 }
 
-async function joinLobbyFlow(lobbyId, btnEl){
-  isJoiningLobby = true;
-  const originalHTML = btnEl.innerHTML;
-  btnEl.innerHTML = `<div><strong>Joining...</strong></div>`;
-  
-  try{
-    const cfg = CHARACTERS[selectedKey];
-    if (!cfg) { alert("Pick a character first"); return; }
-    const lobby = await net.getLobby(lobbyId);
-    const { w,h,seed, type } = lobby.mapMeta || {};
-    await net.joinLobby(lobbyId);
-    const map = generateMap(w||48,h||32,seed??1234, type);
-    await startWithCharacter(cfg, map);
-    watchdogEnsureGame(cfg, map);
-    overlayLobbies.classList.add("hidden");
-    mountChatLog();
-    startChatSubscription();
-    playerHudEl.classList.remove("hidden");
-    leaveLobbyBtn.classList.remove("hidden");
-    shopIcon.classList.remove("hidden");
-    inventoryDisplay.classList.remove("hidden");
+async function joinLobbyFlow(lobbyId, btnEl) {
+    isJoiningLobby = true;
+    const originalHTML = btnEl.innerHTML;
+    btnEl.innerHTML = ` Joining... `;
 
-    cleanupLobbyScreenListeners(); // And add this line here
-    
-    if (inputMode === 'touch') {
-        mobileControls.classList.remove("hidden");
+    try {
+        // Leave any existing lobby before joining a new one
+        if (net.currentLobbyId && net.currentLobbyId !== lobbyId) {
+            await net.leaveLobby().catch(() => {});
+            keys.clear();
+            remote.clear();
+            enemies.clear();
+            coins.clear();
+            healthPacks.clear();
+            poisonTiles.clear();
+            sandTiles.clear();
+            droppedItems.clear();
+            activeEffects.clear();
+            projectiles.length = 0;
+            playerProjectiles.length = 0;
+        }
+
+        const cfg = CHARACTERS[selectedKey];
+        if (!cfg) { alert("Pick a character first"); return; }
+        const lobby = await net.getLobby(lobbyId);
+        const { w, h, seed, type } = lobby.mapMeta || {};
+        await net.joinLobby(lobbyId);
+        const map = generateMap(w || 48, h || 32, seed ?? 1234, type);
+        await startWithCharacter(cfg, map);
+        watchdogEnsureGame(cfg, map);
+        overlayLobbies.classList.add("hidden");
+        mountChatLog();
+        startChatSubscription();
+        playerHudEl.classList.remove("hidden");
+        leaveLobbyBtn.classList.remove("hidden");
+        shopIcon.classList.remove("hidden");
+        inventoryDisplay.classList.remove("hidden");
+
+        cleanupLobbyScreenListeners();
+
+        if (inputMode === 'touch') {
+            mobileControls.classList.remove("hidden");
+        }
+        if (type === 'dungeon') {
+            dungeonMusic.play().catch(() => {});
+        } else {
+            lobbyMusic.play().catch(() => {});
+        }
+    } catch (e) {
+        console.error("Join lobby failed:", e);
+        alert("Join lobby failed: " + (e?.message || e));
+    } finally {
+        isJoiningLobby = false;
+        btnEl.innerHTML = originalHTML;
     }
-    if (type === 'dungeon') {
-        dungeonMusic.play().catch(() => {});
-    } else {
-        lobbyMusic.play().catch(() => {});
-    }
-  } catch(e){
-    console.error("Join lobby failed:", e);
-    alert("Join lobby failed: " + (e?.message || e));
-  } finally {
-    isJoiningLobby = false;
-    if(btnEl) btnEl.innerHTML = originalHTML;
-  }
 }
-
 
 function watchdogEnsureGame(cfg, map){
   // If for any reason state.ready/map didn't initialize, retry once after a tick
