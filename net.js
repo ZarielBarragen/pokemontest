@@ -243,40 +243,51 @@ export class Net {
     }
   }
 
-  async leaveLobby(){
+async leaveLobby() {
     const lob = this.currentLobbyId;
     if (!lob) return;
 
-    if (this.auth.currentUser.displayName) {
+    // Announce departure in chat
+    if (this.auth.currentUser?.displayName) {
         this.sendChat(`${this.auth.currentUser.displayName} has left the lobby.`, true);
     }
 
     try {
-      if (this._playerOnDisconnect) { try { await this._playerOnDisconnect.cancel(); } catch {} this._playerOnDisconnect = null; }
-      if (this._playerRef) { await remove(this._playerRef); this._playerRef = null; }
-    } catch {}
-
-    // Check if the lobby is empty and schedule deletion
-    const lobbyPlayersRef = ref(this.db, `lobbies/${lob}/players`);
-    const snapshot = await get(lobbyPlayersRef);
-    if (!snapshot.exists() || !snapshot.hasChildren()) {
-        setTimeout(async () => {
-            const currentSnapshot = await get(lobbyPlayersRef);
-            if (!currentSnapshot.exists() || !currentSnapshot.hasChildren()) {
-                const lobbyRef = ref(this.db, `lobbies/${lob}`);
-                await remove(lobbyRef);
-                console.log(`Lobby ${lob} was empty for 10 seconds and has been deleted.`);
-            }
-        }, 10000); // 10 seconds
+        // Cancel any onDisconnect removal so we can delete immediately
+        if (this._playerOnDisconnect) {
+            await this._playerOnDisconnect.cancel();
+            this._playerOnDisconnect = null;
+        }
+        // Always remove the player entry by UID—even if _playerRef is null
+        const uid = this.auth.currentUser?.uid;
+        if (uid) {
+            await remove(ref(this.db, `lobbies/${lob}/players/${uid}`));
+        }
+        this._playerRef = null;
+    } catch (e) {
+        console.error("Failed to remove player from lobby:", e);
     }
 
-    this.playersUnsubs.forEach(u=>{ try{u();}catch{} });
+    // If no players remain, schedule lobby deletion after 10 seconds
+    const lobbyPlayersRef = ref(this.db, `lobbies/${lob}/players`);
+    const snap = await get(lobbyPlayersRef);
+    if (!snap.exists() || !snap.hasChildren()) {
+        setTimeout(async () => {
+            const currentSnap = await get(lobbyPlayersRef);
+            if (!currentSnap.exists() || !currentSnap.hasChildren()) {
+                await remove(ref(this.db, `lobbies/${lob}`));
+            }
+        }, 10000);
+    }
+
+    // Unsubscribe all listeners and reset state
+    this.playersUnsubs.forEach(unsub => { try { unsub(); } catch {} });
     this.playersUnsubs = [];
-    if (this.chatUnsub){ try{ this.chatUnsub(); }catch{} this.chatUnsub = null; }
+    if (this.chatUnsub) { try { this.chatUnsub(); } catch {} this.chatUnsub = null; }
 
     this.currentLobbyId = null;
     this.currentLobbyOwner = null;
-  }
+}
 
   // ---------- PLAYERS (RTDB) ----------
   _playerPath(){ return `lobbies/${this.currentLobbyId}/players/${this.auth.currentUser?.uid}`; }
