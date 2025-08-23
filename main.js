@@ -1495,17 +1495,18 @@ function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
   return out;
 }
 
-if (net.playersUnsubs && net.playersUnsubs.length) {
-    net.playersUnsubs.forEach((unsub) => {
-        try { unsub(); } catch (e) {}
-    });
-    net.playersUnsubs = [];
+function resetNetListeners() {
+    if (net.playersUnsubs && net.playersUnsubs.length) {
+        net.playersUnsubs.forEach((unsub) => {
+            try { unsub(); } catch (e) {}
+        });
+        net.playersUnsubs = [];
+    }
+    if (net.chatUnsub) {
+        try { net.chatUnsub(); } catch (e) {}
+        net.chatUnsub = null;
+    }
 }
-if (net.chatUnsub) {
-    try { net.chatUnsub(); } catch (e) {}
-    net.chatUnsub = null;
-}
-
 
 // ---------- Net listeners ----------
 function startNetListeners(){
@@ -1985,6 +1986,7 @@ async function startWithCharacter(cfg, map){
       originalCharacterKey: selectedKey,
       equippedItem: state.equippedItem
     });
+    resetNetListeners(); 
     startNetListeners();
     updateInventoryUI();
   } catch (err){
