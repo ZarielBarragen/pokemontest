@@ -1495,17 +1495,18 @@ function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
   return out;
 }
 
-if (net.playersUnsubs && net.playersUnsubs.length) {
-    net.playersUnsubs.forEach((unsub) => {
-        try { unsub(); } catch (e) {}
-    });
-    net.playersUnsubs = [];
+function resetNetListeners() {
+    if (net.playersUnsubs && net.playersUnsubs.length) {
+        net.playersUnsubs.forEach((unsub) => {
+            try { unsub(); } catch (e) {}
+        });
+        net.playersUnsubs = [];
+    }
+    if (net.chatUnsub) {
+        try { net.chatUnsub(); } catch (e) {}
+        net.chatUnsub = null;
+    }
 }
-if (net.chatUnsub) {
-    try { net.chatUnsub(); } catch (e) {}
-    net.chatUnsub = null;
-}
-
 
 // ---------- Net listeners ----------
 function startNetListeners(){
@@ -1985,6 +1986,7 @@ async function startWithCharacter(cfg, map){
       originalCharacterKey: selectedKey,
       equippedItem: state.equippedItem
     });
+    resetNetListeners(); 
     startNetListeners();
     updateInventoryUI();
   } catch (err){
@@ -3835,57 +3837,6 @@ function handleEnemyDefeat(enemy) {
             quest.progress++;
         }
     }
-
-    // After defeating an enemy, schedule a respawn of one enemy of the same type
-    // after 30 seconds.  This keeps maps from becoming empty without increasing
-    // the peak number of active enemies.  We only respawn if the player is still
-    // in the current lobby and the game is ready.
-    setTimeout(() => {
-        // If we have left the lobby or the game is not ready, skip respawning.
-        if (!state.ready || !net.currentLobbyId) return;
-        try {
-            // Build a list of all non-wall tiles on the map as potential spawn locations.
-            const validSpawns = [];
-            for (let y = 1; y < state.map.h - 1; y++) {
-                for (let x = 1; x < state.map.w - 1; x++) {
-                    if (!state.map.walls[y][x]) {
-                        validSpawns.push({ x, y });
-                    }
-                }
-            }
-            if (validSpawns.length === 0) return;
-            const pos = validSpawns[Math.floor(Math.random() * validSpawns.length)];
-            const worldPos = tileCenter(pos.x, pos.y);
-            // Determine the config for the enemy type.  Use base stats matching the
-            // initial spawn definitions.
-            let config;
-            switch (enemy.constructor.name) {
-                case 'Turret':
-                    config = { hp: 50, speed: 0, damage: 10, detectionRange: TILE * 7, attackRange: 0, projectileSpeed: TILE * 5 };
-                    break;
-                case 'Brawler':
-                    config = { hp: 80, speed: TILE * 1, damage: 15, detectionRange: TILE * 8, attackRange: TILE * 1.2 };
-                    break;
-                case 'WeepingAngel':
-                    config = { hp: 100, speed: TILE * 2.5, damage: 25, detectionRange: TILE * 15, attackRange: TILE * 1 };
-                    break;
-                default:
-                    // Fallback to the enemy's existing config if available
-                    config = enemy.config || {};
-            }
-            const id = `enemy_respawn_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
-            const newEnemyData = {
-                id: id,
-                type: enemy.constructor.name,
-                x: worldPos.x,
-                y: worldPos.y,
-                config: config
-            };
-            net.spawnNewEnemy(newEnemyData);
-        } catch (e) {
-            console.error('Failed to respawn enemy:', e);
-        }
-    }, 30000);
 }
 
 async function checkItemDropCollision() {
