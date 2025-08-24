@@ -368,14 +368,23 @@ dungeonMusic.loop = true;
 dungeonMusic.volume = 0.3;
 
 function makeAudioPool(url, poolSize = 6){
-  const pool = Array.from({length: poolSize}, () => new Audio(url));
+  const pool = Array.from({ length: poolSize }, () => new Audio(url));
   return {
-    play(vol = 1, rate = 1){
-      const a = pool.find(ch => ch.paused) || pool[0].cloneNode(true);
-      a.volume = vol; a.playbackRate = rate;
-      try{ a.currentTime = 0; }catch{}
-      a.play().catch(()=>{});
-    }
+    play(vol = 1, rate = 1) {
+      // Find a paused audio element to reuse; if all are busy, reuse the first one.
+      // Avoid cloning audio nodes, which leads to unbounded growth and memory leaks when
+      // effects (like jumping) are triggered repeatedly.
+      let a = pool.find(ch => ch.paused);
+      if (!a) {
+        a = pool[0];
+      }
+      a.volume = vol;
+      a.playbackRate = rate;
+      try {
+        a.currentTime = 0;
+      } catch {}
+      a.play().catch(() => {});
+    },
   };
 }
 const sfx = {
@@ -1495,18 +1504,17 @@ function sliceSheet(sheet, cols, rows, dirGrid, framesPerDir){
   return out;
 }
 
-function resetNetListeners() {
-    if (net.playersUnsubs && net.playersUnsubs.length) {
-        net.playersUnsubs.forEach((unsub) => {
-            try { unsub(); } catch (e) {}
-        });
-        net.playersUnsubs = [];
-    }
-    if (net.chatUnsub) {
-        try { net.chatUnsub(); } catch (e) {}
-        net.chatUnsub = null;
-    }
+if (net.playersUnsubs && net.playersUnsubs.length) {
+    net.playersUnsubs.forEach((unsub) => {
+        try { unsub(); } catch (e) {}
+    });
+    net.playersUnsubs = [];
 }
+if (net.chatUnsub) {
+    try { net.chatUnsub(); } catch (e) {}
+    net.chatUnsub = null;
+}
+
 
 // ---------- Net listeners ----------
 function startNetListeners(){
@@ -1986,7 +1994,6 @@ async function startWithCharacter(cfg, map){
       originalCharacterKey: selectedKey,
       equippedItem: state.equippedItem
     });
-    resetNetListeners(); 
     startNetListeners();
     updateInventoryUI();
   } catch (err){
