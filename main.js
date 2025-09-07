@@ -2969,22 +2969,26 @@ function draw(){
 
   const actors = [];
   
+  // OPTIMIZATION: Define camera view bounds for culling
   const cam = state.cam;
   const canvasW = canvas.width;
   const canvasH = canvas.height;
-  const cullMargin = TILE * 4;
+  const cullMargin = TILE * 4; // Render objects a bit outside the viewport for smooth transitions
 
+  // OPTIMIZATION: Only add objects within the camera's view to the 'actors' array
   if ((state.map.type === 'plains' || state.map.type === 'forest') && state.map.trees) {
       for (const tree of state.map.trees) {
-          if (tree.x * TILE >= cam.x - cullMargin && tree.x * TILE <= cam.x + canvasW + cullMargin &&
-              tree.y * TILE >= cam.y - cullMargin && tree.y * TILE <= cam.y + canvasH + cullMargin) {
+          const treeBaseY = (tree.y + 1) * TILE; // Use the base of the tree for Y-sorting and culling
+          const treeCenterX = tree.x * TILE + TILE / 2;
+          if (treeCenterX >= cam.x - cullMargin && treeCenterX <= cam.x + canvasW + cullMargin &&
+              treeBaseY >= cam.y - cullMargin && treeBaseY <= cam.y + canvasH + cullMargin) {
               
               const treeTexture = state.map.type === 'plains' ? TEX.palm_tree : TEX.pine_tree;
 
               actors.push({
                   kind: "tree",
-                  x: tree.x * TILE + TILE / 2,
-                  y: (tree.y + 1) * TILE,
+                  x: treeCenterX,
+                  y: treeBaseY,
                   tileX: tree.x,
                   tileY: tree.y,
                   src: treeTexture
@@ -3044,6 +3048,16 @@ function draw(){
   for (const r of remote.values()){
     const assets = (r.isIllusion && r.illusionAssets) ? r.illusionAssets : r.assets;
     if (!assets) continue;
+    
+    const smoothedPos = getRemotePlayerSmoothedPos(r);
+    const smx = smoothedPos.x;
+    const smy = smoothedPos.y;
+
+    // OPTIMIZATION: Cull remote players
+    if (smx < cam.x - cullMargin || smx > cam.x + canvasW + cullMargin ||
+        smy < cam.y - cullMargin || smy > cam.y + canvasH + cullMargin) {
+        continue;
+    }
     
     let meta, strip, frames, fps, order;
     
@@ -3139,10 +3153,6 @@ function draw(){
                 r.anim === "shoot" ? assets.shoot :
                 r.anim === "sleep" ? assets.sleep :
                 assets.idle;
-
-    const smoothedPos = getRemotePlayerSmoothedPos(r);
-    const smx = smoothedPos.x;
-    const smy = smoothedPos.y;
     
     if (r.sayTimer > 0) r.sayTimer = Math.max(0, r.sayTimer - frameDt);
     else r.say = null;
