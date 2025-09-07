@@ -3303,7 +3303,7 @@ function draw(){
             }
         }
         continue;
-    }
+
 
     const f = a.frame, scale = a.scale;
     if (!f || !a.src) continue;
@@ -3484,7 +3484,6 @@ function loop(ts){
   if (state.ready) update(dt);
   frameDt = dt;
   draw();
-  requestAnimationFrame(loop);
 }
 
 // ---------- Enemy and Projectile Logic ----------
