@@ -67,21 +67,18 @@ import { Dewgong } from './characters/Dewgong.js';
 import { Lopunny } from './characters/Lopunny.js';
 import { Spinda } from './characters/Spinda.js';
 import { SHOP_ITEMS } from './items.js';
-// ---- Main render loop guard (prevents multiple rAF loops stacking) ----
-let __loopReqId = null;
-let __loopActive = false;
-function startMainLoop(){
-  if (__loopActive) return;
-  __loopActive = true;
-  const tick = (ts) => {
-    try { loop(ts); } catch(e){ console.error('loop error', e); }
-    if (__loopActive) __loopReqId = requestAnimationFrame(tick);
-  };
-  __loopReqId = requestAnimationFrame(tick);
-}
-function stopMainLoop(){
-  __loopActive = false;
-  if (__loopReqId){ cancelAnimationFrame(__loopReqId); __loopReqId = null; }
+// ---- ICON CACHE ----
+// Creating new Image() every frame is a memory sink. Cache item icons by id.
+const __iconCache = new Map();
+function getItemIconById(itemId){
+  if (!itemId) return null;
+  if (__iconCache.has(itemId)) return __iconCache.get(itemId);
+  const data = SHOP_ITEMS[itemId];
+  if (!data || !data.icon) { __iconCache.set(itemId, null); return null; }
+  const img = new Image();
+  img.src = data.icon;
+  __iconCache.set(itemId, img);
+  return img;
 }
 
 
@@ -3292,19 +3289,16 @@ function draw(){
     }
   
     if (a.kind === 'itemDrop') {
-        const itemData = SHOP_ITEMS[a.itemId];
-        if (itemData && itemData.icon) {
-            const img = new Image();
-            img.src = itemData.icon;
-            if (img.complete) {
-                const iconSize = 32;
-                const dx = a.x - state.cam.x - iconSize / 2;
-                const dy = a.y - state.cam.y - iconSize / 2;
-                
-                ctx.save();
-                ctx.shadowColor = 'yellow';
-                ctx.shadowBlur = 15;
-                ctx.drawImage(img, dx, dy, iconSize, iconSize);
+        const img = getItemIconById(a.itemId);
+        if (img && img.complete) {
+            const iconSize = 32;
+            const dx = a.x - state.cam.x - iconSize / 2;
+            const dy = a.y - state.cam.y - iconSize / 2;
+            
+            ctx.save();
+            ctx.shadowColor = 'yellow';
+            ctx.shadowBlur = 15;
+            ctx.drawImage(img, dx, dy, iconSize, iconSize);
                 ctx.restore();
             }
         }
@@ -3482,6 +3476,7 @@ function draw(){
       }
   }
 }
+
 function loop(ts){
   const now = ts || 0;
   const dt = Math.min(0.033, (now - last)/1000);
@@ -3489,7 +3484,7 @@ function loop(ts){
   if (state.ready) update(dt);
   frameDt = dt;
   draw();
-  startMainLoop();
+  requestAnimationFrame(loop);
 }
 
 // ---------- Enemy and Projectile Logic ----------
@@ -4390,7 +4385,7 @@ closeShopBtn.onclick = closeShop;
 async function init() {
     await processCharacterData();
     buildSelectUI();
-    startMainLoop();
+    requestAnimationFrame(loop);
 }
 
 init();
