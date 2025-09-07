@@ -68,6 +68,12 @@ import { Lopunny } from './characters/Lopunny.js';
 import { Spinda } from './characters/Spinda.js';
 import { SHOP_ITEMS } from './items.js';
 
+// Import the cleanup manager. This file attaches a global `Cleanup` object
+// that provides scopes for tracking timers, animation frames, event listeners
+// and unsubscribe functions. By importing it here, we ensure that the
+// Cleanup class is available before any UI logic runs.
+import './cleanup.js';
+
 // ---- HELPER FUNCTIONS AND VARIABLES ----
 // For network update throttling
 const NET_INTERVAL = 0.1;
@@ -766,6 +772,12 @@ let isJoiningLobby = false;
 let leaderboardInterval = null;
 let leaderboardUnsub = null;
 
+// Scope for lobby resources. This scope is created when the lobby list
+// screen is shown and disposed when leaving the lobby. All timers and
+// subscriptions related to the lobby screen should be registered with this
+// scope via `lobbyScope.addUnsub(...)` or `lobbyScope.setInterval(...)`.
+let lobbyScope = null;
+
 // ===================================================================
 // ============= NEW: Central Cleanup Function for Leaks ==============
 // ===================================================================
@@ -811,11 +823,34 @@ function showLobbies(){
   // Use the new, more thorough cleanup function
   cleanupLobbyScreenListeners(); 
   
+  // Dispose any existing lobby scope so old subscriptions and timers
+  // are cleaned up before creating a new lobby view. Without this,
+  // subscriptions from previous lobbies could linger and cause leaks.
+  if (lobbyScope) {
+    lobbyScope.dispose();
+    lobbyScope = null;
+  }
+  // Create a fresh scope for this lobby screen. All subscriptions and
+  // timers started here will automatically be disposed when the scope
+  // is destroyed.
+  lobbyScope = Cleanup.createScope('lobby');
+
+  // Subscribe to lobby list updates and store both the unsubscribe
+  // function and the scoped registration. Assigning to `lobbyUnsub`
+  // preserves compatibility with existing cleanup code.
   lobbyUnsub = net.subscribeLobbies(renderLobbyList);
-  // Store the unsubscribe function when you create the listener
+  lobbyScope.addUnsub(lobbyUnsub);
+
+  // Subscribe to online player count updates. Assign to
+  // `onlineCountUnsub` for compatibility and register with the scope.
   onlineCountUnsub = net.subscribeOnlineCount(count => {
-      onlineCountEl.textContent = count;
+    onlineCountEl.textContent = count;
   });
+  lobbyScope.addUnsub(onlineCountUnsub);
+
+  // Start the leaderboard cycle. The timer for this cycle will be
+  // registered via the lobby scope (inside startLeaderboardCycle),
+  // ensuring it stops when the scope is disposed.
   startLeaderboardCycle();
 }
 
@@ -831,11 +866,27 @@ function startLeaderboardCycle() {
     }
 
     updateLeaderboard();
-    leaderboardInterval = setInterval(updateLeaderboard, 10000);
+    // Register the interval through the lobby scope if available. When
+    // using Cleanup.setInterval the return value is a function that
+    // cancels the timer. Otherwise, fallback to a normal setInterval.
+    if (lobbyScope) {
+        leaderboardInterval = lobbyScope.setInterval(updateLeaderboard, 10000);
+    } else {
+        leaderboardInterval = setInterval(updateLeaderboard, 10000);
+    }
 }
 
 function stopLeaderboardCycle() {
-    if (leaderboardInterval) clearInterval(leaderboardInterval);
+    if (leaderboardInterval) {
+        // If leaderboardInterval is a function returned by
+        // Cleanup.setInterval, invoke it to cancel the timer. Otherwise
+        // clear the normal setInterval ID.
+        if (typeof leaderboardInterval === 'function') {
+            leaderboardInterval();
+        } else {
+            clearInterval(leaderboardInterval);
+        }
+    }
     if (leaderboardUnsub) leaderboardUnsub();
     leaderboardEl.innerHTML = "";
 }
