@@ -3294,16 +3294,14 @@ function draw(){
             const iconSize = 32;
             const dx = a.x - state.cam.x - iconSize / 2;
             const dy = a.y - state.cam.y - iconSize / 2;
-            
             ctx.save();
             ctx.shadowColor = 'yellow';
             ctx.shadowBlur = 15;
             ctx.drawImage(img, dx, dy, iconSize, iconSize);
-                ctx.restore();
-            }
+            ctx.restore();
         }
         continue;
-
+    }
 
     const f = a.frame, scale = a.scale;
     if (!f || !a.src) continue;
@@ -3476,7 +3474,6 @@ function draw(){
       }
   }
 }
-
 function loop(ts){
   const now = ts || 0;
   const dt = Math.min(0.033, (now - last)/1000);
@@ -3484,6 +3481,7 @@ function loop(ts){
   if (state.ready) update(dt);
   frameDt = dt;
   draw();
+  requestAnimationFrame(loop);
 }
 
 // ---------- Enemy and Projectile Logic ----------
